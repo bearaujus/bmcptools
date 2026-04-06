@@ -125,24 +125,22 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 
 	allowNonzeroExit := req.GetBool("allow_nonzero_exit", false)
 	detach := req.GetBool("detach", false)
-
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", command)
-	} else {
-		cmd = exec.Command("sh", "-c", command)
-	}
-
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-
-	if extraEnv := req.GetStringSlice("env", nil); len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
-	}
+	extraEnv := req.GetStringSlice("env", nil)
 
 	// ── detach mode: start a fully independent background process ──────────────
 	if detach {
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("cmd", "/C", command)
+		} else {
+			cmd = exec.Command("sh", "-c", command)
+		}
+		if cwd != "" {
+			cmd.Dir = cwd
+		}
+		if len(extraEnv) > 0 {
+			cmd.Env = append(os.Environ(), extraEnv...)
+		}
 		setSysProcDetach(cmd)
 
 		devNull, err := os.Open(os.DevNull)
@@ -172,14 +170,10 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	}
 
 	// ── normal (blocking) mode ─────────────────────────────────────────────────
-	if stdinContent := req.GetString("stdin", ""); stdinContent != "" {
-		cmd.Stdin = strings.NewReader(stdinContent)
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
-	// Re-create the command with context for timeout support.
+	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
 	} else {
@@ -188,7 +182,7 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	if extraEnv := req.GetStringSlice("env", nil); len(extraEnv) > 0 {
+	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
 	}
 	if stdinContent := req.GetString("stdin", ""); stdinContent != "" {

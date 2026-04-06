@@ -180,3 +180,46 @@ func TestRunCommandStdin(t *testing.T) {
 		t.Errorf("expected stdin content in output: %q", text)
 	}
 }
+
+func TestRunCommandAllowNonzeroExit(t *testing.T) {
+	req := newTestRequest(map[string]any{
+		"command":           "exit 42",
+		"allow_nonzero_exit": true,
+	})
+	result, err := runCommandHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// With allow_nonzero_exit=true, a non-zero exit should return success (not error).
+	if isResultError(result) {
+		t.Errorf("expected success result when allow_nonzero_exit=true, got error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "exit: 42") {
+		t.Errorf("expected 'exit: 42' in output: %q", text)
+	}
+}
+
+func TestRunCommandDetach(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("detach not fully tested on Windows")
+	}
+	req := newTestRequest(map[string]any{
+		"command": "sleep 1",
+		"detach":  true,
+	})
+	result, err := runCommandHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error in detach mode: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Detached process started") {
+		t.Errorf("expected 'Detached process started' in output: %q", text)
+	}
+	if !strings.Contains(text, "PID:") {
+		t.Errorf("expected 'PID:' in detach output: %q", text)
+	}
+}
