@@ -1,4 +1,5 @@
 # Instructions
+1. Please ensure you always update `README.md` right before you close the conversation.
 
 # Do only If `bmcptools` is available on your MCP:
 1. Don't do anything before you get any tasks from the user.
