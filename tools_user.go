@@ -3,8 +3,14 @@ package main
 import (
 	"bufio"
 	"context"
+	cryptorand "crypto/rand"
+	_ "embed"
 	"encoding/json"
 	"fmt"
+	"html"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -16,34 +22,95 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+//go:embed assets/html/dialog.html
+var dialogHTMLTemplate string
+
+//go:embed assets/html/chat.html
+var chatHTMLTemplate string
+
+//go:embed assets/html/rest.html
+var restHTMLTemplate string
+
 // askUserMu ensures at most one ask_user dialog is visible at a time.
 // Concurrent calls queue and are served in arrival order.
 var askUserMu sync.Mutex
 
+// pendingDialogs stores state for non-blocking ask_user sessions.
+// Key: token string → Value: *pendingDialogState
+var pendingDialogs sync.Map
+
+// dialogActivity tracks real-time user activity reported by the browser dialog's heartbeat.
+// Only populated for macOS browser-based dialogs.
+type dialogActivity struct {
+	mu           sync.Mutex
+	connected    bool          // browser has loaded the page at least once
+	typing       bool          // user has non-empty text in the input
+	idleSec      float64       // seconds since last browser interaction
+	lastBeat     time.Time     // time of last /heartbeat POST
+	outboundSubs []chan string  // live SSE subscriber channels (AI → browser)
+}
+
+func (a *dialogActivity) update(typing bool, idleSec float64) {
+	a.mu.Lock()
+	a.connected = true
+	a.typing = typing
+	a.idleSec = idleSec
+	a.lastBeat = time.Now()
+	a.mu.Unlock()
+}
+
+// subscribe registers a new SSE listener and returns the channel plus an unsubscribe func.
+func (a *dialogActivity) subscribe() (chan string, func()) {
+	ch := make(chan string, 8)
+	a.mu.Lock()
+	a.outboundSubs = append(a.outboundSubs, ch)
+	a.mu.Unlock()
+	return ch, func() {
+		a.mu.Lock()
+		for i, s := range a.outboundSubs {
+			if s == ch {
+				a.outboundSubs = append(a.outboundSubs[:i], a.outboundSubs[i+1:]...)
+				break
+			}
+		}
+		a.mu.Unlock()
+	}
+}
+
+// broadcast delivers msg to every active SSE subscriber. Slow/full subscribers are skipped.
+func (a *dialogActivity) broadcast(msg string) {
+	a.mu.Lock()
+	for _, ch := range a.outboundSubs {
+		select {
+		case ch <- msg:
+		default:
+		}
+	}
+	a.mu.Unlock()
+}
+
+// pendingDialogState holds everything needed to track a non-blocking dialog.
+type pendingDialogState struct {
+	responseCh chan string
+	activity   *dialogActivity // non-nil only for macOS browser dialogs
+}
+
 func registerUserTools(s *server.MCPServer) {
 	s.AddTool(
 		mcp.NewTool("notify_user",
-			mcp.WithDescription(
-				"Send a non-blocking notification/message to the user. "+
-					"Unlike ask_user, this does NOT wait for a response — it fires and returns immediately. "+
-					"Ideal for progress updates during long-running tasks: "+
-					"\"Starting code analysis...\", \"Tests passed!\", \"Build complete.\". "+
-					"On Windows a themed WPF toast appears in the bottom-right corner; "+
-					"on macOS a system notification; on Linux notify-send is used. "+
-					"Always falls back to stderr if the GUI is unavailable.",
-			),
+			mcp.WithDescription(td("notify_user")),
 			mcp.WithString("message",
 				mcp.Required(),
-				mcp.Description("The message to display to the user"),
+				mcp.Description(pd("notify_user", "message")),
 			),
 			mcp.WithString("title",
-				mcp.Description(`Notification title. Default: "AI Assistant"`),
+				mcp.Description(pd("notify_user", "title")),
 			),
 			mcp.WithString("level",
-				mcp.Description(`Notification severity: "info" (default), "warning", or "error". Affects the accent colour and urgency.`),
+				mcp.Description(pd("notify_user", "level")),
 			),
 			mcp.WithNumber("duration_seconds",
-				mcp.Description("How long the toast stays visible before fading out (Windows/Linux only). Default: 5 s."),
+				mcp.Description(pd("notify_user", "duration_seconds")),
 			),
 		),
 		notifyUserHandler,
@@ -51,44 +118,136 @@ func registerUserTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("ask_user",
-			mcp.WithDescription(
-				"Ask the user a question and wait for their answer. "+
-					"Use this whenever you are unsure about something, need clarification, "+
-					"or require information that only the user can provide. "+
-					"A resizable dialog box appears on the user's screen (falls back to console if no GUI is available). "+
-					"The input box is multi-line: Enter sends the answer, Shift+Enter inserts a new line. "+
-					"Provide 'choices' for a multiple-choice picker — the user selects one option rather than typing freely.\n\n"+
-					"At most one ask_user dialog is visible at a time; concurrent calls queue automatically "+
-					"and each dialog closes on its own timeout so the next one can appear.\n\n"+
-					"Set notify=true (default) to also flash the taskbar and send a toast notification "+
-					"so the user is alerted even when the dialog opens behind other windows.\n\n"+
-					"IMPORTANT: MCP clients enforce their own request timeout (often 30-120 s). "+
-					"Always set timeout_seconds explicitly — if the client's timeout fires first you will "+
-					"get a transport error instead of the user's answer. A safe default is 300 s.",
-			),
+			mcp.WithDescription(td("ask_user")),
 			mcp.WithString("question",
 				mcp.Required(),
-				mcp.Description("The question to present to the user"),
+				mcp.Description(pd("ask_user", "question")),
 			),
 			mcp.WithString("title",
-				mcp.Description(`Title shown in the dialog window. Default: "AI Assistant"`),
+				mcp.Description(pd("ask_user", "title")),
+			),
+			mcp.WithString("subtitle",
+				mcp.Description(pd("ask_user", "subtitle")),
 			),
 			mcp.WithArray("choices",
-				mcp.Description(
-					"Optional list of choices to present. "+
-						"When provided, a searchable picker dialog is shown instead of a free-form input box. "+
-						"The user selects one option; their selection is returned as-is.",
-				),
+				mcp.Description(pd("ask_user", "choices")),
 				mcp.Items(map[string]any{"type": "string"}),
 			),
 			mcp.WithNumber("timeout_seconds",
-				mcp.Description("Seconds to wait before auto-closing. Default: 300 s. Max: 3600 s. Keep below your MCP client's own request timeout."),
+				mcp.Description(pd("ask_user", "timeout_seconds")),
+			),
+			mcp.WithBoolean("allow_freeform",
+				mcp.Description(pd("ask_user", "allow_freeform")),
 			),
 			mcp.WithBoolean("notify",
-				mcp.Description("Flash the taskbar and send a companion toast notification when the dialog opens. Default: true. Set false to suppress."),
+				mcp.Description(pd("ask_user", "notify")),
+			),
+			mcp.WithBoolean("non_blocking",
+				mcp.Description(pd("ask_user", "non_blocking")),
 			),
 		),
 		askUserHandler,
+	)
+
+	s.AddTool(
+		mcp.NewTool("get_user_response",
+			mcp.WithDescription(td("get_user_response")),
+			mcp.WithString("token",
+				mcp.Required(),
+				mcp.Description(pd("get_user_response", "token")),
+			),
+			mcp.WithNumber("wait_seconds",
+				mcp.Description(pd("get_user_response", "wait_seconds")),
+			),
+		),
+		getUserResponseHandler,
+	)
+
+	s.AddTool(
+		mcp.NewTool("update_dialog",
+			mcp.WithDescription(td("update_dialog")),
+			mcp.WithString("token",
+				mcp.Required(),
+				mcp.Description(pd("update_dialog", "token")),
+			),
+			mcp.WithString("message",
+				mcp.Required(),
+				mcp.Description(pd("update_dialog", "message")),
+			),
+		),
+		updateDialogHandler,
+	)
+
+	s.AddTool(
+		mcp.NewTool("open_chat",
+			mcp.WithDescription(td("open_chat")),
+			mcp.WithString("title",
+				mcp.Description(pd("open_chat", "title")),
+			),
+			mcp.WithString("subtitle",
+				mcp.Description(pd("open_chat", "subtitle")),
+			),
+		),
+		openChatHandler,
+	)
+
+	s.AddTool(
+		mcp.NewTool("send_chat_message",
+			mcp.WithDescription(td("send_chat_message")),
+			mcp.WithString("chat_id",
+				mcp.Required(),
+				mcp.Description(pd("send_chat_message", "chat_id")),
+			),
+			mcp.WithString("message",
+				mcp.Required(),
+				mcp.Description(pd("send_chat_message", "message")),
+			),
+		),
+		sendChatMessageHandler,
+	)
+
+	s.AddTool(
+		mcp.NewTool("get_chat_messages",
+			mcp.WithDescription(td("get_chat_messages")),
+			mcp.WithString("chat_id",
+				mcp.Required(),
+				mcp.Description(pd("get_chat_messages", "chat_id")),
+			),
+			mcp.WithNumber("wait_seconds",
+				mcp.Description(pd("get_chat_messages", "wait_seconds")),
+			),
+		),
+		getChatMessagesHandler,
+	)
+
+	s.AddTool(
+		mcp.NewTool("close_chat",
+			mcp.WithDescription(td("close_chat")),
+			mcp.WithString("chat_id",
+				mcp.Required(),
+				mcp.Description(pd("close_chat", "chat_id")),
+			),
+		),
+		closeChatHandler,
+	)
+
+	s.AddTool(
+		mcp.NewTool("rest",
+			mcp.WithDescription(td("rest")),
+			mcp.WithString("notes",
+				mcp.Description(pd("rest", "notes")),
+			),
+			mcp.WithString("title",
+				mcp.Description(pd("rest", "title")),
+			),
+			mcp.WithString("subtitle",
+				mcp.Description(pd("rest", "subtitle")),
+			),
+			mcp.WithNumber("timeout_seconds",
+				mcp.Description(pd("rest", "timeout_seconds")),
+			),
+		),
+		restHandler,
 	)
 }
 
@@ -102,12 +261,14 @@ func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	if title == "" {
 		title = "AI Assistant"
 	}
+	subtitle := req.GetString("subtitle", "")
 
 	choices := req.GetStringSlice("choices", nil)
+	allowFreeform := req.GetBool("allow_freeform", true)
 
-	timeoutSec := req.GetFloat("timeout_seconds", 300)
+	timeoutSec := req.GetFloat("timeout_seconds", 600)
 	if timeoutSec <= 0 {
-		timeoutSec = 300
+		timeoutSec = 600
 	}
 	if timeoutSec > 3600 {
 		timeoutSec = 3600
@@ -115,12 +276,50 @@ func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	timeout := time.Duration(timeoutSec) * time.Second
 
 	notify := req.GetBool("notify", true)
+	nonBlocking := req.GetBool("non_blocking", false)
 
-	// Serialize: block until any previous dialog is dismissed or times out.
+	// Non-blocking mode: open the dialog in a goroutine and return a poll token immediately.
+	// This avoids MCP client request timeouts (typically 30–120 s) when waiting for user input.
+	if nonBlocking {
+		token := newDialogToken()
+		act := &dialogActivity{} // activity tracking for macOS browser dialogs
+		state := &pendingDialogState{
+			responseCh: make(chan string, 1),
+			activity:   act,
+		}
+		pendingDialogs.Store(token, state)
+
+		go func() {
+			answer := runDialogBlocking(question, title, subtitle, choices, allowFreeform, notify, timeout, act)
+			select {
+			case state.responseCh <- answer:
+			default:
+			}
+			// Clean up after a grace period in case get_user_response is never called.
+			// This prevents a leak while still allowing the caller to retrieve the answer.
+			time.Sleep(5 * time.Minute)
+			pendingDialogs.Delete(token)
+		}()
+
+		return mcp.NewToolResultText(
+			"PENDING — dialog opened in background.\n" +
+				"Token: " + token + "\n" +
+				"Call get_user_response(token=\"" + token + "\") to retrieve the answer.\n" +
+				"Each get_user_response call waits up to wait_seconds (default 55) before returning PENDING again.",
+		), nil
+	}
+
+	// Blocking mode: serialize so at most one dialog is visible at a time.
 	askUserMu.Lock()
 	defer askUserMu.Unlock()
 
-	// Now that we hold the lock (i.e. the dialog is about to appear), alert the user.
+	return mcp.NewToolResultText(runDialogBlocking(question, title, subtitle, choices, allowFreeform, notify, timeout, nil)), nil
+}
+
+// runDialogBlocking drives the dialog loop and returns the user's answer (or a timeout message).
+// activity is non-nil only for macOS non-blocking dialogs — it gets threaded into promptMacBrowser
+// so the local HTTP server can populate it from JavaScript heartbeats.
+func runDialogBlocking(question, title, subtitle string, choices []string, allowFreeform, notify bool, timeout time.Duration, activity *dialogActivity) string {
 	if notify {
 		msg := question
 		if len(msg) > 120 {
@@ -129,22 +328,464 @@ func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		go sendNotification(msg, title, "info", 10)
 	}
 
-	var answer string
-	var err error
-	if len(choices) > 0 {
-		answer, err = promptUserChoice(question, title, choices, timeout)
-	} else {
-		answer, err = promptUser(question, title, timeout)
+	deadline := time.Now().Add(timeout)
+
+	const maxRetries = 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return "[User did not respond within the allotted time]"
+		}
+
+		var answer string
+		var err error
+		if len(choices) > 0 {
+			answer, err = promptUserChoice(question, title, subtitle, allowFreeform, choices, remaining, activity)
+		} else {
+			answer, err = promptUser(question, title, subtitle, remaining, activity)
+		}
+		if err != nil {
+			return fmt.Sprintf("[Failed to get user input: %v]", err)
+		}
+
+		if strings.TrimSpace(answer) != "" {
+			return answer
+		}
+
+		if attempt < maxRetries-1 {
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
+
+	return "[User did not respond within the allotted time]"
+}
+
+// getUserResponseHandler polls for the result of a non-blocking ask_user dialog.
+func getUserResponseHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	token := req.GetString("token", "")
+	if strings.TrimSpace(token) == "" {
+		return mcp.NewToolResultError("token is required"), nil
+	}
+
+	waitSec := req.GetFloat("wait_seconds", 55)
+	if waitSec <= 0 {
+		waitSec = 55
+	}
+	if waitSec > 115 {
+		waitSec = 115 // stay comfortably under the typical 120 s MCP client timeout
+	}
+
+	val, ok := pendingDialogs.Load(token)
+	if !ok {
+		return mcp.NewToolResultError(
+			"unknown or expired token — the dialog may have already been answered or timed out",
+		), nil
+	}
+	state := val.(*pendingDialogState)
+
+	select {
+	case answer := <-state.responseCh:
+		pendingDialogs.Delete(token)
+		return mcp.NewToolResultText(answer), nil
+	case <-time.After(time.Duration(waitSec) * time.Second):
+		return mcp.NewToolResultText(buildPendingMessage(token, state.activity)), nil
+	}
+}
+
+// buildPendingMessage composes a status-aware PENDING message for get_user_response.
+// When activity tracking is available (macOS browser), it reports the user's real-time state
+// so the AI can decide whether to keep waiting or remind the user.
+func buildPendingMessage(token string, act *dialogActivity) string {
+	callAgain := fmt.Sprintf("Call get_user_response(token=%q) to continue waiting.", token)
+
+	if act == nil {
+		return "PENDING — user has not responded yet.\n" + callAgain
+	}
+
+	act.mu.Lock()
+	connected := act.connected
+	typing := act.typing
+	idleSec := act.idleSec
+	lastBeat := act.lastBeat
+	act.mu.Unlock()
+
+	if !connected {
+		return "PENDING — dialog has been opened. Waiting for user to load the page.\n" + callAgain
+	}
+
+	beatAge := time.Since(lastBeat).Seconds()
+	if beatAge > 20 {
+		return fmt.Sprintf(
+			"PENDING — browser connection appears lost (last heartbeat was %.0fs ago). "+
+				"The user may have closed the tab. "+
+				"Consider calling notify_user to re-alert them, then %s",
+			beatAge, callAgain,
+		)
+	}
+
+	if typing {
+		return fmt.Sprintf("PENDING — user is actively composing a reply. %s", callAgain)
+	}
+
+	if idleSec > 90 {
+		return fmt.Sprintf(
+			"PENDING — user has been idle for %.0fs (dialog open but no interaction). "+
+				"Consider calling notify_user to remind them, then %s",
+			idleSec, callAgain,
+		)
+	}
+
+	return fmt.Sprintf(
+		"PENDING — user has the dialog open (last activity %.0fs ago). %s",
+		idleSec, callAgain,
+	)
+}
+
+// newDialogToken generates a random hex token for a pending dialog session.
+func newDialogToken() string {
+	b := make([]byte, 8)
+	if _, err := cryptorand.Read(b); err != nil {
+		// Fall back to a time-based token on the rare read failure.
+		return fmt.Sprintf("%016x", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%016x", b)
+}
+
+// updateDialogHandler broadcasts a live message into an open non-blocking ask_user dialog.
+func updateDialogHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	token := req.GetString("token", "")
+	if strings.TrimSpace(token) == "" {
+		return mcp.NewToolResultError("token is required"), nil
+	}
+	message := req.GetString("message", "")
+	if strings.TrimSpace(message) == "" {
+		return mcp.NewToolResultError("message is required"), nil
+	}
+
+	val, ok := pendingDialogs.Load(token)
+	if !ok {
+		return mcp.NewToolResultError("unknown or expired token — dialog may have been answered or timed out"), nil
+	}
+	state := val.(*pendingDialogState)
+	if state.activity == nil {
+		return mcp.NewToolResultError("this dialog does not support live updates"), nil
+	}
+
+	state.activity.broadcast(message)
+	return mcp.NewToolResultText("message delivered to dialog"), nil
+}
+
+// ── persistent chat ───────────────────────────────────────────────────────────
+
+// pendingChats stores active chat sessions.
+// Key: chat_id string → Value: *chatState
+var pendingChats sync.Map
+
+// chatState holds the server and channels for a persistent two-way chat session.
+type chatState struct {
+	mu         sync.Mutex
+	subs       []chan string // SSE subscribers for AI→browser messages
+	inbound    chan string   // user→AI message queue
+	done       chan struct{} // closed by close_chat to signal shutdown
+	srv        *http.Server // the local HTTP server, for clean shutdown
+	lastSeenAt time.Time    // when the user last had the chat tab visible
+}
+
+func (c *chatState) subscribe() (chan string, func()) {
+	ch := make(chan string, 16)
+	c.mu.Lock()
+	c.subs = append(c.subs, ch)
+	c.mu.Unlock()
+	return ch, func() {
+		c.mu.Lock()
+		for i, s := range c.subs {
+			if s == ch {
+				c.subs = append(c.subs[:i], c.subs[i+1:]...)
+				break
+			}
+		}
+		c.mu.Unlock()
+	}
+}
+
+func (c *chatState) broadcast(msg string) {
+	c.mu.Lock()
+	for _, ch := range c.subs {
+		select {
+		case ch <- msg:
+		default:
+		}
+	}
+	c.mu.Unlock()
+}
+
+func openChatHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if runtime.GOOS != "darwin" {
+		return mcp.NewToolResultError("open_chat is only supported on macOS"), nil
+	}
+
+	title := req.GetString("title", "AI Assistant")
+	if title == "" {
+		title = "AI Assistant"
+	}
+	subtitle := req.GetString("subtitle", "")
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get user input: %v", err)), nil
+		return mcp.NewToolResultError("failed to open chat: " + err.Error()), nil
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	chatID := newDialogToken()
+	state := &chatState{
+		inbound: make(chan string, 64),
+		done:    make(chan struct{}),
 	}
 
-	if strings.TrimSpace(answer) == "" {
-		return mcp.NewToolResultText("[User did not provide an answer or dismissed the dialog]"), nil
+	mux := http.NewServeMux()
+	srv := &http.Server{Handler: mux}
+	state.srv = srv
+	pendingChats.Store(chatID, state)
+
+	page := buildChatHTML(title, subtitle)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, page)
+	})
+
+	// SSE: AI→browser
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		flusher.Flush()
+
+		ch, unsub := state.subscribe()
+		defer unsub()
+		ctx := r.Context()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-state.done:
+				fmt.Fprintf(w, "event: closed\ndata: closed\n\n")
+				flusher.Flush()
+				return
+			case msg := <-ch:
+				if strings.HasPrefix(msg, "__status:") {
+					status := strings.TrimPrefix(msg, "__status:")
+					fmt.Fprintf(w, "event: ai_status\ndata: %s\n\n", status)
+				} else {
+					escaped := strings.ReplaceAll(msg, "\n", "\\n")
+					fmt.Fprintf(w, "data: %s\n\n", escaped)
+				}
+				flusher.Flush()
+			case <-time.After(25 * time.Second):
+				fmt.Fprintf(w, ": keepalive\n\n")
+				flusher.Flush()
+			}
+		}
+	})
+
+	// POST: user→AI
+	mux.HandleFunc("/message", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+
+		var payload struct {
+			Text string `json:"text"`
+		}
+		msg := ""
+		if err := json.Unmarshal(body, &payload); err == nil {
+			msg = strings.TrimSpace(payload.Text)
+		} else {
+			msg = strings.TrimSpace(string(body))
+		}
+		if msg == "" {
+			return
+		}
+		select {
+		case state.inbound <- msg:
+		default:
+		}
+	})
+
+	// POST /close: user-initiated close from the browser
+	mux.HandleFunc("/close", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+		pendingChats.Delete(chatID)
+		select {
+		case <-state.done:
+		default:
+			close(state.done)
+		}
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			srv.Close()
+		}()
+	})
+
+	// POST /seen: browser notifies that user has the chat tab visible and can see AI messages.
+	mux.HandleFunc("/seen", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		state.mu.Lock()
+		state.lastSeenAt = time.Now()
+		state.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+
+	go func() { _ = srv.Serve(ln) }()
+
+	go sendNotification("Chat opened — check your browser", title, "info", 10)
+	_ = exec.Command("open", fmt.Sprintf("http://127.0.0.1:%d/", port)).Run()
+
+	return mcp.NewToolResultText(
+		"Chat opened in browser.\n" +
+			"chat_id: " + chatID + "\n" +
+			"Use send_chat_message to send messages and get_chat_messages to receive replies.",
+	), nil
+}
+
+func sendChatMessageHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	chatID := req.GetString("chat_id", "")
+	if strings.TrimSpace(chatID) == "" {
+		return mcp.NewToolResultError("chat_id is required"), nil
+	}
+	message := req.GetString("message", "")
+	if strings.TrimSpace(message) == "" {
+		return mcp.NewToolResultError("message is required"), nil
 	}
 
-	return mcp.NewToolResultText(answer), nil
+	val, ok := pendingChats.Load(chatID)
+	if !ok {
+		return mcp.NewToolResultError("unknown or closed chat_id"), nil
+	}
+	state := val.(*chatState)
+
+	select {
+	case <-state.done:
+		return mcp.NewToolResultError("chat has been closed"), nil
+	default:
+	}
+
+	state.broadcast(message)
+
+	state.mu.Lock()
+	seenAt := state.lastSeenAt
+	state.mu.Unlock()
+
+	seenNote := "user hasn't opened the chat yet"
+	if !seenAt.IsZero() {
+		seenNote = "user last active: " + seenAt.Format("15:04:05")
+	}
+	return mcp.NewToolResultText("message sent to chat (" + seenNote + ")"), nil
+}
+
+func getChatMessagesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	chatID := req.GetString("chat_id", "")
+	if strings.TrimSpace(chatID) == "" {
+		return mcp.NewToolResultError("chat_id is required"), nil
+	}
+
+	waitSec := req.GetFloat("wait_seconds", 55)
+	if waitSec <= 0 {
+		waitSec = 55
+	}
+	if waitSec > 115 {
+		waitSec = 115
+	}
+
+	val, ok := pendingChats.Load(chatID)
+	if !ok {
+		return mcp.NewToolResultError("unknown or closed chat_id"), nil
+	}
+	state := val.(*chatState)
+
+	// Drain all currently queued messages first (non-blocking).
+	var msgs []string
+loop:
+	for {
+		select {
+		case msg := <-state.inbound:
+			msgs = append(msgs, msg)
+		default:
+			break loop
+		}
+	}
+	if len(msgs) > 0 {
+		state.broadcast("__status:read")
+		return mcp.NewToolResultText(strings.Join(msgs, "\n---\n")), nil
+	}
+
+	// Nothing queued — signal the browser that the AI is waiting, then block.
+	state.broadcast("__status:waiting")
+	defer state.broadcast("__status:idle")
+
+	// Wait up to waitSec for the first new message, draining any burst on arrival.
+	select {
+	case msg := <-state.inbound:
+		// Drain any additional messages that arrived simultaneously.
+		burst := []string{msg}
+	drainLoop:
+		for {
+			select {
+			case extra := <-state.inbound:
+				burst = append(burst, extra)
+			default:
+				break drainLoop
+			}
+		}
+		state.broadcast("__status:read")
+		return mcp.NewToolResultText(strings.Join(burst, "\n---\n")), nil
+	case <-state.done:
+		return mcp.NewToolResultText("CLOSED — chat has been closed"), nil
+	case <-time.After(time.Duration(waitSec) * time.Second):
+		return mcp.NewToolResultText(
+			"PENDING — no new messages yet. Call get_chat_messages(chat_id=\"" + chatID + "\") to keep waiting.",
+		), nil
+	}
+}
+
+func closeChatHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	chatID := req.GetString("chat_id", "")
+	if strings.TrimSpace(chatID) == "" {
+		return mcp.NewToolResultError("chat_id is required"), nil
+	}
+
+	val, ok := pendingChats.Load(chatID)
+	if !ok {
+		return mcp.NewToolResultError("unknown or already-closed chat_id"), nil
+	}
+	state := val.(*chatState)
+	pendingChats.Delete(chatID)
+
+	// Signal done (broadcast to browser + all goroutines) then shut server down.
+	select {
+	case <-state.done:
+	default:
+		close(state.done)
+	}
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		state.srv.Close()
+	}()
+
+	return mcp.NewToolResultText("chat closed"), nil
 }
 
 // ── notify_user ───────────────────────────────────────────────────────────────
@@ -177,15 +818,43 @@ func notifyUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 }
 
 // sendNotification dispatches to the OS-appropriate non-blocking notification.
+// On failure it falls back to writing to stderr so the message is never silently lost.
 func sendNotification(message, title, level string, durationSec int) {
+	var delivered bool
 	switch runtime.GOOS {
 	case "windows":
 		sendNotificationWindows(message, title, level, durationSec)
+		delivered = true
 	case "darwin":
-		safeM := strings.ReplaceAll(message, `"`, `\"`)
-		safeT := strings.ReplaceAll(title, `"`, `\"`)
-		script := fmt.Sprintf(`display notification "%s" with title "%s"`, safeM, safeT)
-		_ = exec.Command("osascript", "-e", script).Run()
+		// Use proper AppleScript quoting and add a sound for visibility.
+		// Level-appropriate subtitle (⚠ WARNING / 🔴 ERROR) helps at-a-glance triage.
+		subtitle := map[string]string{
+			"warning": "⚠ WARNING",
+			"error":   "🔴 ERROR",
+		}[level]
+		var script string
+		if subtitle != "" {
+			script = fmt.Sprintf(
+				`display notification %s with title %s subtitle %s sound name "default"`,
+				macASQuote(message), macASQuote(title), macASQuote(subtitle),
+			)
+		} else {
+			script = fmt.Sprintf(
+				`display notification %s with title %s sound name "default"`,
+				macASQuote(message), macASQuote(title),
+			)
+		}
+		if exec.Command("osascript", "-e", script).Run() == nil {
+			delivered = true
+			break
+		}
+		// Fallback: terminal-notifier (brew install terminal-notifier).
+		// Has its own notification permissions, often works when osascript is blocked.
+		args := []string{"-message", message, "-title", title, "-sound", "default"}
+		if subtitle != "" {
+			args = append(args, "-subtitle", subtitle)
+		}
+		delivered = exec.Command("terminal-notifier", args...).Run() == nil
 	default:
 		urgency := "low"
 		switch level {
@@ -195,24 +864,42 @@ func sendNotification(message, title, level string, durationSec int) {
 			urgency = "critical"
 		}
 		expireMs := durationSec * 1000
-		_ = exec.Command("notify-send",
+		delivered = exec.Command("notify-send",
 			fmt.Sprintf("--expire-time=%d", expireMs),
 			"--urgency="+urgency, title, message,
-		).Run()
+		).Run() == nil
+	}
+	if !delivered {
+		fmt.Fprintf(os.Stderr, "[%s] %s: %s\n", strings.ToUpper(level), title, message)
 	}
 }
 
 // ── free-form prompt ──────────────────────────────────────────────────────────
 
-func promptUser(question, title string, timeout time.Duration) (string, error) {
+func promptUser(question, title, subtitle string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	switch runtime.GOOS {
 	case "windows":
 		return promptWindows(question, title, timeout)
 	case "darwin":
-		return promptMac(question, title, timeout)
+		return promptMac(question, title, subtitle, timeout, activity)
 	default:
 		return promptLinux(question, title, timeout)
 	}
+}
+
+// macASQuote wraps s in an AppleScript string literal, safely escaping
+// double-quotes and newlines so any text can be embedded in a script.
+func macASQuote(s string) string {
+	s = strings.ReplaceAll(s, `"`, `" & quote & "`)
+	s = strings.ReplaceAll(s, "\r\n", `" & return & "`)
+	s = strings.ReplaceAll(s, "\n", `" & return & "`)
+	s = strings.ReplaceAll(s, "\r", `" & return & "`)
+	return `"` + s + `"`
+}
+
+// promptMac shows a browser-based dialog on macOS with a full multi-line textarea.
+func promptMac(question, title, subtitle string, timeout time.Duration, activity *dialogActivity) (string, error) {
+	return promptMacBrowser(question, title, subtitle, true, nil, timeout, activity)
 }
 
 func promptWindows(question, title string, timeout time.Duration) (string, error) {
@@ -226,27 +913,6 @@ func promptWindows(question, title string, timeout time.Duration) (string, error
 		return promptConsole(question)
 	}
 	return result, nil
-}
-
-func promptMac(question, title string, timeout time.Duration) (string, error) {
-	safeQ := strings.ReplaceAll(question, `"`, `\"`)
-	safeT := strings.ReplaceAll(title, `"`, `\"`)
-
-	script := fmt.Sprintf(
-		`text returned of (display dialog "%s" with title "%s" default answer "")`,
-		safeQ, safeT,
-	)
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
-	out, err := cmd.Output()
-	if err != nil {
-		return promptConsole(question)
-	}
-
-	return strings.TrimRight(string(out), "\r\n"), nil
 }
 
 func promptLinux(question, title string, timeout time.Duration) (string, error) {
@@ -274,12 +940,12 @@ func promptLinux(question, title string, timeout time.Duration) (string, error) 
 
 // ── multiple-choice prompt ────────────────────────────────────────────────────
 
-func promptUserChoice(question, title string, choices []string, timeout time.Duration) (string, error) {
+func promptUserChoice(question, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	switch runtime.GOOS {
 	case "windows":
 		return promptChoiceWindows(question, title, choices, timeout)
 	case "darwin":
-		return promptChoiceMac(question, title, choices, timeout)
+		return promptChoiceMac(question, title, subtitle, allowFreeform, choices, timeout, activity)
 	default:
 		return promptChoiceLinux(question, title, choices, timeout)
 	}
@@ -303,32 +969,292 @@ func promptChoiceWindows(question, title string, choices []string, timeout time.
 	return result, nil
 }
 
-func promptChoiceMac(question, title string, choices []string, timeout time.Duration) (string, error) {
-	safeQ := strings.ReplaceAll(question, `"`, `\"`)
-	safeT := strings.ReplaceAll(title, `"`, `\"`)
+// promptChoiceMac shows choices as chips in a browser-based macOS dialog.
+func promptChoiceMac(question, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
+	return promptMacBrowser(question, title, subtitle, allowFreeform, choices, timeout, activity)
+}
 
-	quotedChoices := make([]string, len(choices))
-	for i, c := range choices {
-		quotedChoices[i] = fmt.Sprintf(`"%s"`, strings.ReplaceAll(c, `"`, `\"`))
+// promptMacBrowser serves a local HTML dialog in the user's default browser.
+// It provides a full multi-line textarea and optional clickable choice chips.
+// activity, when non-nil, is updated from JavaScript heartbeat POSTs so callers
+// can report the user's real-time state (typing, idle, browser closed).
+func promptMacBrowser(question, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
+	timeoutSec := int(timeout.Seconds())
+	if timeoutSec <= 0 {
+		timeoutSec = 600
 	}
-	listLiteral := "{" + strings.Join(quotedChoices, ", ") + "}"
 
-	script := fmt.Sprintf(
-		`set chosen to choose from list %s with title "%s" with prompt "%s" OK button name "Select" cancel button name "Cancel"`+
-			`\nif chosen is false then\n  return ""\nelse\n  return item 1 of chosen\nend if`,
-		listLiteral, safeT, safeQ,
-	)
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
-	out, err := cmd.Output()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return promptChoiceConsole(question, title, choices)
+		if len(choices) > 0 {
+			return promptChoiceConsole(question, title, choices)
+		}
+		return promptConsole(question)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	resultCh := make(chan string, 1)
+	mux := http.NewServeMux()
+	srv := &http.Server{Handler: mux}
+
+	page := buildMacDialogHTML(question, title, subtitle, allowFreeform, choices, timeoutSec)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, page)
+	})
+	mux.HandleFunc("/answer", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+
+		// Parse JSON body: {"choice":"...","notes":"..."}
+		var payload struct {
+			Choice string `json:"choice"`
+			Notes  string `json:"notes"`
+		}
+		answer := ""
+		if jsonErr := json.Unmarshal(body, &payload); jsonErr == nil {
+			switch {
+			case payload.Choice != "" && payload.Notes != "":
+				answer = payload.Choice + "\n\n" + payload.Notes
+			case payload.Choice != "":
+				answer = payload.Choice
+			default:
+				answer = payload.Notes
+			}
+		} else {
+			answer = string(body)
+		}
+
+		select {
+		case resultCh <- answer:
+		default:
+		}
+	})
+
+	// Heartbeat endpoint: the dialog HTML POSTs activity status every 5 s.
+	// This lets get_user_response report whether the user is typing, idle, or gone.
+	if activity != nil {
+		mux.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			var payload struct {
+				Typing      bool    `json:"typing"`
+				IdleSeconds float64 `json:"idle_seconds"`
+			}
+			body, _ := io.ReadAll(io.LimitReader(r.Body, 512))
+			_ = json.Unmarshal(body, &payload)
+			w.WriteHeader(http.StatusOK)
+			activity.update(payload.Typing, payload.IdleSeconds)
+		})
+
+		// SSE endpoint: pushes AI→dialog messages from update_dialog in real time.
+		// The browser opens an EventSource to this URL and renders messages in the dialog.
+		mux.HandleFunc("/updates", func(w http.ResponseWriter, r *http.Request) {
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			flusher.Flush()
+
+			ch, unsub := activity.subscribe()
+			defer unsub()
+
+			ctx := r.Context()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case msg := <-ch:
+					// SSE lines may not contain bare newlines; escape them.
+					escaped := strings.ReplaceAll(msg, "\n", "\\n")
+					fmt.Fprintf(w, "data: %s\n\n", escaped)
+					flusher.Flush()
+				case <-time.After(25 * time.Second):
+					// Keep-alive comment prevents proxy/browser timeouts.
+					fmt.Fprintf(w, ": keepalive\n\n")
+					flusher.Flush()
+				}
+			}
+		})
 	}
 
-	return strings.TrimRight(string(out), "\r\n"), nil
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close()
+
+	go sendNotification("Your input is needed — check your browser", title, "info", 10)
+	_ = exec.Command("open", fmt.Sprintf("http://127.0.0.1:%d/", port)).Run()
+
+	select {
+	case answer := <-resultCh:
+		return answer, nil
+	case <-time.After(timeout + 2*time.Second):
+		return "", nil
+	}
+}
+
+// chipHTML returns the HTML for a chip label: escapes HTML and converts newlines to <br>.
+func chipHTML(c string) string {
+	return strings.ReplaceAll(html.EscapeString(c), "\n", "<br>")
+}
+
+// buildMacDialogHTML builds the HTML page shown in the browser dialog.
+func buildMacDialogHTML(question, title, subtitle string, allowFreeform bool, choices []string, timeoutSec int) string {
+	chipsSection := ""
+	if len(choices) > 0 {
+		var sb strings.Builder
+		sb.WriteString(`<div class="suggested-label">Suggested replies</div><div class="chips-row">`)
+		for i, c := range choices {
+			jC, _ := json.Marshal(c)
+			sb.WriteString(fmt.Sprintf(
+				`<button class="chip" id="chip%d" onclick="pickChip(%s,%d)">%s</button>`,
+				i, html.EscapeString(string(jC)), i, chipHTML(c),
+			))
+		}
+		sb.WriteString(`</div>`)
+		chipsSection = sb.String()
+	}
+
+	allowFreeformVal := "true"
+	if !allowFreeform {
+		allowFreeformVal = "false"
+	}
+
+	page := strings.ReplaceAll(dialogHTMLTemplate, "[[TITLE]]", html.EscapeString(title))
+	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
+	page = strings.ReplaceAll(page, "[[QUESTION]]", html.EscapeString(question))
+	page = strings.ReplaceAll(page, "[[CHIPS_SECTION]]", chipsSection)
+	page = strings.ReplaceAll(page, "[[TIMEOUT_SEC]]", fmt.Sprintf("%d", timeoutSec))
+	page = strings.ReplaceAll(page, "[[ALLOW_FREEFORM]]", allowFreeformVal)
+	return page
+}
+
+
+// buildChatHTML returns the HTML for the persistent two-way chat window.
+func buildChatHTML(title, subtitle string) string {
+	page := strings.ReplaceAll(chatHTMLTemplate, "[[TITLE]]", html.EscapeString(title))
+	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
+	return page
+}
+
+// buildRestHTML returns the HTML for the AI-resting page.
+func buildRestHTML(title, subtitle, notes string) string {
+	page := strings.ReplaceAll(restHTMLTemplate, "[[TITLE]]", html.EscapeString(title))
+	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
+	page = strings.ReplaceAll(page, "[[NOTES]]", html.EscapeString(notes))
+	return page
+}
+
+// restHandler opens a browser "AI is resting" page and returns a poll token.
+// The user can press "Wake me up!" (with an optional note) to signal the AI.
+// The existing get_user_response tool polls for the wakeup.
+func restHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if runtime.GOOS != "darwin" {
+		return mcp.NewToolResultError("rest is only supported on macOS"), nil
+	}
+
+	title := req.GetString("title", "AI Assistant")
+	if title == "" {
+		title = "AI Assistant"
+	}
+	subtitle := req.GetString("subtitle", "")
+	notes := req.GetString("notes", "")
+
+	timeoutSec := req.GetFloat("timeout_seconds", 3600)
+	if timeoutSec <= 0 {
+		timeoutSec = 3600
+	}
+	if timeoutSec > 86400 {
+		timeoutSec = 86400
+	}
+	timeout := time.Duration(timeoutSec) * time.Second
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return mcp.NewToolResultError("failed to open rest page: " + err.Error()), nil
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	token := newDialogToken()
+	act := &dialogActivity{}
+	state := &pendingDialogState{
+		responseCh: make(chan string, 1),
+		activity:   act,
+	}
+	pendingDialogs.Store(token, state)
+
+	resultCh := make(chan string, 1)
+	mux := http.NewServeMux()
+	srv := &http.Server{Handler: mux}
+
+	page := buildRestHTML(title, subtitle, notes)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, page)
+		act.mu.Lock()
+		act.connected = true
+		act.mu.Unlock()
+	})
+	mux.HandleFunc("/answer", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+
+		var payload struct {
+			Notes string `json:"notes"`
+		}
+		wakeMsg := "User woke up the AI."
+		if err := json.Unmarshal(body, &payload); err == nil && strings.TrimSpace(payload.Notes) != "" {
+			wakeMsg = "User woke up the AI with note: " + strings.TrimSpace(payload.Notes)
+		}
+		select {
+		case resultCh <- wakeMsg:
+		default:
+		}
+	})
+
+	go func() { _ = srv.Serve(ln) }()
+
+	// Feed result into the pending dialog state so get_user_response can pick it up.
+	go func() {
+		var answer string
+		select {
+		case answer = <-resultCh:
+		case <-time.After(timeout):
+			answer = "[Rest timed out — user did not wake the AI]"
+		}
+		select {
+		case state.responseCh <- answer:
+		default:
+		}
+		srv.Close()
+		// Grace period before removing the token so get_user_response can retrieve it.
+		time.Sleep(5 * time.Minute)
+		pendingDialogs.Delete(token)
+	}()
+
+	go sendNotification(title+" is now resting", title, "info", 10)
+	_ = exec.Command("open", fmt.Sprintf("http://127.0.0.1:%d/", port)).Run()
+
+	return mcp.NewToolResultText(
+		"AI is now resting. Browser page opened for the user.\n" +
+			"Token: " + token + "\n" +
+			"Call get_user_response(token=\"" + token + "\") to wait for the user to wake you up.",
+	), nil
 }
 
 func promptChoiceLinux(question, title string, choices []string, timeout time.Duration) (string, error) {
@@ -413,6 +1339,7 @@ func printConsolePromptHeader(title string) {
 func promptConsole(question string) (string, error) {
 	printConsolePromptHeader("AI Assistant")
 	fmt.Fprintf(os.Stderr, "%s\n\nYour answer: ", question)
+	os.Stderr.Sync()
 
 	var ttyPath string
 	if runtime.GOOS == "windows" {
@@ -422,18 +1349,22 @@ func promptConsole(question string) (string, error) {
 	}
 
 	tty, err := os.Open(ttyPath)
-	if err != nil {
-		return "", fmt.Errorf("cannot open console (%s): %w", ttyPath, err)
+	if err == nil {
+		defer tty.Close()
+		scanner := bufio.NewScanner(tty)
+		if scanner.Scan() {
+			return scanner.Text(), nil
+		}
+		if err := scanner.Err(); err != nil {
+			return "", err
+		}
+		return "", nil
 	}
-	defer tty.Close()
 
-	scanner := bufio.NewScanner(tty)
-	if scanner.Scan() {
-		return scanner.Text(), nil
-	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
+	// /dev/tty not available - this is expected when running as MCP server
+	// Return empty string to trigger retry loop, which will eventually timeout
+	fmt.Fprintf(os.Stderr, "\n[ask_user] Unable to access terminal. Please check your MCP client configuration.\n")
+	os.Stderr.Sync()
 	return "", nil
 }
 

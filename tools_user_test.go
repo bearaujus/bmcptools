@@ -7,9 +7,14 @@ import (
 	"time"
 )
 // isHeadless returns true when no interactive terminal is available.
-// Interactive ask_user tests are skipped in headless/short mode.
+// Interactive ask_user tests are skipped unless TEST_INTERACTIVE=1 is set.
 func isHeadless() bool {
-	// -short flag skips interactive tests.
+	// Opt-in: must explicitly set TEST_INTERACTIVE=1 to run interactive tests.
+	// This prevents browser dialogs from popping up during regular `go test ./...` runs.
+	if os.Getenv("TEST_INTERACTIVE") != "1" {
+		return true
+	}
+	// -short flag also skips interactive tests.
 	if testing.Short() {
 		return true
 	}
@@ -33,7 +38,7 @@ func TestAskUserMissingQuestion(t *testing.T) {
 
 // TestAskUserTimeoutDefault verifies the default timeout is in a sane range.
 func TestAskUserTimeoutDefault(t *testing.T) {
-	timeout := 300 * time.Second
+	timeout := 600 * time.Second
 	if timeout <= 0 || timeout > 3600*time.Second {
 		t.Errorf("default timeout out of range: %v", timeout)
 	}
@@ -46,8 +51,8 @@ func TestAskUserTimeoutClamping(t *testing.T) {
 		wantMin    time.Duration
 		wantMax    time.Duration
 	}{
-		{0, 300 * time.Second, 300 * time.Second},      // <= 0 → default 300 s
-		{-5, 300 * time.Second, 300 * time.Second},     // negative → default
+		{0, 600 * time.Second, 600 * time.Second},      // <= 0 → default 600 s
+		{-5, 600 * time.Second, 600 * time.Second},     // negative → default
 		{3700, 3600 * time.Second, 3600 * time.Second}, // over max → clamped
 		{60, 60 * time.Second, 60 * time.Second},        // normal value
 	}
@@ -55,7 +60,7 @@ func TestAskUserTimeoutClamping(t *testing.T) {
 		raw := tt.rawTimeout
 		got := raw
 		if got <= 0 {
-			got = 300
+			got = 600
 		}
 		if got > 3600 {
 			got = 3600
@@ -93,7 +98,7 @@ func TestAskUserChoicesEmptyQuestion(t *testing.T) {
 //	"Which branch should this PR target?"                    → choices: ["main", "develop", "staging"]
 func TestAskUserSampleQuestions(t *testing.T) {
 	if isHeadless() {
-		t.Skip("skipping interactive ask_user test in headless environment")
+		t.Skip("skipping interactive ask_user test; run with TEST_INTERACTIVE=1 to enable")
 	}
 
 	samples := []struct {
@@ -233,7 +238,7 @@ func TestNotifyUserReturnsImmediately(t *testing.T) {
 // Skip with -short or CI=true.
 func TestAskUserToolPainPointSurvey(t *testing.T) {
 	if isHeadless() {
-		t.Skip("skipping interactive pain-point survey in headless environment")
+		t.Skip("skipping interactive pain-point survey; run with TEST_INTERACTIVE=1 to enable")
 	}
 
 	survey := []struct {

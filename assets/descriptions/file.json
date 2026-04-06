@@ -1,0 +1,92 @@
+{
+  "read_file": {
+    "desc": "Read file contents. Auto-detects encoding; returns binary as base64. Supports line ranges, head/tail shortcuts, byte limits, and line numbers.",
+    "params": {
+      "path": "Path to the file",
+      "start_line": "First line to read (1-indexed).",
+      "end_line": "Last line to read (inclusive).",
+      "max_bytes": "Maximum bytes to return (default 10485760 = 10 MB).",
+      "head": "Return only the first N lines.",
+      "tail": "Return only the last N lines.",
+      "show_line_numbers": "Prefix every line with its line number. Default: false"
+    }
+  },
+  "write_file": {
+    "desc": "Write content to a file, creating or overwriting it. Creates parent dirs automatically. Set show_diff=true to get a unified diff of what changed.",
+    "params": {
+      "path": "Path to the file",
+      "content": "Content to write",
+      "create_dirs": "Create missing parent directories. Default: true",
+      "show_diff": "Return a unified diff of changes when overwriting. Default: false"
+    }
+  },
+  "append_to_file": {
+    "desc": "Append content to a file, creating it and any missing parent dirs if needed. Returns the new file size.",
+    "params": {
+      "path": "Path to the file",
+      "content": "Content to append"
+    }
+  },
+  "edit_file": {
+    "desc": "Find-and-replace text in a file. Two modes: single edit (old_str + new_str) or batch edits array. Supports Go regex with $1,$2 back-references. Returns a unified diff.",
+    "params": {
+      "path": "Path to the file",
+      "old_str": "Text (or regex) to find — single-edit mode",
+      "new_str": "Replacement text — single-edit mode",
+      "use_regex": "Treat old_str as a Go regular expression. Default: false",
+      "replace_all": "Replace every match. Default: false",
+      "dry_run": "Preview changes without writing. Default: false",
+      "context_lines": "Unchanged context lines around each change in the diff. Default: 3.",
+      "edits": "Batch mode: array of {old_str, new_str, use_regex?, replace_all?} edits applied sequentially."
+    }
+  },
+  "delete_file": {
+    "desc": "Delete a single file. Use delete_directory to remove directories.",
+    "params": {
+      "path": "Path to the file"
+    }
+  },
+  "copy_file": {
+    "desc": "Copy a file. Creates parent dirs of the destination automatically.",
+    "params": {
+      "source": "Source file path",
+      "destination": "Destination file path",
+      "overwrite": "Overwrite if destination exists. Default: false"
+    }
+  },
+  "move_file": {
+    "desc": "Move or rename a file or directory. Cross-device safe (copy+delete).",
+    "params": {
+      "source": "Source path",
+      "destination": "Destination path",
+      "overwrite": "Overwrite if destination exists. Default: false"
+    }
+  },
+  "get_file_info": {
+    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, and whether it is a symbolic link.",
+    "params": {
+      "path": "Path to the file or directory"
+    }
+  },
+  "path_exists": {
+    "desc": "Check whether a path exists and return its type (file/directory/symlink) and size.",
+    "params": {
+      "path": "Path to check"
+    }
+  },
+  "diff_files": {
+    "desc": "Compare two files and return a unified diff. Returns empty when files are identical.",
+    "params": {
+      "path_a": "First file (before / original)",
+      "path_b": "Second file (after / modified)",
+      "context_lines": "Context lines around each change. Default: 3."
+    }
+  },
+  "calculate_checksum": {
+    "desc": "Calculate MD5, SHA1, or SHA256 checksum of one or more files.",
+    "params": {
+      "paths": "File paths to checksum",
+      "algorithm": "Hash algorithm: \"md5\", \"sha1\", or \"sha256\". Default: \"sha256\""
+    }
+  }
+}

@@ -17,72 +17,41 @@ const defaultMaxReadBytes = 10 * 1024 * 1024 // 10 MB
 
 func registerFileTools(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("read_file",
-		mcp.WithDescription(
-			"Read the contents of a file. "+
-				"Auto-detects encoding; handles UTF-8/UTF-16 with or without BOM, "+
-				"normalises invalid sequences, and strips BOMs. "+
-				"Binary files are returned as base64-encoded data. "+
-				"Use start_line / end_line to read a specific section of a large file. "+
-				"File paths with Unicode characters (emoji, CJK, etc.) are fully supported.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute or relative path to the file")),
-		mcp.WithNumber("start_line", mcp.Description("First line to read (1-indexed). Omit to start at the beginning.")),
-		mcp.WithNumber("end_line", mcp.Description("Last line to read (inclusive). Omit to read to the end.")),
-		mcp.WithNumber("max_bytes", mcp.Description(fmt.Sprintf("Maximum bytes to return (default %d = 10 MB).", defaultMaxReadBytes))),
-		mcp.WithNumber("head", mcp.Description("If provided, returns only the first N lines of the file")),
-		mcp.WithNumber("tail", mcp.Description("If provided, returns only the last N lines of the file")),
-		mcp.WithBoolean("show_line_numbers", mcp.Description("Prefix every line with its line number. Default: false")),
+		mcp.WithDescription(td("read_file")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("read_file", "path"))),
+		mcp.WithNumber("start_line", mcp.Description(pd("read_file", "start_line"))),
+		mcp.WithNumber("end_line", mcp.Description(pd("read_file", "end_line"))),
+		mcp.WithNumber("max_bytes", mcp.Description(pd("read_file", "max_bytes"))),
+		mcp.WithNumber("head", mcp.Description(pd("read_file", "head"))),
+		mcp.WithNumber("tail", mcp.Description(pd("read_file", "tail"))),
+		mcp.WithBoolean("show_line_numbers", mcp.Description(pd("read_file", "show_line_numbers"))),
 	), readFileHandler)
 
 	s.AddTool(mcp.NewTool("write_file",
-		mcp.WithDescription(
-			"Write content to a file, creating it if it does not exist or overwriting it if it does. "+
-				"Parent directories are created automatically by default. "+
-				"Content is written as UTF-8. File paths with Unicode characters are supported. "+
-				"Set show_diff=true to see a unified diff of what changed when overwriting.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Path to the file")),
-		mcp.WithString("content", mcp.Required(), mcp.Description("Content to write")),
-		mcp.WithBoolean("create_dirs", mcp.Description("Create missing parent directories. Default: true")),
-		mcp.WithBoolean("show_diff", mcp.Description("When overwriting an existing file, include a unified diff of the changes. Default: false. Highly recommended: set to true when editing existing files so you can verify exactly what changed.")),
+		mcp.WithDescription(td("write_file")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("write_file", "path"))),
+		mcp.WithString("content", mcp.Required(), mcp.Description(pd("write_file", "content"))),
+		mcp.WithBoolean("create_dirs", mcp.Description(pd("write_file", "create_dirs"))),
+		mcp.WithBoolean("show_diff", mcp.Description(pd("write_file", "show_diff"))),
 	), writeFileHandler)
 
 	s.AddTool(mcp.NewTool("append_to_file",
-		mcp.WithDescription(
-			"Append content to the end of a file. Creates the file (and any missing parent directories) if it does not exist. "+
-				"Returns the new total file size after appending.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Path to the file")),
-		mcp.WithString("content", mcp.Required(), mcp.Description("Content to append")),
+		mcp.WithDescription(td("append_to_file")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("append_to_file", "path"))),
+		mcp.WithString("content", mcp.Required(), mcp.Description(pd("append_to_file", "content"))),
 	), appendFileHandler)
 
 	s.AddTool(mcp.NewTool("edit_file",
-		mcp.WithDescription(
-			"Edit a file by finding and replacing text. Supports two modes:\n"+
-				"1. Single edit: provide old_str and new_str directly.\n"+
-				"2. Batch edits: provide an edits array for multiple changes in one call — "+
-				"far more efficient than repeated single-edit calls.\n"+
-				"Each edit supports use_regex (Go regex with $1,$2 back-references) and replace_all. "+
-				"Returns a unified diff of all changes. "+
-				"Use dry_run=true to preview changes without writing to disk.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Path to the file")),
-		mcp.WithString("old_str", mcp.Description("Text (or regex) to find — used for single-edit mode")),
-		mcp.WithString("new_str", mcp.Description("Replacement text — used for single-edit mode")),
-		mcp.WithBoolean("use_regex", mcp.Description("Treat old_str as a Go regular expression. Default: false")),
-		mcp.WithBoolean("replace_all", mcp.Description("Replace every match instead of only the first. Default: false")),
-		mcp.WithBoolean("dry_run", mcp.Description(
-			"Preview changes without writing to disk. "+
-				"Returns a unified diff of what would change. Default: false",
-		)),
-		mcp.WithNumber("context_lines", mcp.Description(
-			"Number of unchanged lines to show around each changed region in the returned diff. Default: 3.",
-		)),
+		mcp.WithDescription(td("edit_file")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("edit_file", "path"))),
+		mcp.WithString("old_str", mcp.Description(pd("edit_file", "old_str"))),
+		mcp.WithString("new_str", mcp.Description(pd("edit_file", "new_str"))),
+		mcp.WithBoolean("use_regex", mcp.Description(pd("edit_file", "use_regex"))),
+		mcp.WithBoolean("replace_all", mcp.Description(pd("edit_file", "replace_all"))),
+		mcp.WithBoolean("dry_run", mcp.Description(pd("edit_file", "dry_run"))),
+		mcp.WithNumber("context_lines", mcp.Description(pd("edit_file", "context_lines"))),
 		mcp.WithArray("edits",
-			mcp.Description(
-				"Batch mode: array of edit objects, each with {old_str, new_str, use_regex?, replace_all?}. "+
-					"Applied sequentially. Prefer this over multiple single-edit calls.",
-			),
+			mcp.Description(pd("edit_file", "edits")),
 			mcp.Items(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -97,50 +66,52 @@ func registerFileTools(s *server.MCPServer) {
 	), editFileHandler)
 
 	s.AddTool(mcp.NewTool("delete_file",
-		mcp.WithDescription("Delete a single file. Use delete_directory to remove directories."),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Path to the file")),
+		mcp.WithDescription(td("delete_file")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("delete_file", "path"))),
 	), deleteFileHandler)
 
 	s.AddTool(mcp.NewTool("copy_file",
-		mcp.WithDescription(
-			"Copy a file to a new location. "+
-				"Parent directories of the destination are created automatically. "+
-				"Set overwrite=true to replace an existing destination.",
-		),
-		mcp.WithString("source", mcp.Required(), mcp.Description("Source file path")),
-		mcp.WithString("destination", mcp.Required(), mcp.Description("Destination file path")),
-		mcp.WithBoolean("overwrite", mcp.Description("Overwrite the destination if it already exists. Default: false")),
+		mcp.WithDescription(td("copy_file")),
+		mcp.WithString("source", mcp.Required(), mcp.Description(pd("copy_file", "source"))),
+		mcp.WithString("destination", mcp.Required(), mcp.Description(pd("copy_file", "destination"))),
+		mcp.WithBoolean("overwrite", mcp.Description(pd("copy_file", "overwrite"))),
 	), copyFileHandler)
 
 	s.AddTool(mcp.NewTool("move_file",
-		mcp.WithDescription(
-			"Move or rename a file or directory. "+
-				"Works across directories on the same filesystem; for cross-device moves the file is "+
-				"copied then the source is deleted. "+
-				"Set overwrite=true to replace an existing destination (default is false — safe by default).",
-		),
-		mcp.WithString("source", mcp.Required(), mcp.Description("Source path")),
-		mcp.WithString("destination", mcp.Required(), mcp.Description("Destination path")),
-		mcp.WithBoolean("overwrite", mcp.Description("Overwrite the destination if it already exists. Default: false")),
+		mcp.WithDescription(td("move_file")),
+		mcp.WithString("source", mcp.Required(), mcp.Description(pd("move_file", "source"))),
+		mcp.WithString("destination", mcp.Required(), mcp.Description(pd("move_file", "destination"))),
+		mcp.WithBoolean("overwrite", mcp.Description(pd("move_file", "overwrite"))),
 	), moveFileHandler)
 
 	s.AddTool(mcp.NewTool("get_file_info",
-		mcp.WithDescription(
-			"Return metadata for a file or directory: type, size, modification time, permissions, "+
-				"and whether it is a symbolic link.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Path to the file or directory")),
+		mcp.WithDescription(td("get_file_info")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("get_file_info", "path"))),
 	), getFileInfoHandler)
 
 	s.AddTool(mcp.NewTool("path_exists",
-		mcp.WithDescription(
-			"Quickly check whether a path exists and return its type (file/directory/symlink) without reading its contents. "+
-				"Lightweight existence check — use this before read or write operations when you need "+
-				"to branch on whether a path already exists. Returns a plain-English sentence: "+
-				`"true — <path> is a file (N bytes)" or "false — <path> does not exist".`,
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Path to check")),
+		mcp.WithDescription(td("path_exists")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("path_exists", "path"))),
 	), pathExistsHandler)
+
+	s.AddTool(mcp.NewTool("diff_files",
+		mcp.WithDescription(td("diff_files")),
+		mcp.WithString("path_a", mcp.Required(), mcp.Description(pd("diff_files", "path_a"))),
+		mcp.WithString("path_b", mcp.Required(), mcp.Description(pd("diff_files", "path_b"))),
+		mcp.WithNumber("context_lines", mcp.Description(pd("diff_files", "context_lines"))),
+	), diffFilesHandler)
+
+	s.AddTool(mcp.NewTool("calculate_checksum",
+		mcp.WithDescription(td("calculate_checksum")),
+		mcp.WithArray("paths",
+			mcp.Required(),
+			mcp.Description(pd("calculate_checksum", "paths")),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithString("algorithm",
+			mcp.Description(pd("calculate_checksum", "algorithm")),
+		),
+	), calculateChecksumHandler)
 }
 
 // ── read_file ────────────────────────────────────────────────────────────────
@@ -413,7 +384,7 @@ func appendFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		return mcp.NewToolResultError(fmt.Sprintf("write error: %v", err)), nil
 	}
 
-	msg := fmt.Sprintf("Appended %s to %s", humanizeBytes(int64(len(content))), path)
+	msg := fmt.Sprintf("Appended %s (%s) to %s", humanizeBytes(int64(len(content))), pluralize(countContentLines(content), "line"), path)
 	if newInfo, statErr := os.Stat(path); statErr == nil {
 		msg += fmt.Sprintf(" (new size: %s)", humanizeBytes(newInfo.Size()))
 	}
@@ -564,11 +535,12 @@ func deleteFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		return mcp.NewToolResultError("path is a directory; use delete_directory instead"), nil
 	}
 
+	size := info.Size()
 	if err := os.Remove(path); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot delete %q: %v", path, err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Deleted file: %s", path)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Deleted file: %s (%s)", path, humanizeBytes(size))), nil
 }
 
 // ── copy_file ────────────────────────────────────────────────────────────────
@@ -643,8 +615,14 @@ func moveFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		return mcp.NewToolResultError(fmt.Sprintf("cannot create destination directory: %v", err)), nil
 	}
 
+	srcInfoForSize, _ := os.Stat(src)
+
 	if err := os.Rename(src, dst); err == nil {
-		return mcp.NewToolResultText(fmt.Sprintf("Moved %s → %s", src, dst)), nil
+		sizeStr := ""
+		if srcInfoForSize != nil && !srcInfoForSize.IsDir() {
+			sizeStr = fmt.Sprintf(" (%s)", humanizeBytes(srcInfoForSize.Size()))
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Moved %s → %s%s", src, dst, sizeStr)), nil
 	}
 
 	// Cross-device move: copy then delete.
@@ -667,7 +645,7 @@ func moveFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Moved %s → %s (cross-device)", src, dst)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Moved %s → %s (%s, cross-device)", src, dst, humanizeBytes(srcInfo.Size()))), nil
 }
 
 // ── get_file_info ────────────────────────────────────────────────────────────
@@ -754,4 +732,89 @@ func pathExistsHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	return mcp.NewToolResultText(
 		fmt.Sprintf("true — %q is a %s (%s)", path, kind, humanizeBytes(info.Size())),
 	), nil
+}
+
+// ── diff_files ────────────────────────────────────────────────────────────────
+
+func diffFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	pathA := req.GetString("path_a", "")
+	pathB := req.GetString("path_b", "")
+	if pathA == "" || pathB == "" {
+		return mcp.NewToolResultError("path_a and path_b are required"), nil
+	}
+
+	ctxLines := int(req.GetFloat("context_lines", 3))
+	if ctxLines < 0 {
+		ctxLines = 0
+	}
+
+	readText := func(p string) (string, os.FileInfo, error) {
+		f, info, _, binary, err := sniffAndOpen(p)
+		if err != nil {
+			return "", nil, err
+		}
+		defer f.Close()
+		if binary {
+			return "", info, fmt.Errorf("file is binary")
+		}
+		raw, err := io.ReadAll(f)
+		if err != nil {
+			return "", nil, fmt.Errorf("read error: %w", err)
+		}
+		raw = stripBOM(raw)
+		return strings.ToValidUTF8(string(raw), "\uFFFD"), info, nil
+	}
+
+	textA, infoA, errA := readText(pathA)
+	if errA != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("path_a: %v", errA)), nil
+	}
+	textB, infoB, errB := readText(pathB)
+	if errB != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("path_b: %v", errB)), nil
+	}
+
+	diff := generateDiff(textA, textB, ctxLines)
+	if diff == "" {
+		return mcp.NewToolResultText(fmt.Sprintf(
+			"Files are identical.\n  a: %s (%s, modified %s)\n  b: %s (%s, modified %s)",
+			pathA, humanizeBytes(infoA.Size()), infoA.ModTime().Format("2006-01-02 15:04:05"),
+			pathB, humanizeBytes(infoB.Size()), infoB.ModTime().Format("2006-01-02 15:04:05"),
+		)), nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "--- a/%s\t(%s, modified %s)\n", pathA, humanizeBytes(infoA.Size()), infoA.ModTime().Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&sb, "+++ b/%s\t(%s, modified %s)\n", pathB, humanizeBytes(infoB.Size()), infoB.ModTime().Format("2006-01-02 15:04:05"))
+	sb.WriteString(diff)
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+// ── calculate_checksum ────────────────────────────────────────────────────────
+
+func calculateChecksumHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	paths := req.GetStringSlice("paths", nil)
+	if len(paths) == 0 {
+		return mcp.NewToolResultError("paths is required"), nil
+	}
+
+	algorithm := strings.ToLower(req.GetString("algorithm", "sha256"))
+	switch algorithm {
+	case "md5", "sha1", "sha256":
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported algorithm %q; use md5, sha1, or sha256", algorithm)), nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Algorithm: %s\n\n", strings.ToUpper(algorithm))
+
+	for _, p := range paths {
+		hash, size, err := hashFile(p, algorithm)
+		if err != nil {
+			fmt.Fprintf(&sb, "ERROR  %s — %v\n", p, err)
+			continue
+		}
+		fmt.Fprintf(&sb, "%s  %s  (%s)\n", hash, p, humanizeBytes(size))
+	}
+	return mcp.NewToolResultText(sb.String()), nil
 }

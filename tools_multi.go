@@ -13,32 +13,22 @@ import (
 
 func registerMultiTools(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("read_multiple_files",
-		mcp.WithDescription(
-			"Read the contents of multiple files simultaneously. "+
-				"This is more efficient than reading files one by one when you need to analyse "+
-				"or compare multiple files. Each file's content is returned with its path as a header. "+
-				"Failed reads for individual files are reported inline without stopping the entire operation.",
-		),
+		mcp.WithDescription(td("read_multiple_files")),
 		mcp.WithArray("paths",
 			mcp.Required(),
-			mcp.Description("Array of file paths to read"),
+			mcp.Description(pd("read_multiple_files", "paths")),
 			mcp.Items(map[string]any{"type": "string"}),
 		),
 		mcp.WithNumber("max_bytes_per_file",
-			mcp.Description(fmt.Sprintf("Maximum bytes to read per file (default %d = 10 MB).", defaultMaxReadBytes)),
+			mcp.Description(pd("read_multiple_files", "max_bytes_per_file")),
 		),
 	), readMultipleFilesHandler)
 
 	s.AddTool(mcp.NewTool("write_multiple_files",
-		mcp.WithDescription(
-			"Write content to multiple files in a single call. "+
-				"Each file is created or overwritten. Parent directories are created automatically. "+
-				"Returns a per-file summary of successes and failures. "+
-				"Far more efficient than calling write_file separately for each file during bulk refactors.",
-		),
+		mcp.WithDescription(td("write_multiple_files")),
 		mcp.WithArray("files",
 			mcp.Required(),
-			mcp.Description(`Array of {"path": "...", "content": "..."} objects to write`),
+			mcp.Description(pd("write_multiple_files", "files")),
 			mcp.Items(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -49,48 +39,41 @@ func registerMultiTools(s *server.MCPServer) {
 			}),
 		),
 		mcp.WithBoolean("create_dirs",
-			mcp.Description("Create missing parent directories automatically. Default: true"),
+			mcp.Description(pd("write_multiple_files", "create_dirs")),
 		),
 	), writeMultipleFilesHandler)
 
 	s.AddTool(mcp.NewTool("find_replace_in_files",
-		mcp.WithDescription(
-			"Search for a pattern across multiple files and replace every occurrence. "+
-				"Useful for project-wide refactoring (rename a function, update an import, etc.). "+
-				"When use_regex=false the pattern is treated as a literal string. "+
-				"When use_regex=true it is a Go regular expression with optional $1,$2 back-references. "+
-				"Returns a summary of all files changed, replacement counts, skipped binary files, "+
-				"and per-file diffs so you can verify changes without re-reading each file.",
-		),
+		mcp.WithDescription(td("find_replace_in_files")),
 		mcp.WithString("path",
 			mcp.Required(),
-			mcp.Description("Root file or directory to search"),
+			mcp.Description(pd("find_replace_in_files", "path")),
 		),
 		mcp.WithString("old_str",
 			mcp.Required(),
-			mcp.Description("Text (or regex) to find"),
+			mcp.Description(pd("find_replace_in_files", "old_str")),
 		),
 		mcp.WithString("new_str",
 			mcp.Required(),
-			mcp.Description("Replacement text"),
+			mcp.Description(pd("find_replace_in_files", "new_str")),
 		),
 		mcp.WithBoolean("use_regex",
-			mcp.Description("Treat old_str as a Go regular expression. Default: false"),
+			mcp.Description(pd("find_replace_in_files", "use_regex")),
 		),
 		mcp.WithBoolean("recursive",
-			mcp.Description("Descend into subdirectories. Default: true"),
+			mcp.Description(pd("find_replace_in_files", "recursive")),
 		),
 		mcp.WithString("glob",
-			mcp.Description("Only process files whose names match this glob pattern (e.g. *.go, *.{ts,tsx}). Supports {a,b} alternation. Default: all files"),
+			mcp.Description(pd("find_replace_in_files", "glob")),
 		),
 		mcp.WithBoolean("dry_run",
-			mcp.Description("Preview matches without writing changes. Default: false"),
+			mcp.Description(pd("find_replace_in_files", "dry_run")),
 		),
 		mcp.WithBoolean("show_diff",
-			mcp.Description("Include a unified diff for each changed file. Default: true"),
+			mcp.Description(pd("find_replace_in_files", "show_diff")),
 		),
 		mcp.WithBoolean("show_hidden",
-			mcp.Description("Include hidden files and directories (names starting with '.'). Default: false"),
+			mcp.Description(pd("find_replace_in_files", "show_hidden")),
 		),
 	), findReplaceInFilesHandler)
 }

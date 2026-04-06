@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 
@@ -9,14 +10,18 @@ import (
 
 const (
 	serverName    = "bmcptools"
-	serverVersion = "2.2.0"
+	serverVersion = "2.4.0"
 )
+
+//go:embed assets/descriptions/server_instructions.txt
+var serverInstructions string
 
 func main() {
 	s := server.NewMCPServer(
 		serverName,
 		serverVersion,
 		server.WithToolCapabilities(false),
+		server.WithInstructions(serverInstructions),
 	)
 
 	registerUserTools(s)
@@ -25,6 +30,7 @@ func main() {
 	registerSearchTools(s)
 	registerExecTools(s)
 	registerMultiTools(s)
+	registerSystemTools(s)
 
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)

@@ -1,0 +1,74 @@
+{
+  "notify_user": {
+    "desc": "Send a non-blocking toast notification to the user. Does not wait for a response.",
+    "params": {
+      "message": "The message to display",
+      "title": "Notification title. Default: \"AI Assistant\"",
+      "level": "Severity: \"info\" (default), \"warning\", or \"error\".",
+      "duration_seconds": "How long the toast stays visible (Windows/Linux only). Default: 5 s."
+    }
+  },
+  "ask_user": {
+    "desc": "Ask the user a question via a dialog and wait for their answer. Use this instead of asking questions in response text. A browser-based dialog appears (falls back to console). Set non_blocking=true if your MCP client has a short timeout, then poll with get_user_response.",
+    "params": {
+      "question": "The question to present to the user",
+      "title": "Dialog window title. Default: \"AI Assistant\"",
+      "subtitle": "Subtitle shown below the title (e.g. your agent name).",
+      "choices": "Optional quick-reply chips. User can tap a chip and/or type a custom reply.",
+      "timeout_seconds": "Seconds before auto-closing. Default: 600. Max: 3600.",
+      "allow_freeform": "Allow freeform text input alongside choices. Default: true.",
+      "notify": "Flash taskbar and send a toast when dialog opens. Default: true.",
+      "non_blocking": "Return a poll token immediately instead of waiting. Use when MCP client timeout is short (e.g. 30–120 s)."
+    }
+  },
+  "get_user_response": {
+    "desc": "Poll for a pending ask_user(non_blocking=true) response. Returns PENDING until answered.",
+    "params": {
+      "token": "The token returned by ask_user(non_blocking=true)",
+      "wait_seconds": "Seconds to wait per poll. Default: 55. Max: 115."
+    }
+  },
+  "update_dialog": {
+    "desc": "Send a live update into an open non-blocking ask_user dialog (macOS only).",
+    "params": {
+      "token": "The token returned by ask_user(non_blocking=true)",
+      "message": "The message to display in the dialog"
+    }
+  },
+  "open_chat": {
+    "desc": "Open a persistent two-way browser chat window. Returns a chat_id. macOS only.",
+    "params": {
+      "title": "Title shown in the chat window. Default: \"AI Assistant\"",
+      "subtitle": "Optional subtitle (e.g. your agent or model name)."
+    }
+  },
+  "send_chat_message": {
+    "desc": "Send an AI message into an open chat window.",
+    "params": {
+      "chat_id": "The chat_id returned by open_chat",
+      "message": "The message to send"
+    }
+  },
+  "get_chat_messages": {
+    "desc": "Poll for new user messages from an open chat window. Returns PENDING or CLOSED.",
+    "params": {
+      "chat_id": "The chat_id returned by open_chat",
+      "wait_seconds": "Seconds to wait per poll. Default: 55. Max: 115."
+    }
+  },
+  "close_chat": {
+    "desc": "Close a chat window and free its port. Call when the session is finished.",
+    "params": {
+      "chat_id": "The chat_id returned by open_chat"
+    }
+  },
+  "rest": {
+    "desc": "Show an 'AI is resting' page so the user can wake you when ready. Returns a poll token (use get_user_response). macOS only.",
+    "params": {
+      "notes": "Message shown to the user while resting.",
+      "title": "Name shown in the resting UI. Default: \"AI Assistant\"",
+      "subtitle": "Optional subtitle, e.g. your agent or model name.",
+      "timeout_seconds": "Max seconds before auto-waking. Default: 3600. Max: 86400."
+    }
+  }
+}

@@ -21,6 +21,8 @@ Communication happens over **stdio** using the `mark3labs/mcp-go` library.
 | `move_file` | Move or rename a file (cross-device aware). **`overwrite=true`** explicitly allows replacing an existing destination — safe by default (errors if dst exists). |
 | `get_file_info` | Return metadata: type, size, permissions, modification time, symlink target. **Includes line count for text files** — eliminates a follow-up `read_file` call just to know file length before using `start_line`/`end_line`. |
 | `path_exists` | **Lightweight existence check** — returns `"true — <path> is a file/directory/symlink (N bytes)"` or `"false — <path> does not exist"` without reading the file. Use before read/write operations to branch on whether a path already exists. |
+| `diff_files` | Compare two files and return a **unified diff**. Handles encoding, shows file metadata (size, mod time), and returns an empty result when files are identical. Prefer over running `diff` via `run_command`. **`context_lines`** controls surrounding unchanged context (default: 3). |
+| `calculate_checksum` | Calculate the **MD5, SHA1, or SHA256** (default) checksum of one or more files. Cross-platform. Returns hex digest + file size per file. Prefer over running `md5sum`/`shasum`/`sha256sum` via `run_command`. |
 
 ### Multi-file tools (`tools_multi.go`)
 
@@ -50,8 +52,15 @@ Communication happens over **stdio** using the `mark3labs/mcp-go` library.
 
 | Tool | Description |
 |------|-------------|
-| `notify_user` | **Non-blocking** fire-and-forget notification. Shows a balloon tip (Windows), system notification (macOS), or `notify-send` popup (Linux). Always falls back to stderr. Ideal for progress updates: `"Starting analysis…"`, `"Build complete."`. **`level`** parameter (`"info"` / `"warning"` / `"error"`) controls the notification icon and urgency on supported platforms. **`duration_seconds`** controls how long the toast stays visible (default: 5 s, max: 60 s). Returns immediately — never blocks the AI. |
-| `ask_user` | Pop up a dialog (or fall back to console) to ask the user a question and capture their reply. **`choices` array** for multiple-choice picker dialogs with **live search/filter** (Windows WPF search box, macOS `choose from list`, Linux `zenity --list`). **`timeout_seconds`** configures how long to wait (default: 120 s, max: 3600 s). **Keep timeout below your MCP client's own request timeout** — most clients enforce 30–120 s. |
+| `notify_user` | **Non-blocking** fire-and-forget notification. Shows a balloon tip (Windows), system notification (macOS), or `notify-send` popup (Linux). Always falls back to stderr. Ideal for progress updates: `"Starting analysis…"`, `"Build complete."`. **`level`** parameter (`"info"` / `"warning"` / `"error"`) controls the notification icon and urgency on supported platforms. **`duration_seconds`** controls how long the toast stays visible (default: 5 s, max: 60 s). Returns immediately — never blocks the AI. On **macOS**: uses `display notification` with sound + level subtitle; falls back to `terminal-notifier` (if installed via Homebrew). |
+| `ask_user` | Pop up a browser-based dialog (macOS) or native dialog (Windows/Linux) to ask the user a question and capture their reply. On **macOS**, opens a two-card HTML dialog in the default browser: an AI message card (with avatar, title, optional subtitle, countdown timer, and suggested-reply chips) and a reply card (auto-expanding multi-line textarea, Send/Dismiss buttons). **`choices` array** renders as clickable quick-reply chips — the user can tap a chip and/or type a custom response; both are combined and returned. **`subtitle`** parameter (optional) shows below the title (e.g. your model name) so the user knows who is asking. **`allow_freeform`** (default: `true`) — set to `false` to hide the textarea and make chip selection submit immediately (force-choose mode). **`timeout_seconds`** configures how long to wait (default: **600 s / 10 min**, max: 3600 s). **`non_blocking: true`** opens the dialog in the background and returns a poll token immediately — use this when your MCP client enforces a short request timeout (30–120 s). Activity heartbeats from the browser populate real-time typing/idle/disconnected status in `get_user_response` responses. |
+| `get_user_response` | **Poll for a pending `ask_user` response.** Call after `ask_user(non_blocking=true)` returns a token. Each call waits up to `wait_seconds` (default: **55 s**, max: 115 s) — safely under typical MCP client timeouts. Returns the user's answer when received, or a `PENDING` message with the token so you can call again. Reports **activity-aware status**: typing, idle N seconds, or browser disconnected. Handles the MCP request timeout problem without changing the `ask_user` interface. |
+| `update_dialog` | **Push a live message into an open `ask_user` dialog** (non-blocking mode only, macOS). Messages appear instantly in the user's browser in a scrollable "updates" panel with timestamps — no page refresh. Useful for sharing thinking state or context while waiting for the user's reply. |
+| `open_chat` | **Open a persistent two-way chat window** in the user's browser (macOS). Unlike `ask_user` (one question → one reply), this creates an iMessage-style chat panel where both the AI and the user can send messages freely at any time. Returns a `chat_id`. The window stays open until `close_chat` is called. |
+| `send_chat_message` | **Send a message from the AI into an open chat window.** The message appears instantly as an AI bubble on the left. Requires a `chat_id` from `open_chat`. |
+| `get_chat_messages` | **Poll for user messages** from an open chat window. Each call waits up to `wait_seconds` (default 55 s). Returns new messages or `PENDING`. Returns `CLOSED` if the chat was closed. Keep calling in a loop to receive messages as the user sends them. |
+| `close_chat` | **Close an open chat window** and shut down its local HTTP server. Always call this when done to free the port and stop all goroutines. |
+| `rest` | **Let the AI go AFK.** Opens a browser page showing "😴 AI is resting" with optional notes for the user (e.g. "Taking a break while you review the diff"). The user sees a "Wake me up!" button and an optional note field. Returns a token — poll with `get_user_response(token)` to detect when the user wakes you. The wakeup message includes any note the user left. Timeout defaults to 1 hour. |
 
 ### Shell execution (`tools_exec.go`)
 
@@ -59,6 +68,23 @@ Communication happens over **stdio** using the `mark3labs/mcp-go` library.
 |------|-------------|
 | `get_working_directory` | Return the server's current working directory, OS, hostname, and **key environment variables** (`HOME`, `GOPATH`, `GOROOT`, `PATH` summary). Use as your first call when you need to orient yourself in the filesystem. |
 | `run_command` | Execute any shell command (`cmd /C` on Windows, `sh -c` elsewhere). Returns combined stdout+stderr, exit code, elapsed time, and **resolved working directory** (always shown). Configurable timeout (default 60 s, max 600 s) and working directory. Supports injecting environment variables via the `env` parameter. **`max_output_bytes`** truncates large outputs to keep LLM context manageable. **`stdin`** passes content to the command's standard input (e.g. piping a script or answering prompts). Non-zero exits are surfaced as tool errors. |
+| `open_in_app` | Open a **file, directory, or URL** in the default system application. Cross-platform: `open` on macOS, `xdg-open` on Linux, `start` on Windows. Optional **`app`** parameter (macOS) selects a specific application. Non-blocking — returns immediately after launching. Prefer over running `open`/`xdg-open` via `run_command`. |
+
+---
+
+## GitHub Actions — Release workflow
+
+Pushing a tag (`v*`) triggers `.github/workflows/release.yml`, which cross-compiles and publishes a GitHub release with the following artifacts:
+
+| Artifact | Platform |
+|----------|----------|
+| `bmcptools-mac-amd64` | macOS Intel |
+| `bmcptools-mac-arm64` | macOS Apple Silicon |
+| `bmcptools-linux-amd64` | Linux x86-64 |
+| `bmcptools-linux-arm64` | Linux ARM64 |
+| `bmcptools.exe` | Windows x86-64 |
+
+Filenames contain no version number — the GitHub release tag is the version identifier. `workflow_dispatch` also allows manual trigger.
 
 ---
 
@@ -121,6 +147,19 @@ tools_user.go      — User-interaction (ask_user) tool handler
 ---
 
 ## Changelog
+
+### 2.3.0
+- **[FEAT]** `ask_user` (macOS) — completely redesigned dialog. Now opens a **browser-based two-card HTML dialog** with a native macOS feel, full dark-mode support, and a 10-minute (600 s) default timeout. The **AI message card** shows your avatar, title, optional subtitle, a countdown timer, an extend-timer button (+5 min), and suggested-reply chips. The **Reply card** has an auto-expanding multi-line textarea, keyboard shortcut (⌘↵ to send), and a Send/Dismiss footer. After sending, a confirmation screen shows a preview of the reply and auto-closes in 3 s.
+- **[FEAT]** `ask_user` — new **`subtitle`** parameter. Pass your model name or context (e.g. `"claude-sonnet-4.6"`) so the user knows which AI is asking.
+- **[FEAT]** `ask_user` — new **`allow_freeform`** parameter (default: `true`). Set to `false` when choices are the only valid answers — the textarea is hidden and tapping a chip submits immediately, giving a clean "force-choose" UX.
+- **[FEAT]** `ask_user` — default **`timeout_seconds`** increased to **600 s (10 min)**. The dialog stays open long enough for the user to read and respond without being rushed.
+- **[FEAT]** `ask_user` — **`choices` array** now renders as clickable quick-reply **chips** (macOS). Selecting a chip plus typing notes combines both into the returned answer: `"<chip>\n\n<notes>"`.
+- **[ARCH]** `ask_user` (macOS) — HTML template extracted to **`assets/dialog.html`** and embedded via `//go:embed`. Keeps Go code clean and makes the template easy to edit.
+- **[BUG FIX]** `get_working_directory` — **PATH entry count was wrong** for 6+ entries. `strings.SplitN(path, sep, 5)` capped at 5 parts, making `"+N more"` report only 2 remaining even when 7+ entries existed. Fixed by using `strings.Split` (no limit) for an accurate count.
+- **[FEAT]** `delete_file` — confirmation now includes the **file size** (`"Deleted file: /path (123 B)"`), consistent with `copy_file`.
+- **[FEAT]** `move_file` — confirmation now includes the **file size** (`"Moved src → dst (456 B)"`), consistent with `copy_file`.
+- **[FEAT]** `append_to_file` — confirmation now includes the **line count** (`"Appended 43 B (2 lines) to /path (new size: 1.2 KB)"`), consistent with `write_file`.
+- **[FEAT]** `run_command` — tool description now mentions **`env`**, **`stdin`**, and **`max_output_bytes`** so AI models discover these parameters from the description alone.
 
 ### 2.2.0
 - **[BUG FIX]** `directory_tree` with `glob` — directories whose subtrees contain no matching files are now **pruned** from the output entirely. Previously all directories were always shown even when they contributed no matching files, wasting AI context window and causing confusion. Connectors (`├──` / `└──`) are recomputed correctly after pruning.

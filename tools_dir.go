@@ -14,55 +14,37 @@ import (
 
 func registerDirTools(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("list_directory",
-		mcp.WithDescription(
-			"List the contents of a directory. "+
-				"Shows file sizes, modification times, and whether each entry is a file or directory. "+
-				"Supports optional recursion with a configurable depth limit. "+
-				"Directory names with Unicode characters (emoji, CJK, etc.) are fully supported. "+
-				"See also: directory_tree for a visual tree-style overview of deep project structures.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Directory to list")),
-		mcp.WithBoolean("show_hidden", mcp.Description("Include entries whose names start with '.'. Default: false")),
-		mcp.WithBoolean("recursive", mcp.Description("List subdirectories recursively. Default: false")),
-		mcp.WithNumber("max_depth", mcp.Description("Maximum recursion depth when recursive=true. Default: 3")),
-		mcp.WithString("sort_by", mcp.Description(`Sort entries by "name" (default, alphabetical) or "size" (largest files first).`)),
-		mcp.WithString("glob", mcp.Description("Only show files whose names match this glob pattern (e.g. *.go, *.{ts,tsx}). Supports {a,b} alternation. Directories are always shown when recursive=true. Default: all files")),
+		mcp.WithDescription(td("list_directory")),
+		mcp.WithString("path", mcp.Description(pd("list_directory", "path"))),
+		mcp.WithBoolean("show_hidden", mcp.Description(pd("list_directory", "show_hidden"))),
+		mcp.WithBoolean("recursive", mcp.Description(pd("list_directory", "recursive"))),
+		mcp.WithNumber("max_depth", mcp.Description(pd("list_directory", "max_depth"))),
+		mcp.WithString("sort_by", mcp.Description(pd("list_directory", "sort_by"))),
+		mcp.WithString("glob", mcp.Description(pd("list_directory", "glob"))),
 	), listDirHandler)
 
 	s.AddTool(mcp.NewTool("create_directory",
-		mcp.WithDescription(
-			"Create a directory and all missing parent directories (equivalent to mkdir -p). "+
-				"Does nothing if the directory already exists.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Directory path to create")),
+		mcp.WithDescription(td("create_directory")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("create_directory", "path"))),
 	), createDirHandler)
 
 	s.AddTool(mcp.NewTool("delete_directory",
-		mcp.WithDescription(
-			"Delete a directory. "+
-				"By default the directory must be empty. "+
-				"Set force=true to delete the directory and all its contents recursively.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Directory path to delete")),
-		mcp.WithBoolean("force", mcp.Description("Delete non-empty directories recursively. Default: false")),
+		mcp.WithDescription(td("delete_directory")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("delete_directory", "path"))),
+		mcp.WithBoolean("force", mcp.Description(pd("delete_directory", "force"))),
 	), deleteDirHandler)
 
 	s.AddTool(mcp.NewTool("directory_tree",
-		mcp.WithDescription(
-			"Get a recursive tree view of files and directories as a visual tree (like the `tree` command). "+
-				"Each entry shows the file size. Directories are listed before files at each level. "+
-				"Ideal for understanding project structure at a glance. "+
-				"See also: list_directory for flat listings with sort and glob filtering.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Root directory to display")),
-		mcp.WithNumber("max_depth", mcp.Description("Maximum recursion depth. Default: 3")),
-		mcp.WithBoolean("show_hidden", mcp.Description("Include hidden files/directories (names starting with '.'). Default: false")),
+		mcp.WithDescription(td("directory_tree")),
+		mcp.WithString("path", mcp.Required(), mcp.Description(pd("directory_tree", "path"))),
+		mcp.WithNumber("max_depth", mcp.Description(pd("directory_tree", "max_depth"))),
+		mcp.WithBoolean("show_hidden", mcp.Description(pd("directory_tree", "show_hidden"))),
 		mcp.WithArray("exclude_patterns",
-			mcp.Description("Glob patterns of file/directory names to exclude (e.g. [\"*.log\", \"node_modules\"])"),
+			mcp.Description(pd("directory_tree", "exclude_patterns")),
 			mcp.Items(map[string]any{"type": "string"}),
 		),
 		mcp.WithString("glob",
-			mcp.Description("Only show files whose names match this glob pattern (e.g. *.go, *.{ts,tsx}). Supports {a,b} alternation. Directories are always shown. Default: all files"),
+			mcp.Description(pd("directory_tree", "glob")),
 		),
 	), dirTreeHandler)
 }
@@ -72,7 +54,11 @@ func registerDirTools(s *server.MCPServer) {
 func listDirHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	path := req.GetString("path", "")
 	if path == "" {
-		return mcp.NewToolResultError("path is required"), nil
+		var err error
+		path, err = os.Getwd()
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("cannot get working directory: %v", err)), nil
+		}
 	}
 
 	info, err := os.Stat(path)

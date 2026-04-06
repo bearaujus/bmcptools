@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI is Resting</title>
+<style>
+:root{
+  --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#c7c7cc;
+  --border:#e5e5ea;--chip-hover:#e5f0ff;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#000;--card:#1c1c1e;--text:#fff;--text2:#8e8e93;--text3:#48484a;
+  --border:#38383a;--chip-hover:#1a3460;
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+  background:var(--bg);min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:32px 16px;gap:16px;
+}
+.card{
+  background:var(--card);border-radius:24px;width:100%;max-width:480px;
+  box-shadow:0 8px 40px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.06);
+  overflow:hidden;
+}
+.rest-header{
+  text-align:center;padding:40px 32px 24px;border-bottom:1px solid var(--border);
+}
+.rest-icon{
+  font-size:56px;line-height:1;margin-bottom:16px;
+  animation:breathe 3s ease-in-out infinite;
+}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+.rest-title{font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px}
+.rest-sub{font-size:13px;color:var(--text2)}
+.rest-timer{
+  font-size:12px;font-weight:600;color:var(--text3);margin-top:10px;
+  font-variant-numeric:tabular-nums;
+}
+.rest-notes{
+  padding:20px 28px;
+  font-size:14px;color:var(--text);line-height:1.6;white-space:pre-wrap;
+  word-break:break-word;border-bottom:1px solid var(--border);
+}
+.rest-notes:empty{display:none}
+.wake-section{padding:20px 28px 28px;}
+.wake-label{
+  font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;
+  letter-spacing:.5px;margin-bottom:10px;
+}
+textarea{
+  width:100%;min-height:72px;
+  background:transparent;border:1.5px solid var(--border);
+  border-radius:14px;padding:10px 14px;
+  font:14px/1.5 -apple-system,sans-serif;color:var(--text);
+  resize:none;outline:none;overflow:hidden;transition:border-color .15s;margin-bottom:12px;
+}
+textarea:focus{border-color:#ff9f0a}
+textarea::placeholder{color:var(--text3)}
+.wake-btn{
+  width:100%;padding:13px;border:none;border-radius:14px;cursor:pointer;
+  background:linear-gradient(135deg,#ff9f0a,#ff6b00);color:#fff;
+  font-size:15px;font-weight:600;font-family:inherit;transition:all .15s;
+}
+.wake-btn:hover{filter:brightness(1.08)}
+/* Woken state */
+.woken-wrap{
+  display:none;text-align:center;padding:40px 32px;
+}
+.woken-icon{font-size:48px;margin-bottom:12px}
+.woken-title{font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px}
+.woken-sub{font-size:13px;color:var(--text2)}
+</style>
+</head>
+<body>
+
+<div class="card" id="mainCard">
+  <div class="rest-header">
+    <div class="rest-icon">😴</div>
+    <div class="rest-title">[[TITLE]] is resting</div>
+    <div class="rest-sub">[[SUBTITLE]]</div>
+    <div class="rest-timer" id="rtimer">Resting for <span id="rsec">0</span>s</div>
+  </div>
+  <div class="rest-notes">[[NOTES]]</div>
+  <div class="wake-section">
+    <div class="wake-label">Leave a note (optional)</div>
+    <textarea id="wakeNote" placeholder="e.g. Ready when you are! / I have a question about the last change…"></textarea>
+    <button class="wake-btn" onclick="wakeUp()">🔔 Wake Up the AI</button>
+  </div>
+</div>
+
+<div class="card" id="wokenCard" style="display:none">
+  <div class="woken-wrap">
+    <div class="woken-icon">⚡️</div>
+    <div class="woken-title">AI is waking up!</div>
+    <div class="woken-sub" id="wokenSub">Your message has been sent.</div>
+  </div>
+</div>
+
+<script>
+var startTime=Date.now();
+setInterval(function(){
+  document.getElementById('rsec').textContent=Math.floor((Date.now()-startTime)/1000);
+},1000);
+
+function wakeUp(){
+  var note=document.getElementById('wakeNote').value.trim();
+  var payload=JSON.stringify({notes:note});
+  fetch('/answer',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:payload
+  }).catch(function(){});
+  document.getElementById('mainCard').style.display='none';
+  document.getElementById('wokenCard').style.display='block';
+  if(note){
+    document.getElementById('wokenSub').textContent='"'+note.slice(0,80)+(note.length>80?'…':'')+'"';
+  }
+}
+
+// Keyboard shortcut: ⌘↵ to wake up
+document.addEventListener('keydown',function(e){
+  if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){wakeUp();}
+});
+</script>
+</body>
+</html>

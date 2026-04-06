@@ -16,49 +16,49 @@ import (
 
 func registerExecTools(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("get_working_directory",
-		mcp.WithDescription(
-			"Return the server's current working directory along with basic environment info "+
-				"(OS, hostname). Use this as your first call when you need to understand "+
-				"where you are in the filesystem before navigating or reading files.",
-		),
+		mcp.WithDescription(td("get_working_directory")),
 	), getWorkingDirectoryHandler)
 
 	s.AddTool(mcp.NewTool("run_command",
-		mcp.WithDescription(
-			"Execute a shell command and return its combined stdout+stderr output. "+
-				"Useful for running builds, tests, git operations, linters, and other CLI tools. "+
-				"Commands run with a configurable timeout (default 60 s, max 600 s). "+
-				"The working directory defaults to the current process directory but can be overridden.",
-		),
+		mcp.WithDescription(td("run_command")),
 		mcp.WithString("command",
 			mcp.Required(),
-			mcp.Description("The command to run (passed to the OS shell: cmd /C on Windows, sh -c elsewhere)"),
+			mcp.Description(pd("run_command", "command")),
 		),
 		mcp.WithString("cwd",
-			mcp.Description("Working directory for the command. Defaults to the server's working directory."),
+			mcp.Description(pd("run_command", "cwd")),
 		),
 		mcp.WithNumber("timeout_seconds",
-			mcp.Description("Maximum seconds to wait before killing the command. Default: 60, max: 600."),
+			mcp.Description(pd("run_command", "timeout_seconds")),
 		),
 		mcp.WithArray("env",
-			mcp.Description(
-				`Additional environment variables in ["KEY=value", ...] format. `+
-					`Merged on top of the current process environment. `+
-					`Example: ["GOFLAGS=-mod=vendor", "CGO_ENABLED=0"]`,
-			),
+			mcp.Description(pd("run_command", "env")),
 			mcp.Items(map[string]any{"type": "string"}),
 		),
 		mcp.WithNumber("max_output_bytes",
-			mcp.Description(
-				"Maximum bytes of command output to return. "+
-					"Useful when commands produce large output that could overwhelm context. "+
-					"Output is truncated from the end when the limit is exceeded. Default: no limit.",
-			),
+			mcp.Description(pd("run_command", "max_output_bytes")),
 		),
 		mcp.WithString("stdin",
-			mcp.Description("Content to pass to the command's standard input. Useful for commands that read from stdin (e.g. piping a script or data)."),
+			mcp.Description(pd("run_command", "stdin")),
+		),
+		mcp.WithBoolean("allow_nonzero_exit",
+			mcp.Description(pd("run_command", "allow_nonzero_exit")),
+		),
+		mcp.WithBoolean("detach",
+			mcp.Description(pd("run_command", "detach")),
 		),
 	), runCommandHandler)
+
+	s.AddTool(mcp.NewTool("open_in_app",
+		mcp.WithDescription(td("open_in_app")),
+		mcp.WithString("target",
+			mcp.Required(),
+			mcp.Description(pd("open_in_app", "target")),
+		),
+		mcp.WithString("app",
+			mcp.Description(pd("open_in_app", "app")),
+		),
+	), openInAppHandler)
 }
 
 func getWorkingDirectoryHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -85,10 +85,10 @@ func getWorkingDirectoryHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.
 	// Show a condensed PATH (first 3 entries).
 	if pathVal := os.Getenv("PATH"); pathVal != "" {
 		sep := string(os.PathListSeparator)
-		parts := strings.SplitN(pathVal, sep, 5)
-		display := strings.Join(parts[:min(3, len(parts))], sep)
-		if len(parts) > 3 {
-			display += fmt.Sprintf("%s... (+%d more)", sep, len(parts)-3)
+		allParts := strings.Split(pathVal, sep)
+		display := strings.Join(allParts[:min(3, len(allParts))], sep)
+		if len(allParts) > 3 {
+			display += fmt.Sprintf("%s... (+%d more)", sep, len(allParts)-3)
 		}
 		envLines = append(envLines, fmt.Sprintf("  %-14s %s", "PATH:", display))
 	}
@@ -123,14 +123,14 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		maxOutputBytes = int(mob)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
-	defer cancel()
+	allowNonzeroExit := req.GetBool("allow_nonzero_exit", false)
+	detach := req.GetBool("detach", false)
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+		cmd = exec.Command("cmd", "/C", command)
 	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+		cmd = exec.Command("sh", "-c", command)
 	}
 
 	if cwd != "" {
@@ -141,6 +141,56 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		cmd.Env = append(os.Environ(), extraEnv...)
 	}
 
+	// ── detach mode: start a fully independent background process ──────────────
+	if detach {
+		setSysProcDetach(cmd)
+
+		devNull, err := os.Open(os.DevNull)
+		if err == nil {
+			cmd.Stdin = devNull
+			defer devNull.Close()
+		}
+		// Stdout/Stderr are nil — the child inherits nothing after setsid.
+
+		if err := cmd.Start(); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to start detached process: %v", err)), nil
+		}
+		pid := cmd.Process.Pid
+		go func() { _ = cmd.Wait() }()
+
+		resolvedCWD := cwd
+		if resolvedCWD == "" {
+			resolvedCWD, _ = os.Getwd()
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Detached process started.\n")
+		fmt.Fprintf(&sb, "PID:     %d\n", pid)
+		fmt.Fprintf(&sb, "Command: %s\n", command)
+		fmt.Fprintf(&sb, "cwd:     %s\n", resolvedCWD)
+		fmt.Fprintf(&sb, "\nOutput is not captured. Use list_processes(filter=%q) to check status.", command[:min(30, len(command))])
+		return mcp.NewToolResultText(sb.String()), nil
+	}
+
+	// ── normal (blocking) mode ─────────────────────────────────────────────────
+	if stdinContent := req.GetString("stdin", ""); stdinContent != "" {
+		cmd.Stdin = strings.NewReader(stdinContent)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	// Re-create the command with context for timeout support.
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+	}
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+	if extraEnv := req.GetStringSlice("env", nil); len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
 	if stdinContent := req.GetString("stdin", ""); stdinContent != "" {
 		cmd.Stdin = strings.NewReader(stdinContent)
 	}
@@ -181,7 +231,7 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	fmt.Fprintf(&sb, "exit: %d  elapsed: %s\n\n", exitCode, elapsed.Round(time.Millisecond))
 	sb.WriteString(truncateOutput(output, maxOutputBytes))
 
-	if exitCode != 0 {
+	if exitCode != 0 && !allowNonzeroExit {
 		return mcp.NewToolResultError(sb.String()), nil
 	}
 	return mcp.NewToolResultText(sb.String()), nil
@@ -197,4 +247,40 @@ func truncateOutput(output string, maxBytes int) string {
 		"\n\n[Output truncated — showing first %s of %s. Use max_output_bytes to adjust.]",
 		humanizeBytes(int64(maxBytes)), humanizeBytes(int64(len(output))),
 	)
+}
+
+// ── open_in_app ───────────────────────────────────────────────────────────────
+
+func openInAppHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	target := req.GetString("target", "")
+	if strings.TrimSpace(target) == "" {
+		return mcp.NewToolResultError("target is required"), nil
+	}
+	app := req.GetString("app", "")
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		if app != "" {
+			cmd = exec.Command("open", "-a", app, target)
+		} else {
+			cmd = exec.Command("open", target)
+		}
+	case "windows":
+		cmd = exec.Command("cmd", "/C", "start", "", target)
+	default:
+		cmd = exec.Command("xdg-open", target)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to open %q: %v", target, err)), nil
+	}
+	// Detach — we don't wait for the application to exit.
+	go func() { _ = cmd.Wait() }()
+
+	msg := fmt.Sprintf("Opened %q", target)
+	if app != "" {
+		msg += fmt.Sprintf(" in %s", app)
+	}
+	return mcp.NewToolResultText(msg), nil
 }

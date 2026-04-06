@@ -19,64 +19,33 @@ var errBinaryFile = errors.New("binary file")
 
 func registerSearchTools(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("search_files",
-		mcp.WithDescription(
-			"Find files and directories whose names match a glob pattern. "+
-				"Supports standard glob wildcards: * (any chars in one segment), ** (any path), ? (one char), "+
-				"and alternation {a,b}. Multiple alternation groups are supported (e.g. {src,lib}/**/*.{ts,tsx}). "+
-				"Patterns without a path separator match the filename only. "+
-				"Patterns with / or ** are matched against the full path relative to the search root. "+
-				"Example patterns: *.go  |  **/*.json  |  src/**/*.{ts,tsx}  |  *emoji*  "+
-				"See also: grep_files to search inside file contents.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Root directory to search from")),
-		mcp.WithString("pattern", mcp.Required(), mcp.Description("Glob pattern to match file/directory names")),
-		mcp.WithBoolean("recursive", mcp.Description("Search subdirectories recursively. Default: true")),
-		mcp.WithNumber("max_results", mcp.Description("Maximum number of results to return. Default: 100")),
-		mcp.WithBoolean("show_hidden", mcp.Description("Include hidden files/directories (names starting with '.'). Default: false")),
+		mcp.WithDescription(td("search_files")),
+		mcp.WithString("path", mcp.Description(pd("search_files", "path"))),
+		mcp.WithString("pattern", mcp.Required(), mcp.Description(pd("search_files", "pattern"))),
+		mcp.WithBoolean("recursive", mcp.Description(pd("search_files", "recursive"))),
+		mcp.WithNumber("max_results", mcp.Description(pd("search_files", "max_results"))),
+		mcp.WithBoolean("show_hidden", mcp.Description(pd("search_files", "show_hidden"))),
 	), searchFilesHandler)
 
 	s.AddTool(mcp.NewTool("grep_files",
-		mcp.WithDescription(
-			"Search for a text pattern inside file contents. "+
-				"Returns each matching line with its file path and line number. "+
-				"When use_regex=false the pattern is treated as a literal string (fast, safe). "+
-				"When use_regex=true it is compiled as a Go regular expression. "+
-				"Handles files with Unicode/emoji content correctly. "+
-				"Binary files are automatically skipped and reported in the summary. "+
-				"The output header always shows how many files were searched and how many matches found.",
-		),
-		mcp.WithString("path", mcp.Required(), mcp.Description("File or directory to search")),
-		mcp.WithString("pattern", mcp.Required(), mcp.Description("Literal text or regular expression to search for")),
-		mcp.WithBoolean("use_regex", mcp.Description("Interpret pattern as a Go regular expression. Default: false")),
-		mcp.WithBoolean("case_insensitive", mcp.Description("Case-insensitive matching. Default: false")),
-		mcp.WithBoolean("recursive", mcp.Description("Search subdirectories recursively. Default: true")),
-		mcp.WithNumber("context_lines", mcp.Description("Lines of context to show before and after each match. Default: 0. Max: 50. Ignored when multiline=true.")),
-		mcp.WithNumber("max_results", mcp.Description("Maximum number of matches to return per page (content mode). Default: 50. For count/files_with_matches modes, max files to show.")),
-		mcp.WithNumber("offset", mcp.Description("Skip the first N matches before returning results. Use with max_results for pagination. Default: 0")),
+		mcp.WithDescription(td("grep_files")),
+		mcp.WithString("path", mcp.Description(pd("grep_files", "path"))),
+		mcp.WithString("pattern", mcp.Required(), mcp.Description(pd("grep_files", "pattern"))),
+		mcp.WithBoolean("use_regex", mcp.Description(pd("grep_files", "use_regex"))),
+		mcp.WithBoolean("case_insensitive", mcp.Description(pd("grep_files", "case_insensitive"))),
+		mcp.WithBoolean("recursive", mcp.Description(pd("grep_files", "recursive"))),
+		mcp.WithNumber("context_lines", mcp.Description(pd("grep_files", "context_lines"))),
+		mcp.WithNumber("max_results", mcp.Description(pd("grep_files", "max_results"))),
+		mcp.WithNumber("offset", mcp.Description(pd("grep_files", "offset"))),
 		mcp.WithString("glob",
-			mcp.Description("Only search files whose names match this glob pattern (e.g. *.go, *.{ts,tsx}). Supports {a,b} alternation. Default: all files"),
+			mcp.Description(pd("grep_files", "glob")),
 		),
 		mcp.WithString("output_mode",
-			mcp.Description(
-				`Controls how results are formatted. Default: "content".`+"\n"+
-					`  "content"            — full matching lines with line numbers (default)`+"\n"+
-					`  "files_with_matches" — only file paths, one per line (always scans all files)`+"\n"+
-					`  "count"              — match counts per file (always scans all files, most accurate)`,
-			),
+			mcp.Description(pd("grep_files", "output_mode")),
 		),
-		mcp.WithBoolean("show_hidden", mcp.Description("Include hidden files (names starting with '.'). Default: false")),
-		mcp.WithBoolean("multiline", mcp.Description(
-			"Enable multiline mode where patterns can span lines. Default: false. "+
-				"Use for cross-line patterns. In multiline mode, use_regex=false is treated "+
-				"as a literal string search across the full file content.",
-		)),
-		mcp.WithNumber("max_file_size",
-			mcp.Description(
-				"Skip files larger than this many bytes. "+
-					"Useful to avoid scanning large generated or minified files (e.g. go.sum, vendor bundles). "+
-					"Default: 0 (no limit).",
-			),
-		),
+		mcp.WithBoolean("show_hidden", mcp.Description(pd("grep_files", "show_hidden"))),
+		mcp.WithBoolean("multiline", mcp.Description(pd("grep_files", "multiline"))),
+		mcp.WithNumber("max_file_size", mcp.Description(pd("grep_files", "max_file_size"))),
 	), grepFilesHandler)
 }
 
@@ -85,7 +54,11 @@ func registerSearchTools(s *server.MCPServer) {
 func searchFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	root := req.GetString("path", "")
 	if root == "" {
-		return mcp.NewToolResultError("path is required"), nil
+		var err error
+		root, err = os.Getwd()
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("cannot get working directory: %v", err)), nil
+		}
 	}
 	pattern := req.GetString("pattern", "")
 	if pattern == "" {
@@ -293,7 +266,11 @@ type grepMatch struct {
 func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	root := req.GetString("path", "")
 	if root == "" {
-		return mcp.NewToolResultError("path is required"), nil
+		var err error
+		root, err = os.Getwd()
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("cannot get working directory: %v", err)), nil
+		}
 	}
 	pattern := req.GetString("pattern", "")
 	if pattern == "" {
@@ -394,6 +371,7 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	filesAttempted := 0
 	binarySkipped := 0
 	oversizeSkipped := 0
+	var binarySkippedPaths []string
 	limited := false
 	totalEligible := len(filesToSearch)
 
@@ -427,6 +405,7 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		if grepErr != nil {
 			if errors.Is(grepErr, errBinaryFile) {
 				binarySkipped++
+				binarySkippedPaths = append(binarySkippedPaths, filePath)
 			}
 			continue
 		}
@@ -471,6 +450,7 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 
 	if len(allMatches) == 0 {
 		msg := fmt.Sprintf("No matches for %q in %s (%s)", pattern, root, searchCtx)
+		msg += formatBinarySkippedFooter(binarySkippedPaths)
 		return mcp.NewToolResultText(msg), nil
 	}
 
@@ -493,6 +473,7 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		}
 		fmt.Fprintf(&sb, "\nTotal: %s across %s.",
 			pluralize(totalCollected, "match"), pluralize(len(files), "file"))
+		sb.WriteString(formatBinarySkippedFooter(binarySkippedPaths))
 
 	case "count":
 		fileCounts := make(map[string]int)
@@ -509,6 +490,7 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		}
 		fmt.Fprintf(&sb, "\nTotal: %s across %s.",
 			pluralize(totalCollected, "match"), pluralize(len(fileOrder), "file"))
+		sb.WriteString(formatBinarySkippedFooter(binarySkippedPaths))
 
 	default: // "content"
 		// Build match count description — append "+" when limited (more may exist).
@@ -537,9 +519,34 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 			fmt.Fprintf(&sb, "\n[Showing matches %d..%d of %d+ total — use offset=%d to see the next page]",
 				offset+1, offset+len(allMatches), totalCollected, nextOffset)
 		}
+		sb.WriteString(formatBinarySkippedFooter(binarySkippedPaths))
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+// formatBinarySkippedFooter returns a footnote listing skipped binary files.
+// Shows up to 10 names; truncates with "... and N more" for larger lists.
+func formatBinarySkippedFooter(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	const maxShow = 10
+	var sb strings.Builder
+	sb.WriteString("\nSkipped binary files:\n")
+	show := paths
+	extra := 0
+	if len(paths) > maxShow {
+		show = paths[:maxShow]
+		extra = len(paths) - maxShow
+	}
+	for _, p := range show {
+		fmt.Fprintf(&sb, "  %s\n", p)
+	}
+	if extra > 0 {
+		fmt.Fprintf(&sb, "  ... and %d more\n", extra)
+	}
+	return sb.String()
 }
 
 func grepFile(path string, matchFn func(string) bool, ctxLines, remaining int) ([]grepMatch, error) {

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>[[TITLE]]</title>
+<style>
+:root{
+  --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#c7c7cc;
+  --border:#e5e5ea;--chip-bg:#f0f0f5;--chip-hover:#e5f0ff;
+  --bubble-bg:#edf3ff;--reply-bg:#fff;--dismiss-bg:#f2f2f7;
+  --dismiss-fg:#3c3c43;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#000;--card:#1c1c1e;--text:#fff;--text2:#8e8e93;--text3:#48484a;
+  --border:#38383a;--chip-bg:#2c2c2e;--chip-hover:#1a3460;
+  --bubble-bg:#0a2560;--reply-bg:#1c1c1e;--dismiss-bg:#2c2c2e;
+  --dismiss-fg:#ebebf5;
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+  background:var(--bg);min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;
+  padding:32px 16px;gap:10px;
+}
+/* ── AI message card ── */
+.ai-card{
+  background:var(--card);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);overflow:hidden;
+}
+.header{display:flex;align-items:center;padding:14px 18px;gap:10px}
+.avatar{
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(140deg,#007aff,#5856d6);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.avatar svg{width:17px;height:17px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.header-info{flex:1}
+.header-name{font-size:13px;font-weight:600;color:var(--text)}
+.header-sub{font-size:11px;color:var(--text2)}
+.header-sub:empty{display:none}
+.timer-area{display:flex;align-items:center;gap:6px}
+.timer-badge{
+  font-size:12px;font-weight:600;color:var(--text2);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.timer-badge.urgent{color:#ff3b30}
+.timer-badge.paused{color:#34c759}
+.msg-area{padding:0 18px 14px}
+.bubble{
+  background:var(--bubble-bg);border-radius:4px 14px 14px 14px;
+  padding:12px 14px;font-size:14px;color:var(--text);line-height:1.6;white-space:pre-wrap;
+}
+/* ── Chips ── */
+.suggested-label{
+  font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;
+  letter-spacing:.5px;padding:14px 18px 8px;border-top:1px solid var(--border);
+}
+.chips-row{display:flex;flex-wrap:wrap;gap:7px;padding:0 18px 16px}
+.chip{
+  display:inline-flex;align-items:center;text-align:center;
+  padding:6px 13px;border-radius:14px;border:1.5px solid var(--border);
+  background:var(--chip-bg);color:var(--text);cursor:pointer;font-size:13px;
+  font-family:inherit;line-height:1.4;user-select:none;transition:all .15s;
+}
+.chip:hover{border-color:#007aff;background:var(--chip-hover);color:#007aff}
+.chip.sel{background:#007aff;border-color:#007aff;color:#fff;font-weight:500}
+/* ── Reply card ── */
+.reply-card{
+  background:var(--reply-bg);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);
+  overflow:hidden;border:1.5px solid var(--border);
+}
+.reply-header{
+  font-size:10px;font-weight:600;color:var(--text2);
+  text-transform:uppercase;letter-spacing:.5px;padding:12px 16px 8px;
+}
+textarea{
+  width:100%;min-height:90px;height:auto;
+  border:none;padding:0 16px 12px;
+  font:14px/1.55 -apple-system,sans-serif;color:var(--text);
+  resize:none;outline:none;background:transparent;overflow:hidden;
+}
+textarea::placeholder{color:var(--text3)}
+.reply-footer{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 16px 12px;border-top:1px solid var(--border);gap:8px;
+}
+.hint{font-size:11px;color:var(--text3)}
+.actions{display:flex;gap:8px}
+.btn{
+  padding:8px 16px;border-radius:9px;border:none;cursor:pointer;
+  font-size:13px;font-weight:500;font-family:inherit;line-height:1;transition:all .15s;
+}
+.btn-dismiss{background:var(--dismiss-bg);color:var(--dismiss-fg)}
+.btn-dismiss:hover{opacity:.7}
+.btn-send{background:#007aff;color:#fff;padding:8px 20px}
+.btn-send:not(:disabled):hover{background:#0066d6}
+.btn-send:disabled{opacity:.35;cursor:not-allowed}
+/* ── Progress bar ── */
+.progress{height:3px;background:var(--border);overflow:hidden}
+.progress-fill{
+  height:100%;background:linear-gradient(90deg,#5856d6,#007aff);
+  transition:width 1s linear;
+}
+/* ── Sent screen ── */
+.sent-wrap{
+  background:var(--card);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);
+  text-align:center;padding:48px 32px;display:none;
+}
+.sent-icon{
+  width:56px;height:56px;background:linear-gradient(140deg,#34c759,#30d158);
+  border-radius:50%;display:flex;align-items:center;justify-content:center;
+  margin:0 auto 14px;
+}
+.sent-icon svg{width:24px;height:24px;fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.sent-to{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+.sent-title{font-size:17px;font-weight:600;color:var(--text);margin-bottom:8px}
+.sent-preview{
+  font-size:13px;color:var(--text2);margin-bottom:16px;
+  max-width:380px;margin-left:auto;margin-right:auto;
+  font-style:italic;line-height:1.5;word-break:break-word;
+}
+/* ── Live updates (AI → dialog) ── */
+.updates-panel{border-top:1px solid var(--border);max-height:200px;overflow-y:auto;padding:8px 18px 6px;scroll-behavior:smooth}
+.upd-item{display:flex;gap:10px;align-items:flex-start;padding:4px 0;animation:upd-in .25s ease}
+@keyframes upd-in{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+.upd-dot{width:6px;height:6px;border-radius:50%;background:#007aff;margin-top:5px;flex-shrink:0}
+.upd-body{flex:1;min-width:0}
+.upd-text{font-size:13px;color:var(--text2);line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.upd-time{font-size:10px;color:var(--text3);margin-top:2px}
+</style>
+</head>
+<body>
+
+<div class="ai-card" id="aiCard">
+  <div class="header">
+    <div class="avatar">
+      <svg viewBox="0 0 24 24"><path d="M12 2l2.4 4.8L20 8l-4 3.8.9 5.2L12 14.5l-4.9 2.5.9-5.2L4 8l5.6-1.2z"/></svg>
+    </div>
+    <div class="header-info">
+      <div class="header-name">[[TITLE]]</div>
+      <div class="header-sub">[[SUBTITLE]]</div>
+    </div>
+    <div class="timer-area">
+      <div class="timer-badge" id="tbadge"></div>
+    </div>
+  </div>
+  <div class="msg-area">
+    <div class="bubble">[[QUESTION]]</div>
+  </div>
+  <div class="updates-panel" id="updatesPanel" style="display:none"></div>
+  [[CHIPS_SECTION]]
+</div>
+
+<div class="reply-card" id="replyCard">
+  <div class="reply-header">Your Reply</div>
+  <textarea id="ans" placeholder="Type your reply&#x2026; (or tap a suggestion above)"></textarea>
+  <div class="reply-footer">
+    <div class="hint" id="kbHint">&#8984;&#8629; to send</div>
+    <div class="actions">
+      <button class="btn btn-dismiss" onclick="done(null)">Dismiss</button>
+      <button class="btn btn-send" id="sendBtn" onclick="sendAnswer()" disabled>Send Reply &#x2192;</button>
+    </div>
+  </div>
+  <div class="progress"><div class="progress-fill" id="pfill" style="width:100%"></div></div>
+</div>
+
+<div class="sent-wrap" id="sentWrap">
+  <div class="sent-icon">
+    <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+  </div>
+  <div class="sent-to">Sent to [[TITLE]]</div>
+  <div class="sent-title">Reply delivered!</div>
+  <div class="sent-preview" id="sentPreview"></div>
+  <div class="sent-sub" id="cdown"></div>
+</div>
+
+<script>
+var total=600,rem=total,selIdx=-1,selVal='',allowFreeform=[[ALLOW_FREEFORM]];
+var timerPaused=false, resumeTimer=null;
+
+function fmt(s){var m=Math.floor(s/60),sec=s%60;return m+':'+(sec<10?'0':'')+sec;}
+var badge=document.getElementById('tbadge');
+badge.textContent=fmt(rem);
+
+var iv=setInterval(function(){
+  if(timerPaused)return;
+  rem--;
+  document.getElementById('pfill').style.width=(rem/total*100)+'%';
+  badge.textContent=fmt(rem);
+  if(rem<=60){badge.classList.add('urgent');badge.classList.remove('paused');}
+  else{badge.classList.remove('urgent');}
+  if(rem<=0){clearInterval(iv);done(null);}
+},1000);
+
+function pauseTimer(){
+  timerPaused=true;
+  badge.classList.remove('urgent');
+  badge.classList.add('paused');
+  badge.textContent='⏸ '+fmt(rem);
+  if(resumeTimer){clearTimeout(resumeTimer);}
+  resumeTimer=setTimeout(function(){
+    timerPaused=false;
+    badge.classList.remove('paused');
+    badge.textContent=fmt(rem);
+    if(rem<=60)badge.classList.add('urgent');
+  },3000);
+}
+
+function extendTime(){}
+
+function updateSend(){
+  var canSend=selVal!==''||document.getElementById('ans').value.trim()!=='';
+  document.getElementById('sendBtn').disabled=!canSend;
+}
+
+function pickChip(val,idx){
+  document.querySelectorAll('.chip').forEach(function(s){s.classList.remove('sel');});
+  if(!allowFreeform){
+    // In choices-only mode: tap = immediate submit.
+    done({choice:val,notes:''});
+    return;
+  }
+  rem=total;document.getElementById('pfill').style.width='100%';
+  badge.textContent=fmt(rem);badge.classList.remove('urgent');
+  pauseTimer();
+  if(selIdx===idx){selIdx=-1;selVal='';}
+  else{
+    document.getElementById('chip'+idx).classList.add('sel');
+    selIdx=idx;selVal=val;
+  }
+  updateSend();
+}
+
+function sendAnswer(){
+  var notes=document.getElementById('ans').value.trim();
+  done({choice:selVal,notes:notes});
+}
+
+function done(payload){
+  clearInterval(iv);
+  if(resumeTimer){clearTimeout(resumeTimer);}
+  var body=payload?JSON.stringify(payload):JSON.stringify({choice:'',notes:''});
+  fetch('/answer',{method:'POST',headers:{'Content-Type':'application/json'},body:body}).catch(function(){});
+  var combined=payload?(payload.choice?(payload.choice+(payload.notes?'\n\n'+payload.notes:'')):payload.notes):'';
+  document.getElementById('aiCard').style.display='none';
+  document.getElementById('replyCard').style.display='none';
+  var preview=combined.trim();
+  if(preview.length>100)preview=preview.slice(0,100)+'\u2026';
+  document.getElementById('sentPreview').textContent=preview?'"'+preview+'"':'(dismissed)';
+  document.getElementById('sentWrap').style.display='block';
+  // Try to auto-close; if browser blocks it, show a gentle hint instead.
+  setTimeout(function(){
+    try{window.close();}catch(e){}
+    // window.close() only works if this tab was opened by a script.
+    // If it's still open, show a close hint.
+    setTimeout(function(){
+      var el=document.getElementById('cdown');
+      if(el)el.textContent='You can close this tab \u2014 \u2318W';
+    },400);
+  },1500);
+}
+
+var ta=document.getElementById('ans');
+ta.addEventListener('input',function(){
+  this.style.height='auto';
+  this.style.height=this.scrollHeight+'px';
+  updateSend();
+  // Reset timer to 10 min on every keystroke so the dialog never closes mid-typing.
+  rem=total;
+  document.getElementById('pfill').style.width='100%';
+  badge.textContent=fmt(rem);
+  badge.classList.remove('urgent');
+  pauseTimer();
+});
+ta.addEventListener('keydown',function(e){
+  if((e.metaKey||e.ctrlKey)&&e.key==='Enter'&&!document.getElementById('sendBtn').disabled){
+    sendAnswer();
+  }
+});
+ta.focus();
+
+// Platform-adaptive keyboard shortcut hint
+(function(){
+  var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
+  var el=document.getElementById('kbHint');
+  if(el)el.textContent=isMac?'⌘↩ to send':'Ctrl+Enter to send';
+})();
+
+// When freeform is disabled, hide the reply card — chips submit directly.
+if(!allowFreeform){
+  document.getElementById('replyCard').style.display='none';
+  document.getElementById('aiCard').style.borderBottomLeftRadius='20px';
+  document.getElementById('aiCard').style.borderBottomRightRadius='20px';
+}
+
+// AI → dialog live updates via Server-Sent Events.
+// Messages from update_dialog appear instantly in the updates panel.
+(function(){
+  if(!window.EventSource) return;
+  var panel = document.getElementById('updatesPanel');
+  var es = new EventSource('/updates');
+  es.onmessage = function(e){
+    panel.style.display = 'block';
+    var item = document.createElement('div');
+    item.className = 'upd-item';
+    var now = new Date();
+    var t = now.getHours() + ':' + (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
+    item.innerHTML = '<div class="upd-dot"></div><div class="upd-body"><div class="upd-text"></div><div class="upd-time">' + t + '</div></div>';
+    item.querySelector('.upd-text').textContent = e.data;
+    panel.appendChild(item);
+    panel.scrollTop = panel.scrollHeight;
+  };
+  es.onerror = function(){ es.close(); };
+})();
+
+// Heartbeat: report user activity to the server every 5 s so the AI can see
+// whether the user is typing, idle, or has left — used by get_user_response.
+(function(){
+  var lastActivity=Date.now();
+  var isTyping=false;
+  function touch(){lastActivity=Date.now();}
+  document.addEventListener('mousemove',touch,{passive:true});
+  document.addEventListener('keydown',touch,{passive:true});
+  document.getElementById('ans').addEventListener('input',function(){
+    touch();
+    isTyping=this.value.trim().length>0;
+  });
+  setInterval(function(){
+    if(document.getElementById('sentWrap').style.display==='block')return;
+    var idle=(Date.now()-lastActivity)/1000;
+    fetch('/heartbeat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({typing:isTyping,idle_seconds:idle})
+    }).catch(function(){});
+  },5000);
+})();
+</script>
+</body>
+</html>
