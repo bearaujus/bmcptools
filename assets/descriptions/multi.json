@@ -1,13 +1,13 @@
 {
   "read_multiple_files": {
-    "desc": "Read multiple files at once. Each file's content is returned with its path as a header. Failed reads are reported inline.",
+    "desc": "Read multiple files at once in a single call — more efficient than calling read_file repeatedly. Each file's content is returned with its path as a header. Failed reads are reported inline.",
     "params": {
       "paths": "Array of file paths to read",
       "max_bytes_per_file": "Max bytes per file. Default: 10485760 (10 MB)."
     }
   },
   "write_multiple_files": {
-    "desc": "Write content to multiple files in one call. Creates or overwrites each file. Creates parent dirs automatically.",
+    "desc": "Write content to multiple files in a single call — more efficient than calling write_file repeatedly. Creates or overwrites each file. Creates parent dirs automatically.",
     "params": {
       "files": "Array of {\"path\": \"...\", \"content\": \"...\"} objects to write",
       "create_dirs": "Create missing parent directories. Default: true"

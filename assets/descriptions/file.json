@@ -28,7 +28,7 @@
     }
   },
   "edit_file": {
-    "desc": "Find-and-replace text in a file. Two modes: single edit (old_str + new_str) or batch edits array. Supports Go regex with $1,$2 back-references. Returns a unified diff.",
+    "desc": "Find-and-replace text in a file. Two modes: single edit (old_str + new_str) or batch edits array. Prefer batch mode when making multiple changes to the same file — more efficient than repeated single-edit calls. Supports Go regex with $1,$2 back-references. Returns a unified diff.",
     "params": {
       "path": "Path to the file",
       "old_str": "Text (or regex) to find — single-edit mode",
@@ -63,19 +63,19 @@
     }
   },
   "get_file_info": {
-    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, and whether it is a symbolic link.",
+    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, and whether it is a symbolic link. Also includes line count for text files — useful to know before using start_line/end_line in read_file.",
     "params": {
       "path": "Path to the file or directory"
     }
   },
   "path_exists": {
-    "desc": "Check whether a path exists and return its type (file/directory/symlink) and size.",
+    "desc": "Lightweight check whether a path exists and return its type (file/directory/symlink) and size. Use before read/write operations to branch on whether a path already exists — faster than read_file or get_file_info when you only need existence.",
     "params": {
       "path": "Path to check"
     }
   },
   "diff_files": {
-    "desc": "Compare two files and return a unified diff. Returns empty when files are identical.",
+    "desc": "Compare two files and return a unified diff. Returns empty when files are identical. Cross-platform — prefer this over running diff via run_command.",
     "params": {
       "path_a": "First file (before / original)",
       "path_b": "Second file (after / modified)",
@@ -83,7 +83,7 @@
     }
   },
   "calculate_checksum": {
-    "desc": "Calculate MD5, SHA1, or SHA256 checksum of one or more files.",
+    "desc": "Calculate MD5, SHA1, or SHA256 checksum of one or more files. Cross-platform — prefer this over running md5sum/shasum/sha256sum via run_command.",
     "params": {
       "paths": "File paths to checksum",
       "algorithm": "Hash algorithm: \"md5\", \"sha1\", or \"sha256\". Default: \"sha256\""

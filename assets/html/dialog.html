@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>[[TITLE]]</title>
+[[MD_CSS]]
 <style>
 :root{
   --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#c7c7cc;
@@ -40,17 +41,26 @@ body{
 .header-name{font-size:13px;font-weight:600;color:var(--text)}
 .header-sub{font-size:11px;color:var(--text2)}
 .header-sub:empty{display:none}
-.timer-area{display:flex;align-items:center;gap:6px}
+.timer-area{display:flex;align-items:center;gap:6px;position:relative}
 .timer-badge{
   font-size:12px;font-weight:600;color:var(--text2);
-  font-variant-numeric:tabular-nums;white-space:nowrap;
+  font-variant-numeric:tabular-nums;white-space:nowrap;cursor:default;
 }
+.timer-badge::after{
+  content:'Closes when time runs out';
+  position:absolute;right:0;top:calc(100% + 5px);
+  background:var(--text);color:var(--card);
+  font-size:11px;font-weight:400;
+  padding:4px 8px;border-radius:6px;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity .15s;
+}
+.timer-area:hover .timer-badge::after{opacity:1}
 .timer-badge.urgent{color:#ff3b30}
 .timer-badge.paused{color:#34c759}
 .msg-area{padding:0 18px 14px}
 .bubble{
   background:var(--bubble-bg);border-radius:4px 14px 14px 14px;
-  padding:12px 14px;font-size:14px;color:var(--text);line-height:1.6;white-space:pre-wrap;
+  padding:12px 14px;font-size:14px;color:var(--text);line-height:1.6;
 }
 /* ── Chips ── */
 .suggested-label{
@@ -88,6 +98,9 @@ textarea::placeholder{color:var(--text3)}
   padding:8px 16px 12px;border-top:1px solid var(--border);gap:8px;
 }
 .hint{font-size:11px;color:var(--text3)}
+.char-count{font-size:11px;color:var(--text3);transition:color .2s}
+.char-count.warn{color:#ff9f0a}
+.char-count.limit{color:#ff3b30}
 .actions{display:flex;gap:8px}
 .btn{
   padding:8px 16px;border-radius:9px;border:none;cursor:pointer;
@@ -108,28 +121,59 @@ textarea::placeholder{color:var(--text3)}
 .sent-wrap{
   background:var(--card);border-radius:20px;width:100%;max-width:560px;
   box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);
-  text-align:center;padding:48px 32px;display:none;
+  display:none;overflow:hidden;animation:slide-up .3s ease;
 }
-.sent-icon{
-  width:56px;height:56px;background:linear-gradient(140deg,#34c759,#30d158);
-  border-radius:50%;display:flex;align-items:center;justify-content:center;
-  margin:0 auto 14px;
+@keyframes slide-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+/* ── Sent header ── */
+.sent-header{
+  display:flex;align-items:center;gap:10px;
+  padding:16px 18px 12px;border-bottom:1px solid var(--border);
 }
-.sent-icon svg{width:24px;height:24px;fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
-.sent-to{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
-.sent-title{font-size:17px;font-weight:600;color:var(--text);margin-bottom:8px}
-.sent-preview{
-  font-size:13px;color:var(--text2);margin-bottom:16px;
-  max-width:380px;margin-left:auto;margin-right:auto;
-  font-style:italic;line-height:1.5;word-break:break-word;
+.sent-status-icon{
+  width:32px;height:32px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
 }
+.sent-status-icon.ok{background:linear-gradient(140deg,#34c759,#30d158)}
+.sent-status-icon.dismissed{background:var(--chip-bg)}
+.sent-status-icon svg{width:15px;height:15px;fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.sent-status-icon.dismissed svg{stroke:var(--text2)}
+.sent-header-body{flex:1}
+.sent-label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.4px}
+.sent-sublabel{font-size:12px;color:var(--text2);margin-top:1px}
+.sent-time{font-size:11px;color:var(--text3);white-space:nowrap}
+/* ── Reply preview bubble ── */
+.sent-bubble-wrap{padding:14px 18px}
+.sent-bubble{
+  background:var(--bubble-bg);border-radius:4px 14px 14px 14px;
+  padding:10px 13px;font-size:13.5px;color:var(--text);line-height:1.55;
+  word-break:break-word;white-space:pre-wrap;max-height:160px;overflow-y:auto;
+}
+.sent-bubble.empty{color:var(--text3);font-style:italic}
+/* ── Footer ── */
+.sent-footer{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 18px 14px;
+}
+.sent-processing{
+  display:flex;align-items:center;gap:7px;
+  font-size:12px;color:var(--text2);
+}
+.processing-dots{display:flex;gap:3px;align-items:center}
+.processing-dots span{
+  width:5px;height:5px;border-radius:50%;background:#007aff;
+  animation:pd .9s infinite;
+}
+.processing-dots span:nth-child(2){animation-delay:.2s}
+.processing-dots span:nth-child(3){animation-delay:.4s}
+@keyframes pd{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
+.sent-close-hint{font-size:11px;color:var(--text3)}
 /* ── Live updates (AI → dialog) ── */
 .updates-panel{border-top:1px solid var(--border);max-height:200px;overflow-y:auto;padding:8px 18px 6px;scroll-behavior:smooth}
 .upd-item{display:flex;gap:10px;align-items:flex-start;padding:4px 0;animation:upd-in .25s ease}
 @keyframes upd-in{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
 .upd-dot{width:6px;height:6px;border-radius:50%;background:#007aff;margin-top:5px;flex-shrink:0}
 .upd-body{flex:1;min-width:0}
-.upd-text{font-size:13px;color:var(--text2);line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.upd-text{font-size:13px;color:var(--text2);line-height:1.5;word-break:break-word}
 .upd-time{font-size:10px;color:var(--text3);margin-top:2px}
 </style>
 </head>
@@ -149,7 +193,7 @@ textarea::placeholder{color:var(--text3)}
     </div>
   </div>
   <div class="msg-area">
-    <div class="bubble">[[QUESTION]]</div>
+    <div class="bubble md-body">[[QUESTION]]</div>
   </div>
   <div class="updates-panel" id="updatesPanel" style="display:none"></div>
   [[CHIPS_SECTION]]
@@ -159,9 +203,12 @@ textarea::placeholder{color:var(--text3)}
   <div class="reply-header">Your Reply</div>
   <textarea id="ans" placeholder="Type your reply&#x2026; (or tap a suggestion above)"></textarea>
   <div class="reply-footer">
-    <div class="hint" id="kbHint">&#8984;&#8629; to send</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="hint" id="kbHint">&#8984;&#8629; to send</div>
+      <div class="char-count" id="charCount"></div>
+    </div>
     <div class="actions">
-      <button class="btn btn-dismiss" onclick="done(null)">Dismiss</button>
+      <button class="btn btn-dismiss" onclick="done(null)" title="Close without sending a reply">No Reply</button>
       <button class="btn btn-send" id="sendBtn" onclick="sendAnswer()" disabled>Send Reply &#x2192;</button>
     </div>
   </div>
@@ -169,16 +216,36 @@ textarea::placeholder{color:var(--text3)}
 </div>
 
 <div class="sent-wrap" id="sentWrap">
-  <div class="sent-icon">
-    <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+  <div class="sent-header">
+    <div class="sent-status-icon ok" id="sentIcon">
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <div class="sent-header-body">
+      <div class="sent-label" id="sentLabel">Reply sent</div>
+      <div class="sent-sublabel" id="sentSublabel">Your reply has been delivered to [[TITLE]]</div>
+    </div>
+    <div class="sent-time" id="sentTime"></div>
   </div>
-  <div class="sent-to">Sent to [[TITLE]]</div>
-  <div class="sent-title">Reply delivered!</div>
-  <div class="sent-preview" id="sentPreview"></div>
-  <div class="sent-sub" id="cdown"></div>
+  <div class="sent-bubble-wrap" id="sentBubbleWrap">
+    <div class="sent-bubble" id="sentBubble"></div>
+  </div>
+  <div class="sent-footer">
+    <div class="sent-processing" id="sentProcessing">
+      <div class="processing-dots"><span></span><span></span><span></span></div>
+      <span>AI is processing your reply…</span>
+    </div>
+    <div class="sent-close-hint" id="sentCloseHint"></div>
+  </div>
 </div>
 
+[[MD_JS]]
 <script>
+// Render the AI question bubble as markdown.
+(function(){
+  var b=document.querySelector('.bubble');
+  if(b){b.innerHTML=mdRender(b.textContent);}
+})();
+
 var total=600,rem=total,selIdx=-1,selVal='',allowFreeform=[[ALLOW_FREEFORM]];
 var timerPaused=false, resumeTimer=null;
 
@@ -245,30 +312,57 @@ function done(payload){
   if(resumeTimer){clearTimeout(resumeTimer);}
   var body=payload?JSON.stringify(payload):JSON.stringify({choice:'',notes:''});
   fetch('/answer',{method:'POST',headers:{'Content-Type':'application/json'},body:body}).catch(function(){});
+
   var combined=payload?(payload.choice?(payload.choice+(payload.notes?'\n\n'+payload.notes:'')):payload.notes):'';
+  var isDismissed=!combined.trim();
+
   document.getElementById('aiCard').style.display='none';
   document.getElementById('replyCard').style.display='none';
-  var preview=combined.trim();
-  if(preview.length>100)preview=preview.slice(0,100)+'\u2026';
-  document.getElementById('sentPreview').textContent=preview?'"'+preview+'"':'(dismissed)';
   document.getElementById('sentWrap').style.display='block';
-  // Try to auto-close; if browser blocks it, show a gentle hint instead.
+
+  // Timestamp
+  var now=new Date();
+  document.getElementById('sentTime').textContent=
+    (now.getHours()<10?'0':'')+now.getHours()+':'+(now.getMinutes()<10?'0':'')+now.getMinutes();
+
+  if(isDismissed){
+    var icon=document.getElementById('sentIcon');
+    icon.classList.remove('ok');icon.classList.add('dismissed');
+    icon.innerHTML='<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    document.getElementById('sentLabel').textContent='Dismissed';
+    document.getElementById('sentSublabel').textContent='No reply was sent';
+    document.getElementById('sentBubble').textContent='No reply';
+    document.getElementById('sentBubble').classList.add('empty');
+    document.getElementById('sentProcessing').style.display='none';
+  } else {
+    document.getElementById('sentBubble').textContent=combined.trim();
+  }
+
+  // Try to auto-close; show keyboard hint if browser blocks it.
   setTimeout(function(){
     try{window.close();}catch(e){}
-    // window.close() only works if this tab was opened by a script.
-    // If it's still open, show a close hint.
     setTimeout(function(){
-      var el=document.getElementById('cdown');
-      if(el)el.textContent='You can close this tab \u2014 \u2318W';
+      var hint=document.getElementById('sentCloseHint');
+      var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
+      if(hint)hint.textContent='Close tab \u2014 '+(isMac?'\u2318W':'Ctrl+W');
     },400);
   },1500);
 }
 
 var ta=document.getElementById('ans');
+var charCountEl=document.getElementById('charCount');
 ta.addEventListener('input',function(){
   this.style.height='auto';
   this.style.height=this.scrollHeight+'px';
   updateSend();
+  // Update character counter
+  var len=this.value.length;
+  if(len>0){
+    charCountEl.textContent=len+' char'+(len===1?'':'s');
+    charCountEl.className='char-count'+(len>800?' warn':len>1200?' limit':'');
+  } else {
+    charCountEl.textContent='';
+  }
   // Reset timer to 10 min on every keystroke so the dialog never closes mid-typing.
   rem=total;
   document.getElementById('pfill').style.width='100%';
@@ -310,7 +404,7 @@ if(!allowFreeform){
     var now = new Date();
     var t = now.getHours() + ':' + (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
     item.innerHTML = '<div class="upd-dot"></div><div class="upd-body"><div class="upd-text"></div><div class="upd-time">' + t + '</div></div>';
-    item.querySelector('.upd-text').textContent = e.data;
+    item.querySelector('.upd-text').innerHTML = mdRender(e.data);
     panel.appendChild(item);
     panel.scrollTop = panel.scrollHeight;
   };

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>[[TITLE]]</title>
+[[MD_CSS]]
 <style>
 :root{
   --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#c7c7cc;
@@ -71,7 +72,7 @@ body{
 .msg-avatar svg{width:11px;height:11px;fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
 .bubble{
   max-width:72%;padding:9px 13px;border-radius:18px;
-  font-size:14px;line-height:1.55;word-break:break-word;white-space:pre-wrap;
+  font-size:14px;line-height:1.55;word-break:break-word;
 }
 .msg.ai .bubble{
   background:var(--ai-bubble);color:var(--ai-text);
@@ -79,7 +80,7 @@ body{
 }
 .msg.user .bubble{
   background:var(--user-bubble);color:var(--user-text);
-  border-bottom-right-radius:4px;
+  border-bottom-right-radius:4px;white-space:pre-wrap;
 }
 .msg-time{font-size:10px;color:var(--text3);margin:2px 4px 0;align-self:flex-end;flex-shrink:0}
 .read-receipt{font-size:10px;color:var(--text3);align-self:flex-end;flex-shrink:0;margin-bottom:1px}
@@ -186,7 +187,10 @@ textarea::placeholder{color:var(--text3)}
   <div class="input-hint" id="kbHint"></div>
 </div>
 
+[[MD_JS]]
 <script>
+// Markdown + copyCode loaded from [[MD_JS]] above — mdRender and copyCode are available globally.
+
 var messages=document.getElementById('messages');
 var inp=document.getElementById('inp');
 var sendBtn=document.getElementById('sendBtn');
@@ -212,8 +216,13 @@ function appendMsg(side, text){
     ? '<div class="msg-avatar"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 4.8L20 8l-4 3.8.9 5.2L12 14.5l-4.9 2.5.9-5.2L4 8l5.6-1.2z"/></svg></div>'
     : '';
   var bubble=document.createElement('div');
-  bubble.className='bubble';
-  bubble.textContent=text.replace(/\\n/g,'\n');
+  bubble.className = side==='ai' ? 'bubble md-body' : 'bubble';
+  var rawText = text.replace(/\\n/g,'\n');
+  if(side==='ai'){
+    bubble.innerHTML=mdRender(rawText);
+  } else {
+    bubble.textContent=rawText;
+  }
   if(side==='ai'){
     if(avatarHtml){var av=document.createElement('div');av.innerHTML=avatarHtml;row.appendChild(av.firstChild);}
     row.appendChild(bubble);

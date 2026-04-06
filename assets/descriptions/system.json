@@ -10,7 +10,7 @@
     "params": {}
   },
   "http_request": {
-    "desc": "Make an HTTP request. Returns status code, response body (JSON auto-pretty-printed), and timing.",
+    "desc": "Make an HTTP request. Returns status code, response body (JSON auto-pretty-printed), and timing. Cross-platform — prefer this over running curl/wget via run_command.",
     "params": {
       "url": "The full URL to request.",
       "method": "HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS. Default: GET.",
@@ -23,7 +23,7 @@
     }
   },
   "list_processes": {
-    "desc": "List running processes with PID, name, CPU%, memory%, and full command. Optionally filter by name.",
+    "desc": "List running processes with PID, name, CPU%, memory%, and full command. Cross-platform — prefer this over running ps/tasklist via run_command. Optionally filter by name.",
     "params": {
       "filter": "Case-insensitive substring to filter by name or command. Omit to list all.",
       "sort_by": "Sort by \"pid\" (default), \"cpu\", or \"mem\".",

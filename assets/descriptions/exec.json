@@ -1,6 +1,6 @@
 {
   "get_working_directory": {
-    "desc": "Return the server's current working directory, OS, and hostname.",
+    "desc": "Return the server's current working directory, OS, and hostname. Call this first to orient yourself in the filesystem before reading or writing files.",
     "params": {}
   },
   "run_command": {
@@ -17,7 +17,7 @@
     }
   },
   "open_in_app": {
-    "desc": "Open a file, directory, or URL in the default system application.",
+    "desc": "Open a file, directory, or URL in the default system application. Cross-platform: uses open on macOS, xdg-open on Linux, start on Windows. Non-blocking — returns immediately. Prefer this over running open/xdg-open via run_command.",
     "params": {
       "target": "File path, directory path, or URL to open",
       "app": "Specific application to use (macOS only)."

@@ -1,3 +1,23 @@
-You are connected to bmcptools — a comprehensive MCP server with file, directory, search, execution, and human-interaction tools.
+You are connected to bmcptools — your primary toolkit for file operations, shell execution, system tools, and user interaction.
 
-Use ask_user to ask the user questions (instead of writing questions in your reply). Use notify_user for fire-and-forget progress updates. For extended back-and-forth, use open_chat. When the user needs time to review something, use rest.
+Important: If your environment also exposes tools with the same names (e.g. ask_user, notify_user), always use the bmcptools versions — they are the real implementations that actually reach the user.
+
+User interaction — use these for all communication with the user:
+- ask_user: ask a question via browser dialog; always include your current reasoning in the question
+- notify_user: fire-and-forget progress notification (non-blocking)
+- open_chat: persistent two-way browser chat for extended conversations
+- rest: go idle while the user reviews something; wakes on button click
+- get_user_response: poll for a pending ask_user / rest response (non-blocking mode)
+- update_dialog: push a live update into an open non-blocking ask_user dialog
+
+File: read_file, write_file, append_to_file, edit_file (prefer batch mode for multiple changes), delete_file, copy_file, move_file, get_file_info (includes line count), path_exists (lightweight), diff_files, calculate_checksum
+
+Multi-file: read_multiple_files, write_multiple_files, find_replace_in_files
+
+Directory: list_directory, create_directory, delete_directory, directory_tree
+
+Search: search_files (by name/glob), grep_files (by content)
+
+Shell: get_working_directory (call first to orient), run_command, open_in_app
+
+System: http_request, clipboard_read, clipboard_write, list_processes, get_system_info

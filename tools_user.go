@@ -31,6 +31,12 @@ var chatHTMLTemplate string
 //go:embed assets/html/rest.html
 var restHTMLTemplate string
 
+//go:embed assets/html/md.css
+var mdCSS string
+
+//go:embed assets/html/md.js
+var mdJS string
+
 // askUserMu ensures at most one ask_user dialog is visible at a time.
 // Concurrent calls queue and are served in arrival order.
 var askUserMu sync.Mutex
@@ -1136,6 +1142,8 @@ func buildMacDialogHTML(question, title, subtitle string, allowFreeform bool, ch
 	page = strings.ReplaceAll(page, "[[CHIPS_SECTION]]", chipsSection)
 	page = strings.ReplaceAll(page, "[[TIMEOUT_SEC]]", fmt.Sprintf("%d", timeoutSec))
 	page = strings.ReplaceAll(page, "[[ALLOW_FREEFORM]]", allowFreeformVal)
+	page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+mdCSS+"\n</style>")
+	page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+mdJS+"\n</script>")
 	return page
 }
 
@@ -1144,6 +1152,8 @@ func buildMacDialogHTML(question, title, subtitle string, allowFreeform bool, ch
 func buildChatHTML(title, subtitle string) string {
 	page := strings.ReplaceAll(chatHTMLTemplate, "[[TITLE]]", html.EscapeString(title))
 	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
+	page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+mdCSS+"\n</style>")
+	page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+mdJS+"\n</script>")
 	return page
 }
 

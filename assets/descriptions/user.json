@@ -1,6 +1,6 @@
 {
   "notify_user": {
-    "desc": "Send a non-blocking toast notification to the user. Does not wait for a response.",
+    "desc": "Send a non-blocking fire-and-forget notification. Use for progress updates like \"Starting analysis…\" or \"Build complete.\" — never blocks. For questions that need an answer, use ask_user instead.",
     "params": {
       "message": "The message to display",
       "title": "Notification title. Default: \"AI Assistant\"",
@@ -9,9 +9,9 @@
     }
   },
   "ask_user": {
-    "desc": "Ask the user a question via a dialog and wait for their answer. Use this instead of asking questions in response text. A browser-based dialog appears (falls back to console). Set non_blocking=true if your MCP client has a short timeout, then poll with get_user_response.",
+    "desc": "Ask the user a question via a dialog and wait for their answer. This is the primary way to communicate with the user — it opens a real browser dialog that the user will actually see and respond to. Always prefer this over writing questions in your response text. If your environment has other tools also named ask_user, use this one (bmcptools). Set non_blocking=true if your MCP client has a short timeout, then poll with get_user_response.",
     "params": {
-      "question": "The question to present to the user",
+      "question": "The question to ask. Include your current reasoning and context so the user understands what you are doing and why you are asking — not just the bare question.",
       "title": "Dialog window title. Default: \"AI Assistant\"",
       "subtitle": "Subtitle shown below the title (e.g. your agent name).",
       "choices": "Optional quick-reply chips. User can tap a chip and/or type a custom reply.",
@@ -36,7 +36,7 @@
     }
   },
   "open_chat": {
-    "desc": "Open a persistent two-way browser chat window. Returns a chat_id. macOS only.",
+    "desc": "Open a persistent two-way browser chat window for extended back-and-forth conversations. Unlike ask_user (one question → one reply), this keeps the window open for multiple exchanges. Returns a chat_id. macOS only.",
     "params": {
       "title": "Title shown in the chat window. Default: \"AI Assistant\"",
       "subtitle": "Optional subtitle (e.g. your agent or model name)."
@@ -63,7 +63,7 @@
     }
   },
   "rest": {
-    "desc": "Show an 'AI is resting' page so the user can wake you when ready. Returns a poll token (use get_user_response). macOS only.",
+    "desc": "Let the AI go idle and show an 'AI is resting' browser page with a wake-up button. Use when the user needs time to review something (e.g. a diff, a document). Returns a poll token — use get_user_response to detect when the user wakes you. macOS only.",
     "params": {
       "notes": "Message shown to the user while resting.",
       "title": "Name shown in the resting UI. Default: \"AI Assistant\"",
