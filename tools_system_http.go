@@ -14,7 +14,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-func httpRequestHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	rawURL := req.GetString("url", "")
 	if strings.TrimSpace(rawURL) == "" {
 		return mcp.NewToolResultError("url is required"), nil
@@ -42,7 +42,7 @@ func httpRequestHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 		bodyReader = strings.NewReader(bodyStr)
 	}
 
-	httpReq, err := http.NewRequest(method, rawURL, bodyReader)
+	httpReq, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid request: %v", err)), nil
 	}

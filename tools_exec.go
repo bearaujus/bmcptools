@@ -98,7 +98,10 @@ func getWorkingDirectoryHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.
 	return mcp.NewToolResultText(sb.String()), nil
 }
 
-func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	command := req.GetString("command", "")
 	if strings.TrimSpace(command) == "" {
 		return mcp.NewToolResultError("command is required"), nil
@@ -167,14 +170,14 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	}
 
 	// ── normal (blocking) mode ─────────────────────────────────────────────────
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+		cmd = exec.CommandContext(cmdCtx, "cmd", "/C", command)
 	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+		cmd = exec.CommandContext(cmdCtx, "sh", "-c", command)
 	}
 	if cwd != "" {
 		cmd.Dir = cwd
@@ -196,7 +199,7 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 
 	output := buf.String()
 
-	if runErr != nil && ctx.Err() == context.DeadlineExceeded {
+	if runErr != nil && cmdCtx.Err() == context.DeadlineExceeded {
 		return mcp.NewToolResultError(
 			fmt.Sprintf("command timed out after %.1fs: %s\n\nPartial output:\n%s", timeoutSec, command, truncateOutput(output, maxOutputBytes)),
 		), nil
