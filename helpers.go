@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	pluralizelib "github.com/gertd/go-pluralize"
@@ -547,8 +548,12 @@ func applyReplaceToFile(filePath, oldStr, newStr string, useRegex, dryRun, produ
 	}
 
 	if !dryRun {
-		if err := os.WriteFile(filePath, []byte(modified), 0o644); err != nil {
-			return count, diff, false, err
+		absPath, _ := filepath.Abs(filePath)
+		unlock := lockFile(absPath)
+		wErr := atomicWriteFile(filePath, []byte(modified), 0o644)
+		unlock()
+		if wErr != nil {
+			return count, diff, false, wErr
 		}
 	}
 	return count, diff, false, nil
@@ -587,4 +592,81 @@ func hashFile(path, algorithm string) (string, int64, error) {
 		return "", 0, fmt.Errorf("read error: %w", err)
 	}
 	return hex.EncodeToString(h.Sum(nil)), info.Size(), nil
+}
+
+// ── file-level write locking ──────────────────────────────────────────────────
+
+// fileLocks serializes concurrent writes to the same absolute file path,
+// preventing silent data loss when two tool calls race on the same file.
+var fileLocks sync.Map // map[string]*sync.Mutex
+
+// lockFile returns the per-file mutex for the given absolute path and locks it.
+// The caller must call the returned unlock function when done.
+func lockFile(absPath string) func() {
+v, _ := fileLocks.LoadOrStore(absPath, &sync.Mutex{})
+mu := v.(*sync.Mutex)
+mu.Lock()
+return mu.Unlock
+}
+
+// ── mkdir helpers ─────────────────────────────────────────────────────────────
+
+// mkdirAllClear calls os.MkdirAll and, on failure, augments the error message
+// to identify the specific path component that is blocking directory creation
+// (e.g. an existing file occupying a directory slot).
+func mkdirAllClear(dir string, perm os.FileMode) error {
+if err := os.MkdirAll(dir, perm); err == nil {
+return nil
+}
+// Walk path segments to find the blocking component.
+parts := strings.Split(filepath.ToSlash(filepath.Clean(dir)), "/")
+cur := ""
+if filepath.IsAbs(dir) {
+cur = "/"
+}
+for _, part := range parts {
+if part == "" {
+continue
+}
+cur = filepath.Join(cur, part)
+info, statErr := os.Stat(cur)
+if statErr != nil {
+break
+}
+if !info.IsDir() {
+return fmt.Errorf("%q already exists as a file; cannot create a directory there", cur)
+}
+}
+// Fall back to re-running MkdirAll to surface the original OS error.
+return os.MkdirAll(dir, perm)
+}
+
+// ── atomic file writes ────────────────────────────────────────────────────────
+
+// atomicWriteFile writes content to path atomically: it creates a temp file in
+// the same directory, writes the content, then renames it to path. This ensures
+// that a crash or interrupt never leaves the target file in a partial state.
+func atomicWriteFile(path string, content []byte, perm os.FileMode) error {
+dir := filepath.Dir(path)
+tmp, err := os.CreateTemp(dir, ".bmcptools-write-*")
+if err != nil {
+return err
+}
+tmpPath := tmp.Name()
+
+if _, err := tmp.Write(content); err != nil {
+_ = tmp.Close()
+_ = os.Remove(tmpPath)
+return err
+}
+if err := tmp.Chmod(perm); err != nil {
+_ = tmp.Close()
+_ = os.Remove(tmpPath)
+return err
+}
+if err := tmp.Close(); err != nil {
+_ = os.Remove(tmpPath)
+return err
+}
+return os.Rename(tmpPath, path)
 }

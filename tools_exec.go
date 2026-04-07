@@ -47,6 +47,9 @@ func registerExecTools(s *server.MCPServer) {
 		mcp.WithBoolean("detach",
 			mcp.Description(pd("run_command", "detach")),
 		),
+		mcp.WithBoolean("raw_output",
+			mcp.Description("When true, return only stdout/stderr without the metadata header (command echo, cwd, exit code). Useful for programmatic output parsing. Default: false."),
+		),
 	), runCommandHandler)
 
 	s.AddTool(mcp.NewTool("open_in_app",
@@ -82,15 +85,9 @@ func getWorkingDirectoryHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.
 			envLines = append(envLines, fmt.Sprintf("  %-14s %s", key+":", val))
 		}
 	}
-	// Show a condensed PATH (first 3 entries).
+	// Show full PATH so the caller can reason about the execution environment.
 	if pathVal := os.Getenv("PATH"); pathVal != "" {
-		sep := string(os.PathListSeparator)
-		allParts := strings.Split(pathVal, sep)
-		display := strings.Join(allParts[:min(3, len(allParts))], sep)
-		if len(allParts) > 3 {
-			display += fmt.Sprintf("%s... (+%d more)", sep, len(allParts)-3)
-		}
-		envLines = append(envLines, fmt.Sprintf("  %-14s %s", "PATH:", display))
+		envLines = append(envLines, fmt.Sprintf("  %-14s %s", "PATH:", pathVal))
 	}
 	if len(envLines) > 0 {
 		sb.WriteString("Environment:\n")
@@ -125,6 +122,7 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 
 	allowNonzeroExit := req.GetBool("allow_nonzero_exit", false)
 	detach := req.GetBool("detach", false)
+	rawOutput := req.GetBool("raw_output", false)
 	extraEnv := req.GetStringSlice("env", nil)
 
 	// ── detach mode: start a fully independent background process ──────────────
@@ -218,6 +216,14 @@ func runCommandHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	resolvedCWD := cwd
 	if resolvedCWD == "" {
 		resolvedCWD, _ = os.Getwd()
+	}
+
+	if rawOutput {
+		body := truncateOutput(output, maxOutputBytes)
+		if exitCode != 0 && !allowNonzeroExit {
+			return mcp.NewToolResultError(body), nil
+		}
+		return mcp.NewToolResultText(body), nil
 	}
 
 	fmt.Fprintf(&sb, "$ %s\n", command)

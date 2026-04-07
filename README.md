@@ -53,7 +53,7 @@ Communication happens over **stdio** using the `mark3labs/mcp-go` library.
 | Tool | Description |
 |------|-------------|
 | `notify_user` | **Non-blocking** fire-and-forget notification. Shows a balloon tip (Windows), system notification (macOS), or `notify-send` popup (Linux). Always falls back to stderr. Ideal for progress updates: `"Starting analysis…"`, `"Build complete."`. **`level`** parameter (`"info"` / `"warning"` / `"error"`) controls the notification icon and urgency on supported platforms. **`duration_seconds`** controls how long the toast stays visible (default: 5 s, max: 60 s). Returns immediately — never blocks the AI. On **macOS**: uses `display notification` with sound + level subtitle; falls back to `terminal-notifier` (if installed via Homebrew). |
-| `ask_user` | Pop up a browser-based dialog (macOS) or native dialog (Windows/Linux) to ask the user a question and capture their reply. On **macOS**, opens a two-card HTML dialog in the default browser: an AI message card (with avatar, title, optional subtitle, countdown timer, and suggested-reply chips) and a reply card (auto-expanding multi-line textarea, Send/Dismiss buttons). **`choices` array** renders as clickable quick-reply chips — the user can tap a chip and/or type a custom response; both are combined and returned. **`subtitle`** parameter (optional) shows below the title (e.g. your model name) so the user knows who is asking. **`allow_freeform`** (default: `true`) — set to `false` to hide the textarea and make chip selection submit immediately (force-choose mode). **`timeout_seconds`** configures how long to wait (default: **600 s / 10 min**, max: 3600 s). **`non_blocking: true`** opens the dialog in the background and returns a poll token immediately — use this when your MCP client enforces a short request timeout (30–120 s). Activity heartbeats from the browser populate real-time typing/idle/disconnected status in `get_user_response` responses. |
+| `ask_user` | Pop up a browser-based dialog (macOS) or native dialog (Windows/Linux) to ask the user a question and capture their reply. On **macOS**, opens a two-card HTML dialog in the default browser: an AI message card (with avatar, title, optional subtitle, countdown timer, and suggested-reply chips) and a reply card (auto-expanding multi-line textarea with **Write / Preview tabs for markdown rendering**, Send/Dismiss buttons). **`choices` array** renders as clickable quick-reply chips — the user can tap a chip and/or type a custom response; both are combined and returned. **`subtitle`** parameter (optional) shows below the title (e.g. your model name) so the user knows who is asking. **`allow_freeform`** (default: `true`) — set to `false` to hide the textarea and make chip selection submit immediately (force-choose mode). **`timeout_seconds`** configures how long to wait (default: **600 s / 10 min**, max: 3600 s). **`non_blocking: true`** opens the dialog in the background and returns a poll token immediately — use this when your MCP client enforces a short request timeout (30–120 s). Activity heartbeats from the browser populate real-time typing/idle/disconnected status in `get_user_response` responses. |
 | `get_user_response` | **Poll for a pending `ask_user` response.** Call after `ask_user(non_blocking=true)` returns a token. Each call waits up to `wait_seconds` (default: **55 s**, max: 115 s) — safely under typical MCP client timeouts. Returns the user's answer when received, or a `PENDING` message with the token so you can call again. Reports **activity-aware status**: typing, idle N seconds, or browser disconnected. Handles the MCP request timeout problem without changing the `ask_user` interface. |
 | `update_dialog` | **Push a live message into an open `ask_user` dialog** (non-blocking mode only, macOS). Messages appear instantly in the user's browser in a scrollable "updates" panel with timestamps — no page refresh. Useful for sharing thinking state or context while waiting for the user's reply. |
 | `open_chat` | **Open a persistent two-way chat window** in the user's browser (macOS). Unlike `ask_user` (one question → one reply), this creates an iMessage-style chat panel where both the AI and the user can send messages freely at any time. Returns a `chat_id`. The window stays open until `close_chat` is called. |
@@ -112,6 +112,22 @@ The server reads JSON-RPC messages from **stdin** and writes responses to **stdo
 go test ./...
 ```
 
+## Previewing browser UI templates (macOS)
+
+The browser-based tools (`ask_user`, `open_chat`, `rest`) use HTML templates under `assets/html/`. To preview them with sample data without running the full MCP server:
+
+```sh
+# preview all three pages (opens in your default browser)
+go run ./scripts/preview
+
+# preview a specific page
+go run ./scripts/preview dialog
+go run ./scripts/preview chat
+go run ./scripts/preview rest
+```
+
+Edit `scripts/preview/main.go` to adjust the sample data (title, subtitle, question text, choices, notes, timeout, etc.) for your needs.
+
 ## Integration with Claude Desktop
 
 Add to `claude_desktop_config.json`:
@@ -134,7 +150,8 @@ Add to `claude_desktop_config.json`:
 main.go            — Entry point; wires up all tools and starts stdio server
 helpers.go         — Shared utilities: humanizeBytes, stripBOM, isBinaryContent,
                      sniffAndOpen, readBinaryFile, readFullText, applyEdit,
-                     entryWithInfo, pluralize (go-pluralize), generateDiff (Myers/go-diff)
+                     entryWithInfo, pluralize (go-pluralize), generateDiff (Myers/go-diff),
+                     lockFile (per-file write mutex), mkdirAllClear (diagnostic mkdir)
 tools_file.go      — File-manipulation tool handlers
 tools_multi.go     — Multi-file tools (read_multiple_files, write_multiple_files, find_replace_in_files)
 tools_dir.go       — Directory tool handlers (list_directory, create_directory, delete_directory, directory_tree)
@@ -147,6 +164,43 @@ tools_user.go      — User-interaction (ask_user) tool handler
 ---
 
 ## Changelog
+
+### 2.6.0
+- **[UX]** `open_chat` (macOS) — **complete UI revamp** of the browser chat window:
+  - **Write / Preview tabs** in the input area — switch to Preview to see your markdown rendered before sending.
+  - **Character counter** in the input footer.
+  - **Quick-reply suggestion chips** — `send_chat_message` now accepts an optional **`suggestions: []string`** parameter; chips appear above the input as tappable buttons. Tapping a chip fills the textarea with that reply.
+  - **Overflow menu (⋯)** replaces the inline "Close Chat" button — prevents accidental session termination.
+  - **End session confirmation** as a bottom sheet modal before closing.
+  - **Closed state footer** with a "Copy Transcript" button once the session ends.
+  - **Scroll-to-bottom FAB** with unread badge when the user has scrolled up and new messages arrive.
+  - **Auto-reconnect** on SSE drop with exponential backoff and a reconnect banner.
+  - **Tab title badge** (`● AI Assistant`) when a new AI message arrives while the tab is hidden.
+  - **Copy button on hover** for every message bubble.
+  - **Failed-message retry** — if POST /message fails (e.g. during a brief disconnect), a ⚠ Retry button appears inline next to the user's message.
+  - **Single-line status row** in the topbar — subtitle shown when connected, replaced by connection state text when connecting/reconnecting/closed.
+- **[UX]** `rest` (macOS) — **complete UI revamp** of the AI-resting page:
+  - **SVG ring timer** — circular progress arc that drains as the timeout approaches, changing from green → orange → red in the final quarter.
+  - **Dual timer chips** — elapsed time and remaining time shown side by side below the title.
+  - **Countdown in the Wake button** — last 10 seconds shows a live countdown inside the button label.
+  - **Emoji swap** — the 😴 icon switches to ⏰ in the urgent zone.
+  - **Markdown notes** — the AI's `notes` parameter is now rendered as rich markdown (previously plain `pre-wrap` text).
+  - **Woken state** shows the user's note back to them with a celebratory pop-in animation.
+  - **Character counter** below the wake note textarea.
+- **[UX]** All browser UI pages (`open_chat`, `rest`, `ask_user`) — **`↩` to send / submit**, **`⇧↩` for new line**. Previously the shortcut was `⌘↩` (macOS) / `Ctrl+↩` (Windows). This matches iMessage/WhatsApp conventions. The hint text now shows `↩ send  ·  ⇧↩ new line`.
+
+### 2.5.0
+- **[BUG FIX]** `write_file` / `append_to_file` — improved error message when a path component already exists as a file. Previously returned a raw OS error (`"mkdir /tmp/foo: not a directory"`); now returns a clear diagnostic: `"/tmp/foo already exists as a file; cannot create a directory there"`.
+- **[BUG FIX]** `write_file` / `append_to_file` / `edit_file` / `write_multiple_files` / `find_replace_in_files` — concurrent writes to the same file are now **serialized with a per-file mutex**. Previously, calling two write tools in parallel on the same file caused a silent race condition where one write's changes were silently lost. Writes now queue and execute in order.
+- **[BUG FIX]** `write_file` / `edit_file` / `write_multiple_files` / `find_replace_in_files` — writes are now **atomic** (write to temp file + `os.Rename`). A crash or interrupt mid-write no longer leaves the target file partially written.
+- **[FEAT]** `run_command` — new **`raw_output`** parameter (default: `false`). When `true`, returns only stdout+stderr without the metadata header (`$ cmd`, `cwd:`, `exit:`). Useful for programmatic output parsing where the header interferes.
+- **[FEAT]** `get_working_directory` — **full `PATH`** is now shown instead of being truncated to the first 3 entries. Previously showed `...(+N more)`, making it impossible to inspect the full execution environment without a separate `run_command`.
+- **[FEAT]** `list_processes` — **NAME column is now dynamically sized** based on the longest actual process name in the result set. Previously truncated all names at 24 characters (showing e.g. `haryo.ass` instead of the full name).
+- **[FEAT]** `write_multiple_files` — new **`show_diff`** parameter (default: `false`). When `true`, includes a per-file unified diff for each overwritten file, consistent with `write_file`.
+- **[FEAT]** `find_replace_in_files` — output now lists files that were **scanned but had no matches** under a `"No match in N files:"` section. Previously, those files were invisible in the output, making it unclear whether a glob was too restrictive.
+
+### 2.4.0
+- **[FEAT]** `ask_user` (macOS) — the freeform reply textarea now has **Write / Preview tabs**. Click "Preview" to see a live markdown-rendered view of your typed reply (using the same `mdRender` engine as the AI question bubble). Switch back to "Write" to continue editing.
 
 ### 2.3.0
 - **[FEAT]** `ask_user` (macOS) — completely redesigned dialog. Now opens a **browser-based two-card HTML dialog** with a native macOS feel, full dark-mode support, and a 10-minute (600 s) default timeout. The **AI message card** shows your avatar, title, optional subtitle, a countdown timer, an extend-timer button (+5 min), and suggested-reply chips. The **Reply card** has an auto-expanding multi-line textarea, keyboard shortcut (⌘↵ to send), and a Send/Dismiss footer. After sending, a confirmation screen shows a preview of the reply and auto-closes in 3 s.

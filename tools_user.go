@@ -208,6 +208,10 @@ func registerUserTools(s *server.MCPServer) {
 				mcp.Required(),
 				mcp.Description(pd("send_chat_message", "message")),
 			),
+			mcp.WithArray("suggestions",
+				mcp.Description(pd("send_chat_message", "suggestions")),
+				mcp.Items(map[string]any{"type": "string"}),
+			),
 		),
 		sendChatMessageHandler,
 	)
@@ -586,6 +590,9 @@ func openChatHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 				if strings.HasPrefix(msg, "__status:") {
 					status := strings.TrimPrefix(msg, "__status:")
 					fmt.Fprintf(w, "event: ai_status\ndata: %s\n\n", status)
+				} else if strings.HasPrefix(msg, "__suggestions:") {
+					data := strings.TrimPrefix(msg, "__suggestions:")
+					fmt.Fprintf(w, "event: ai_suggestions\ndata: %s\n\n", data)
 				} else {
 					escaped := strings.ReplaceAll(msg, "\n", "\\n")
 					fmt.Fprintf(w, "data: %s\n\n", escaped)
@@ -690,6 +697,21 @@ func sendChatMessageHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Ca
 	}
 
 	state.broadcast(message)
+
+	// Optional quick-reply suggestion chips ([]string).
+	chips := req.GetStringSlice("suggestions", nil)
+	if len(chips) > 0 {
+		var filtered []string
+		for _, s := range chips {
+			if strings.TrimSpace(s) != "" {
+				filtered = append(filtered, strings.TrimSpace(s))
+			}
+		}
+		if len(filtered) > 0 {
+			b, _ := json.Marshal(filtered)
+			state.broadcast("__suggestions:" + string(b))
+		}
+	}
 
 	state.mu.Lock()
 	seenAt := state.lastSeenAt
@@ -1158,10 +1180,14 @@ func buildChatHTML(title, subtitle string) string {
 }
 
 // buildRestHTML returns the HTML for the AI-resting page.
-func buildRestHTML(title, subtitle, notes string) string {
+func buildRestHTML(title, subtitle, notes string, timeoutSec int) string {
+	notesJSON, _ := json.Marshal(notes)
 	page := strings.ReplaceAll(restHTMLTemplate, "[[TITLE]]", html.EscapeString(title))
 	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
-	page = strings.ReplaceAll(page, "[[NOTES]]", html.EscapeString(notes))
+	page = strings.ReplaceAll(page, "[[NOTES_ESCAPED]]", string(notesJSON))
+	page = strings.ReplaceAll(page, "[[TIMEOUT_SEC]]", fmt.Sprintf("%d", timeoutSec))
+	page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+mdCSS+"\n</style>")
+	page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+mdJS+"\n</script>")
 	return page
 }
 
@@ -1207,7 +1233,7 @@ func restHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	mux := http.NewServeMux()
 	srv := &http.Server{Handler: mux}
 
-	page := buildRestHTML(title, subtitle, notes)
+	page := buildRestHTML(title, subtitle, notes, int(timeoutSec))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, page)

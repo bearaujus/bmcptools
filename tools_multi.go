@@ -41,6 +41,9 @@ func registerMultiTools(s *server.MCPServer) {
 		mcp.WithBoolean("create_dirs",
 			mcp.Description(pd("write_multiple_files", "create_dirs")),
 		),
+		mcp.WithBoolean("show_diff",
+			mcp.Description("When true, include a per-file unified diff of what changed for files that were overwritten. Default: false."),
+		),
 	), writeMultipleFilesHandler)
 
 	s.AddTool(mcp.NewTool("find_replace_in_files",
@@ -156,10 +159,12 @@ func writeMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	}
 
 	createDirs := req.GetBool("create_dirs", true)
+	showDiff := req.GetBool("show_diff", false)
 
 	type result struct {
 		path string
 		size int
+		diff string
 		err  error
 	}
 
@@ -187,18 +192,34 @@ func writeMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		}
 
 		if createDirs {
-			if mkErr := os.MkdirAll(filepath.Dir(path), 0o755); mkErr != nil {
+			if mkErr := mkdirAllClear(filepath.Dir(path), 0o755); mkErr != nil {
 				results = append(results, result{path: path, err: fmt.Errorf("cannot create parent directories: %w", mkErr)})
 				continue
 			}
 		}
 
-		if wErr := os.WriteFile(path, []byte(content), 0o644); wErr != nil {
+		var existingContent string
+		if showDiff {
+			if data, readErr := os.ReadFile(path); readErr == nil {
+				existingContent = string(data)
+			}
+		}
+
+		absPath, _ := filepath.Abs(path)
+		unlock := lockFile(absPath)
+		wErr := atomicWriteFile(path, []byte(content), 0o644)
+		unlock()
+
+		if wErr != nil {
 			results = append(results, result{path: path, err: wErr})
 			continue
 		}
 
-		results = append(results, result{path: path, size: len(content)})
+		diff := ""
+		if showDiff {
+			diff = generateDiff(existingContent, content, 3)
+		}
+		results = append(results, result{path: path, size: len(content), diff: diff})
 	}
 
 	var sb strings.Builder
@@ -207,6 +228,12 @@ func writeMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		if r.err == nil {
 			successCount++
 			fmt.Fprintf(&sb, "✓ %s (%s)\n", r.path, humanizeBytes(int64(r.size)))
+			if showDiff && r.diff != "" {
+				sb.WriteString(r.diff)
+				if !strings.HasSuffix(r.diff, "\n") {
+					sb.WriteByte('\n')
+				}
+			}
 		} else {
 			fmt.Fprintf(&sb, "✗ %s: %v\n", r.path, r.err)
 		}
@@ -257,6 +284,7 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		skipped bool // binary file
 	}
 	var changed []fileResult
+	var unmodified []string
 	var skipped []string
 	totalCount := 0
 	totalScanned := len(files)
@@ -275,6 +303,8 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		if count > 0 {
 			changed = append(changed, fileResult{filePath, count, diff, false})
 			totalCount += count
+		} else {
+			unmodified = append(unmodified, filePath)
 		}
 	}
 
@@ -312,6 +342,12 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		fmt.Fprintf(&sb, "\nSkipped %s (binary):\n", pluralize(len(skipped), "file"))
 		for _, s := range skipped {
 			fmt.Fprintf(&sb, "  %s\n", s)
+		}
+	}
+	if len(unmodified) > 0 {
+		fmt.Fprintf(&sb, "\nNo match in %s:\n", pluralize(len(unmodified), "file"))
+		for _, u := range unmodified {
+			fmt.Fprintf(&sb, "  %s\n", u)
 		}
 	}
 

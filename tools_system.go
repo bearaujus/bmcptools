@@ -386,18 +386,24 @@ func listProcessesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%-8s %-25s %6s %6s  %s\n", "PID", "NAME", "CPU%", "MEM%", "COMMAND")
-	fmt.Fprintln(&sb, strings.Repeat("─", 90))
+	// Calculate dynamic column widths.
+	maxNameLen := 4 // min "NAME"
 	for _, p := range procs {
-		name := p.Name
-		if len(name) > 24 {
-			name = name[:21] + "..."
+		if len(p.Name) > maxNameLen {
+			maxNameLen = len(p.Name)
 		}
+	}
+	maxCmdLen := 60
+	nameColFmt := fmt.Sprintf("%%-%ds", maxNameLen)
+	header := fmt.Sprintf("%-8s "+nameColFmt+" %6s %6s  %s\n", "PID", "NAME", "CPU%", "MEM%", "COMMAND")
+	fmt.Fprint(&sb, header)
+	fmt.Fprintln(&sb, strings.Repeat("─", 8+1+maxNameLen+1+6+1+6+2+maxCmdLen))
+	for _, p := range procs {
 		cmd := p.Command
-		if len(cmd) > 60 {
-			cmd = cmd[:57] + "..."
+		if len(cmd) > maxCmdLen {
+			cmd = cmd[:maxCmdLen-3] + "..."
 		}
-		fmt.Fprintf(&sb, "%-8d %-25s %6.1f %6.1f  %s\n", p.PID, name, p.CPU, p.Mem, cmd)
+		fmt.Fprintf(&sb, "%-8d "+nameColFmt+" %6.1f %6.1f  %s\n", p.PID, p.Name, p.CPU, p.Mem, cmd)
 	}
 	fmt.Fprintf(&sb, "\nShowing %d of %d processes", len(procs), total)
 	if filter != "" {

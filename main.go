@@ -10,7 +10,7 @@ import (
 
 const (
 	serverName    = "bmcptools"
-	serverVersion = "2.4.0"
+	serverVersion = "2.6.0"
 )
 
 //go:embed assets/descriptions/server_instructions.txt

@@ -6,7 +6,7 @@ User interaction — use these for all communication with the user:
 - ask_user: ask a question via browser dialog; always include your current reasoning in the question
 - notify_user: fire-and-forget progress notification (non-blocking)
 - open_chat: persistent two-way browser chat for extended conversations
-- rest: go idle while the user reviews something; wakes on button click
+- rest: go idle while the user reviews something; wakes on button click. ALWAYS call this (never quit) when user says "take a rest / wait / stand by / I'll review"
 - get_user_response: poll for a pending ask_user / rest response (non-blocking mode)
 - update_dialog: push a live update into an open non-blocking ask_user dialog
 

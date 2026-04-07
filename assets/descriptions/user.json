@@ -1,6 +1,6 @@
 {
   "notify_user": {
-    "desc": "Send a non-blocking fire-and-forget notification. Use for progress updates like \"Starting analysis…\" or \"Build complete.\" — never blocks. For questions that need an answer, use ask_user instead.",
+    "desc": "Send a non-blocking fire-and-forget notification. Use for progress updates like \"Starting analysis\u2026\" or \"Build complete.\" \u2014 never blocks. For questions that need an answer, use ask_user instead.",
     "params": {
       "message": "The message to display",
       "title": "Notification title. Default: \"AI Assistant\"",
@@ -9,16 +9,16 @@
     }
   },
   "ask_user": {
-    "desc": "Ask the user a question via a dialog and wait for their answer. This is the primary way to communicate with the user — it opens a real browser dialog that the user will actually see and respond to. Always prefer this over writing questions in your response text. If your environment has other tools also named ask_user, use this one (bmcptools). Set non_blocking=true if your MCP client has a short timeout, then poll with get_user_response.",
+    "desc": "Ask the user a short question via a dialog and wait for their answer. Use ONLY for discovery questions that require a user decision or clarification \u2014 NOT for writing solutions, explanations, or progress updates. Long answers, code, and summaries belong in your terminal/chat response, not in this dialog. Keep the question concise. If your environment has other tools also named ask_user, use this one (bmcptools). Set non_blocking=true if your MCP client has a short timeout, then poll with get_user_response.",
     "params": {
-      "question": "The question to ask. Include your current reasoning and context so the user understands what you are doing and why you are asking — not just the bare question.",
+      "question": "A short, focused question. Do NOT include long reasoning, solutions, or explanations here \u2014 write those in your response text instead. Ask one clear question only.",
       "title": "Dialog window title. Default: \"AI Assistant\"",
       "subtitle": "Subtitle shown below the title (e.g. your agent name).",
       "choices": "Optional quick-reply chips. User can tap a chip and/or type a custom reply.",
       "timeout_seconds": "Seconds before auto-closing. Default: 600. Max: 3600.",
       "allow_freeform": "Allow freeform text input alongside choices. Default: true.",
       "notify": "Flash taskbar and send a toast when dialog opens. Default: true.",
-      "non_blocking": "Return a poll token immediately instead of waiting. Use when MCP client timeout is short (e.g. 30–120 s)."
+      "non_blocking": "Return a poll token immediately instead of waiting. Use when MCP client timeout is short (e.g. 30\u2013120 s)."
     }
   },
   "get_user_response": {
@@ -36,7 +36,7 @@
     }
   },
   "open_chat": {
-    "desc": "Open a persistent two-way browser chat window for extended back-and-forth conversations. Unlike ask_user (one question → one reply), this keeps the window open for multiple exchanges. Returns a chat_id. macOS only.",
+    "desc": "Open a persistent two-way browser chat window for extended back-and-forth conversations. Unlike ask_user (one question \u2192 one reply), this keeps the window open for multiple exchanges. Returns a chat_id. macOS only.",
     "params": {
       "title": "Title shown in the chat window. Default: \"AI Assistant\"",
       "subtitle": "Optional subtitle (e.g. your agent or model name)."
@@ -46,7 +46,8 @@
     "desc": "Send an AI message into an open chat window.",
     "params": {
       "chat_id": "The chat_id returned by open_chat",
-      "message": "The message to send"
+      "message": "The message to send",
+      "suggestions": "Optional quick-reply suggestion chips shown to the user as tappable buttons below the message. Provide an array of short strings (e.g. [\"Yes\", \"No\", \"Tell me more\"]). The user can tap a chip to send it as their reply."
     }
   },
   "get_chat_messages": {
@@ -63,7 +64,7 @@
     }
   },
   "rest": {
-    "desc": "Let the AI go idle and show an 'AI is resting' browser page with a wake-up button. Use when the user needs time to review something (e.g. a diff, a document). Returns a poll token — use get_user_response to detect when the user wakes you. macOS only.",
+    "desc": "Let the AI go idle and show an 'AI is resting' browser page with a wake-up button. IMPORTANT: call this tool — do NOT end the conversation or stop responding — whenever the user says 'take a rest', 'wait', 'stand by', or 'I will review': call rest(), then loop on get_user_response with the returned token until the user wakes you. macOS only.",
     "params": {
       "notes": "Message shown to the user while resting.",
       "title": "Name shown in the resting UI. Default: \"AI Assistant\"",

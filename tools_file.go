@@ -336,12 +336,16 @@ func writeFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	}
 
 	if createDirs {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := mkdirAllClear(filepath.Dir(path), 0o755); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("cannot create parent directories: %v", err)), nil
 		}
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	absPath, _ := filepath.Abs(path)
+	unlock := lockFile(absPath)
+	defer unlock()
+
+	if err := atomicWriteFile(path, []byte(content), 0o644); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot write file: %v", err)), nil
 	}
 
@@ -370,9 +374,13 @@ func appendFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		return mcp.NewToolResultError("content is required"), nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := mkdirAllClear(filepath.Dir(path), 0o755); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot create parent directories: %v", err)), nil
 	}
+
+	absPath, _ := filepath.Abs(path)
+	unlock := lockFile(absPath)
+	defer unlock()
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -441,6 +449,10 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		specs = []editSpec{{oldStr, newStr, useRegex, replaceAll}}
 	}
 
+	absPath, _ := filepath.Abs(path)
+	unlock := lockFile(absPath)
+	defer unlock()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot read file: %v", err)), nil
@@ -496,7 +508,7 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		return mcp.NewToolResultText(preview), nil
 	}
 
-	if err := os.WriteFile(path, []byte(current), 0o644); err != nil {
+	if err := atomicWriteFile(path, []byte(current), 0o644); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot write file: %v", err)), nil
 	}
 

@@ -82,17 +82,28 @@ body{
   box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);
   overflow:hidden;border:1.5px solid var(--border);
 }
-.reply-header{
-  font-size:10px;font-weight:600;color:var(--text2);
-  text-transform:uppercase;letter-spacing:.5px;padding:12px 16px 8px;
+.reply-tabs{
+  display:flex;align-items:center;gap:0;padding:10px 16px 0;border-bottom:1px solid var(--border);
 }
+.reply-tab{
+  font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;
+  padding:4px 10px 8px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;
+  user-select:none;transition:color .15s,border-color .15s;
+}
+.reply-tab.active{color:var(--text);border-bottom-color:#007aff;}
+.reply-tab:hover:not(.active){color:var(--text);}
 textarea{
   width:100%;min-height:90px;height:auto;
-  border:none;padding:0 16px 12px;
+  border:none;padding:10px 16px 12px;
   font:14px/1.55 -apple-system,sans-serif;color:var(--text);
   resize:none;outline:none;background:transparent;overflow:hidden;
 }
 textarea::placeholder{color:var(--text3)}
+.md-preview{
+  min-height:90px;padding:10px 16px 12px;
+  font-size:14px;line-height:1.55;color:var(--text);
+  display:none;
+}
 .reply-footer{
   display:flex;justify-content:space-between;align-items:center;
   padding:8px 16px 12px;border-top:1px solid var(--border);gap:8px;
@@ -200,8 +211,12 @@ textarea::placeholder{color:var(--text3)}
 </div>
 
 <div class="reply-card" id="replyCard">
-  <div class="reply-header">Your Reply</div>
+  <div class="reply-tabs">
+    <div class="reply-tab active" id="tabWrite" onclick="switchTab('write')">Write</div>
+    <div class="reply-tab" id="tabPreview" onclick="switchTab('preview')">Preview</div>
+  </div>
   <textarea id="ans" placeholder="Type your reply&#x2026; (or tap a suggestion above)"></textarea>
+  <div class="md-preview md-body" id="mdPreview"></div>
   <div class="reply-footer">
     <div style="display:flex;align-items:center;gap:8px">
       <div class="hint" id="kbHint">&#8984;&#8629; to send</div>
@@ -349,6 +364,27 @@ function done(payload){
   },1500);
 }
 
+// Write / Preview tab toggle for the freeform reply textarea.
+function switchTab(tab){
+  var ta=document.getElementById('ans');
+  var preview=document.getElementById('mdPreview');
+  var tw=document.getElementById('tabWrite');
+  var tp=document.getElementById('tabPreview');
+  if(tab==='preview'){
+    var raw=ta.value;
+    preview.innerHTML=raw.trim()?mdRender(raw):'<em style="color:var(--text3)">Nothing to preview yet…</em>';
+    ta.style.display='none';
+    preview.style.display='block';
+    tw.classList.remove('active');tp.classList.add('active');
+  } else {
+    ta.style.display='';
+    preview.style.display='none';
+    tw.classList.add('active');tp.classList.remove('active');
+    ta.focus();
+  }
+}
+
+
 var ta=document.getElementById('ans');
 var charCountEl=document.getElementById('charCount');
 ta.addEventListener('input',function(){
@@ -371,9 +407,11 @@ ta.addEventListener('input',function(){
   pauseTimer();
 });
 ta.addEventListener('keydown',function(e){
-  if((e.metaKey||e.ctrlKey)&&e.key==='Enter'&&!document.getElementById('sendBtn').disabled){
+  if(e.key==='Enter'&&!e.shiftKey&&!e.metaKey&&!e.ctrlKey&&!document.getElementById('sendBtn').disabled){
+    e.preventDefault();
     sendAnswer();
   }
+  // Shift+Enter, ⌘+Enter, Ctrl+Enter → insert newline
 });
 ta.focus();
 
@@ -381,7 +419,7 @@ ta.focus();
 (function(){
   var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
   var el=document.getElementById('kbHint');
-  if(el)el.textContent=isMac?'⌘↩ to send':'Ctrl+Enter to send';
+  if(el)el.textContent='↩ send  ·  ⇧↩ new line';
 })();
 
 // When freeform is disabled, hide the reply card — chips submit directly.

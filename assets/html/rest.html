@@ -2,50 +2,96 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI is Resting</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>[[TITLE]] is Resting</title>
+[[MD_CSS]]
 <style>
 :root{
   --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#c7c7cc;
-  --border:#e5e5ea;--chip-hover:#e5f0ff;
+  --border:#e5e5ea;--accent:#ff9f0a;--accent2:#ff6b00;
+  --ok:#34c759;
 }
 @media(prefers-color-scheme:dark){:root{
   --bg:#000;--card:#1c1c1e;--text:#fff;--text2:#8e8e93;--text3:#48484a;
-  --border:#38383a;--chip-hover:#1a3460;
+  --border:#38383a;
 }}
 *{box-sizing:border-box;margin:0;padding:0}
+html{min-height:100%}
 body{
   font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
   background:var(--bg);min-height:100vh;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  padding:32px 16px;gap:16px;
+  padding:32px 16px;gap:14px;
 }
+
+/* ── Card ── */
 .card{
   background:var(--card);border-radius:24px;width:100%;max-width:480px;
   box-shadow:0 8px 40px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.06);
   overflow:hidden;
 }
+
+/* ── Header: icon + ring + title ── */
 .rest-header{
-  text-align:center;padding:40px 32px 24px;border-bottom:1px solid var(--border);
+  text-align:center;padding:36px 32px 24px;border-bottom:1px solid var(--border);
 }
-.rest-icon{
-  font-size:56px;line-height:1;margin-bottom:16px;
-  animation:breathe 3s ease-in-out infinite;
+/* SVG ring timer */
+.timer-ring-wrap{
+  position:relative;width:96px;height:96px;margin:0 auto 16px;
 }
-@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
-.rest-title{font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px}
-.rest-sub{font-size:13px;color:var(--text2)}
-.rest-timer{
-  font-size:12px;font-weight:600;color:var(--text3);margin-top:10px;
+.timer-ring-wrap svg{transform:rotate(-90deg)}
+.ring-track{fill:none;stroke:var(--border);stroke-width:4}
+.ring-fill{
+  fill:none;stroke:var(--accent);stroke-width:4;
+  stroke-linecap:round;
+  stroke-dasharray:251.2;/* 2π × 40 */
+  stroke-dashoffset:0;
+  transition:stroke-dashoffset 1s linear, stroke .5s;
+}
+.ring-fill.urgent{stroke:#ff3b30}
+.rest-emoji{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:38px;line-height:1;
+  animation:breathe 3.5s ease-in-out infinite;
+}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+
+.rest-title{font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px}
+.rest-sub{font-size:13px;color:var(--text2);min-height:16px}
+.rest-sub:empty{display:none}
+
+.timer-info{
+  display:flex;align-items:center;justify-content:center;gap:12px;
+  margin-top:12px;
+}
+.timer-chip{
+  display:inline-flex;align-items:center;gap:5px;
+  background:var(--bg);border-radius:999px;padding:4px 10px;
+  font-size:11px;font-weight:600;color:var(--text2);
   font-variant-numeric:tabular-nums;
 }
-.rest-notes{
-  padding:20px 28px;
-  font-size:14px;color:var(--text);line-height:1.6;white-space:pre-wrap;
-  word-break:break-word;border-bottom:1px solid var(--border);
+.timer-dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex-shrink:0}
+.timer-dot.warn{background:var(--accent)}
+.timer-dot.danger{background:#ff3b30;animation:blink .8s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── Notes ── */
+.notes-section{
+  padding:18px 24px;border-bottom:1px solid var(--border);
 }
-.rest-notes:empty{display:none}
-.wake-section{padding:20px 28px 28px;}
+.notes-section:empty{display:none}
+.notes-label{
+  font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;
+  letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px;
+}
+.notes-label::before{content:'📝';font-size:12px}
+.notes-body{
+  font-size:14px;color:var(--text);line-height:1.6;
+  word-break:break-word;
+}
+
+/* ── Wake section ── */
+.wake-section{padding:20px 24px 24px}
 .wake-label{
   font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;
   letter-spacing:.5px;margin-bottom:10px;
@@ -55,75 +101,241 @@ textarea{
   background:transparent;border:1.5px solid var(--border);
   border-radius:14px;padding:10px 14px;
   font:14px/1.5 -apple-system,sans-serif;color:var(--text);
-  resize:none;outline:none;overflow:hidden;transition:border-color .15s;margin-bottom:12px;
+  resize:none;outline:none;overflow:hidden;transition:border-color .15s;
 }
-textarea:focus{border-color:#ff9f0a}
+textarea:focus{border-color:var(--accent)}
 textarea::placeholder{color:var(--text3)}
+.wake-footer{display:flex;justify-content:space-between;align-items:center;margin-top:8px;margin-bottom:12px}
+.char-count{font-size:11px;color:var(--text3)}
+.kb-hint{font-size:11px;color:var(--text3)}
 .wake-btn{
   width:100%;padding:13px;border:none;border-radius:14px;cursor:pointer;
-  background:linear-gradient(135deg,#ff9f0a,#ff6b00);color:#fff;
-  font-size:15px;font-weight:600;font-family:inherit;transition:all .15s;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;
+  font-size:15px;font-weight:600;font-family:inherit;
+  transition:all .15s;display:flex;align-items:center;justify-content:center;gap:8px;
 }
 .wake-btn:hover{filter:brightness(1.08)}
-/* Woken state */
-.woken-wrap{
-  display:none;text-align:center;padding:40px 32px;
+.wake-btn:active{transform:scale(.98)}
+
+/* ── Woken state ── */
+.woken-card{
+  display:none;background:var(--card);border-radius:24px;width:100%;max-width:480px;
+  box-shadow:0 8px 40px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.06);
+  overflow:hidden;animation:pop-in .35s cubic-bezier(.34,1.56,.64,1);
 }
-.woken-icon{font-size:48px;margin-bottom:12px}
-.woken-title{font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px}
+@keyframes pop-in{from{opacity:0;transform:scale(.88)}to{opacity:1;transform:none}}
+.woken-header{
+  text-align:center;padding:36px 28px 20px;border-bottom:1px solid var(--border);
+}
+.woken-icon{font-size:48px;line-height:1;margin-bottom:12px;animation:bounce-in .4s ease}
+@keyframes bounce-in{0%{transform:scale(0.5)}60%{transform:scale(1.15)}100%{transform:scale(1)}}
+.woken-title{font-size:18px;font-weight:700;color:var(--text);margin-bottom:6px}
 .woken-sub{font-size:13px;color:var(--text2)}
+.woken-note{
+  padding:16px 24px 20px;
+}
+.woken-note-label{font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.woken-note-bubble{
+  background:var(--bg);border-radius:14px;padding:10px 14px;
+  font-size:14px;color:var(--text);line-height:1.5;word-break:break-word;
+  border:1px solid var(--border);
+}
+.woken-note-bubble.empty{color:var(--text3);font-style:italic}
+.woken-close-hint{
+  text-align:center;padding:0 24px 20px;
+  font-size:12px;color:var(--text3);
+}
 </style>
 </head>
 <body>
 
+<!-- Main resting card -->
 <div class="card" id="mainCard">
+
   <div class="rest-header">
-    <div class="rest-icon">😴</div>
-    <div class="rest-title">[[TITLE]] is resting</div>
+    <div class="timer-ring-wrap">
+      <svg width="96" height="96" viewBox="0 0 96 96">
+        <circle class="ring-track" cx="48" cy="48" r="40"/>
+        <circle class="ring-fill" id="ringFill" cx="48" cy="48" r="40"/>
+      </svg>
+      <div class="rest-emoji" id="restEmoji">😴</div>
+    </div>
+    <div class="rest-title">[[TITLE]] is taking a break</div>
     <div class="rest-sub">[[SUBTITLE]]</div>
-    <div class="rest-timer" id="rtimer">Resting for <span id="rsec">0</span>s</div>
+    <div class="timer-info">
+      <div class="timer-chip">
+        <div class="timer-dot" id="timerDot"></div>
+        <span id="elapsed">0s elapsed</span>
+      </div>
+      <div class="timer-chip">
+        <span id="remaining">–</span> remaining
+      </div>
+    </div>
   </div>
-  <div class="rest-notes">[[NOTES]]</div>
+
+  <!-- AI's notes (hidden when empty) -->
+  <div class="notes-section" id="notesSection">
+    <div class="notes-label">AI left a note</div>
+    <div class="notes-body md-body" id="notesBody"></div>
+  </div>
+
   <div class="wake-section">
     <div class="wake-label">Leave a note (optional)</div>
-    <textarea id="wakeNote" placeholder="e.g. Ready when you are! / I have a question about the last change…"></textarea>
-    <button class="wake-btn" onclick="wakeUp()">🔔 Wake Up the AI</button>
+    <textarea id="wakeNote" placeholder="e.g. All good, ready when you are! / I have a question about the last change…"></textarea>
+    <div class="wake-footer">
+      <span class="kb-hint" id="kbHint">⌘↩ to wake</span>
+      <span class="char-count" id="charCount"></span>
+    </div>
+    <button class="wake-btn" id="wakeBtn" onclick="wakeUp()">
+      <span>🔔</span><span>Wake Up the AI</span>
+    </button>
   </div>
+
 </div>
 
-<div class="card" id="wokenCard" style="display:none">
-  <div class="woken-wrap">
+<!-- Woken state card -->
+<div class="woken-card" id="wokenCard">
+  <div class="woken-header">
     <div class="woken-icon">⚡️</div>
     <div class="woken-title">AI is waking up!</div>
-    <div class="woken-sub" id="wokenSub">Your message has been sent.</div>
+    <div class="woken-sub">Your message has been delivered.</div>
   </div>
+  <div class="woken-note" id="wokenNoteSection">
+    <div class="woken-note-label">Your note</div>
+    <div class="woken-note-bubble" id="wokenNoteBubble"></div>
+  </div>
+  <div class="woken-close-hint" id="wokenCloseHint"></div>
 </div>
 
+[[MD_JS]]
 <script>
-var startTime=Date.now();
-setInterval(function(){
-  document.getElementById('rsec').textContent=Math.floor((Date.now()-startTime)/1000);
-},1000);
+// ── Config ────────────────────────────────────────────────────────────────
+var TIMEOUT_SEC = [[TIMEOUT_SEC]];
+var NOTES_RAW   = [[NOTES_ESCAPED]]; // JSON-encoded string
 
+// ── Render notes as markdown ──────────────────────────────────────────────
+(function(){
+  var notesSection = document.getElementById('notesSection');
+  var notesBody    = document.getElementById('notesBody');
+  if(NOTES_RAW && NOTES_RAW.trim()){
+    notesBody.innerHTML = mdRender(NOTES_RAW);
+    notesSection.style.display = 'block';
+  } else {
+    notesSection.style.display = 'none';
+  }
+})();
+
+// ── Keyboard hint ─────────────────────────────────────────────────────────
+(function(){
+  document.getElementById('kbHint').textContent = '↩ wake  ·  ⇧↩ new line';
+})();
+
+// ── Timer ─────────────────────────────────────────────────────────────────
+var CIRCUMFERENCE = 2 * Math.PI * 40; // ~251.2
+var startMs = Date.now();
+var ringFill = document.getElementById('ringFill');
+var timerDot = document.getElementById('timerDot');
+
+function fmtSec(s){
+  s = Math.max(0, Math.round(s));
+  if(s < 60) return s + 's';
+  var m = Math.floor(s/60), sec = s%60;
+  if(m < 60) return m + 'm ' + (sec > 0 ? sec + 's' : '');
+  var h = Math.floor(m/60), min = m%60;
+  return h + 'h ' + (min > 0 ? min + 'm' : '');
+}
+
+setInterval(function(){
+  var elapsed = (Date.now() - startMs) / 1000;
+  var rem = TIMEOUT_SEC - elapsed;
+  var frac = Math.max(0, Math.min(1, rem / TIMEOUT_SEC));
+
+  document.getElementById('elapsed').textContent = fmtSec(elapsed) + ' elapsed';
+  document.getElementById('remaining').textContent = rem > 0 ? fmtSec(rem) : '0s';
+
+  // Ring: from full (0 offset) → empty (full circumference)
+  ringFill.style.strokeDashoffset = CIRCUMFERENCE * (1 - frac);
+
+  // Urgency states
+  if(frac < 0.1){
+    ringFill.classList.add('urgent');
+    timerDot.className='timer-dot danger';
+    document.getElementById('restEmoji').textContent='⏰';
+  } else if(frac < 0.25){
+    timerDot.className='timer-dot warn';
+  } else {
+    timerDot.className='timer-dot';
+  }
+
+  // Auto-close countdown feedback in button
+  if(rem <= 10 && rem > 0){
+    document.getElementById('wakeBtn').querySelector('span:last-child').textContent =
+      'Wake Up the AI (' + Math.ceil(rem) + ')';
+  }
+}, 1000);
+
+// ── Character count ───────────────────────────────────────────────────────
+var ta = document.getElementById('wakeNote');
+var cc = document.getElementById('charCount');
+ta.addEventListener('input', function(){
+  this.style.height = 'auto';
+  this.style.height = this.scrollHeight + 'px';
+  var len = this.value.length;
+  cc.textContent = len > 0 ? len + ' char' + (len===1?'':'s') : '';
+});
+
+// ── Wake up ───────────────────────────────────────────────────────────────
+var woken = false;
 function wakeUp(){
-  var note=document.getElementById('wakeNote').value.trim();
-  var payload=JSON.stringify({notes:note});
+  if(woken) return;
+  woken = true;
+  var note = ta.value.trim();
   fetch('/answer',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:payload
+    body:JSON.stringify({notes:note})
   }).catch(function(){});
+
+  // Transition
   document.getElementById('mainCard').style.display='none';
-  document.getElementById('wokenCard').style.display='block';
+  var wc = document.getElementById('wokenCard');
+  wc.style.display='block';
+
+  // Show note in woken card
+  var nb = document.getElementById('wokenNoteBubble');
   if(note){
-    document.getElementById('wokenSub').textContent='"'+note.slice(0,80)+(note.length>80?'…':'')+'"';
+    nb.textContent = note;
+  } else {
+    nb.textContent = 'No note left';
+    nb.classList.add('empty');
+    document.getElementById('wokenNoteSection').style.opacity = '0.6';
   }
+
+  // Close hint
+  setTimeout(function(){
+    try{window.close();}catch(e){}
+    setTimeout(function(){
+      var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
+      document.getElementById('wokenCloseHint').textContent =
+        'You can close this tab — ' + (isMac ? '⌘W' : 'Ctrl+W');
+    },400);
+  },1500);
 }
 
-// Keyboard shortcut: ⌘↵ to wake up
-document.addEventListener('keydown',function(e){
-  if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){wakeUp();}
+// Keyboard shortcut
+// Enter to wake up (Shift+Enter = new line)
+ta.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&!e.shiftKey&&!e.metaKey&&!e.ctrlKey){
+    e.preventDefault();
+    wakeUp();
+  }
 });
+document.addEventListener('keydown',function(e){
+  // Keep ⌘/Ctrl+Enter as a global shortcut (in case focus is outside textarea)
+  if((e.metaKey||e.ctrlKey)&&e.key==='Enter') wakeUp();
+});
+
+ta.focus();
 </script>
 </body>
 </html>
