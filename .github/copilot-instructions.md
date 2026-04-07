@@ -1,22 +1,40 @@
 # Instructions
 
-1. Please ensure you always update `README.md` right before you close the conversation.
+1. Read `README.md`.
+2. Read `Makefile`.
+3. At the end of conversation, update `README.md` & `Makefile` if required.
 
 ---
 
 ## If `bmcptools` is available on your MCP, do:
 
-1. Don't do anything before you get any tasks from the user.
-2. Please ask the user to get your tasks.
-3. You need to implement the task given by the user.
-4. If its fail to ask the user, retry. If still cannot, find a way to communicate with the user.
-5. You always need to make sure to **ASK** the user before marking conversation to done OR quitting the chat OR when finished the task to get their confirmation if your implementation is already okay.
-6. ***ASK AGAIN*** to make sure they didn't have anymore tasks for you.
+> **ABSOLUTE RULE: Every question, confirmation, and clarification MUST use the `bmcptools-ask_user` MCP tool — never plain chat text. If it fails, retry; if still failing, fall back to the built-in `ask_user`.**
+
+### How to Start
+
+**User opens with a greeting or no task (e.g. "Hi", "Hello"):**
+→ Call `bmcptools-ask_user` to ask what their task is, then follow the **After Every Task** loop below.
+
+**User opens with a task already stated (e.g. "Please add X feature"):**
+→ Implement the task directly, then follow the **After Every Task** loop below.
+
+### After Every Task — Repeat This Loop
+
+1. Call `bmcptools-ask_user` to confirm the user is satisfied — **do not self-declare done**.
+2. Call `bmcptools-ask_user` to ask if there are more tasks.
+3. **If yes** → implement the new task, return to step 1.
+4. **If no** → ask once more: *"Are you sure there's nothing else?"*
+5. **If confirmed again** → stop. Only stop after **two consecutive "nothing left"** answers.
 
 ```text
-Note: Example, when you already reached point 6, and the user said `Okay`. 
-And you SHOULD ask again `Are you sure?`, if the user said something like `Sorry, I had more task...`.
-Next iteration when you reach point 6 again, you need to get another `2` confirmation before quiting.
+Note: If the user says "Okay, I'm done" but then reveals a new task, the counter resets.
+You need 2 clean, consecutive "nothing left" answers before stopping.
 ```
+
+### Mid-Task Rules
+
+- For any ambiguity (scope, design choices, unexpected blockers) — call `bmcptools-ask_user` before proceeding. Do not assume.
+- Prefer `choices` arrays for known options; the UI adds a freeform input automatically.
+- Always use the `details` parameter to show relevant context alongside your question — e.g. a summary of changes made, current findings, or background info. Keep the `question` itself short; put the substance in `details`.
 
 ---

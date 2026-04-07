@@ -23,12 +23,12 @@ endif
 
 ## build: compile the binary into ./bin/ (pass VERSION=<tag> to stamp the version)
 build: vet
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/bmcptools
 	@echo "Built $(BINARY)$(if $(VERSION), ($(VERSION)),)"
 
 ## install: install into GOBIN (pass VERSION=<tag> to stamp the version)
 install: vet
-	go install -ldflags "$(LDFLAGS)" .
+	go install -ldflags "$(LDFLAGS)" ./cmd/bmcptools
 	@echo "Installed $(APP)$(if $(VERSION), ($(VERSION)),)"
 
 ## vet: run go vet

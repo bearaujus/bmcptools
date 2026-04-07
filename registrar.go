@@ -1,13 +1,8 @@
-package main
+package bmcptools
 
-import (
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
-)
+import "github.com/bearaujus/bmcptools/internal/toolreg"
 
 // ToolRegistrar is the minimal interface needed to register MCP tools.
-// It decouples registerXTools functions from the concrete *server.MCPServer,
+// It decouples Register functions from the concrete *server.MCPServer,
 // making them easier to test and future-proof against SDK changes.
-type ToolRegistrar interface {
-	AddTool(tool mcp.Tool, handler server.ToolHandlerFunc)
-}
+type ToolRegistrar = toolreg.ToolRegistrar
