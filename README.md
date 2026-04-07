@@ -127,7 +127,7 @@ go test ./...
 make lint
 ```
 
-On Linux/macOS, `make build` auto-detects the version from `git describe`. On Windows, pass `VERSION=<tag>` explicitly or let it default to `"dev"` for local builds.
+On Linux/macOS/Windows, `make build` auto-detects the version from `git describe`. Pass `VERSION=<tag>` explicitly to override it, or build without git tags and it will default to `"dev"`.
 
 ### Repository structure
 

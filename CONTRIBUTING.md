@@ -9,8 +9,8 @@ registerXTools(s) → s.AddTool(mcp.NewTool(...), handlerFunc)
 → func handlerFunc(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
 ```
 
-1. **Choose the right file** — pick the `tools_*.go` file that best matches the domain
-   (file, dir, exec, search, system, user, multi). Create a new one if needed.
+1. **Choose the right file** — pick the `handler.go` (for handler logic) and `register.go` (for tool registration) in the package that best matches the domain
+   (`file`, `dir`, `exec`, `search`, `system`, `user`, `multi`). Create a new package directory if needed.
 2. **Add the description** — add your tool entry to the corresponding
    `assets/descriptions/*.json` file. Use `td("tool_name")` for the tool description
    and `pd("tool_name", "param_name")` for parameter descriptions. Never hardcode

@@ -1,5 +1,5 @@
 APP := bmcptools
-VERSION ?= dev
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 # Build flags: inject version when VERSION is set; always strip debug info.
 ifneq ($(VERSION),)

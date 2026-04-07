@@ -3,8 +3,8 @@ package asset
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
-	"log"
 	"strings"
 )
 
@@ -33,11 +33,11 @@ var descriptions = func() map[string]toolEntry {
 		}
 		data, err := descFS.ReadFile(path)
 		if err != nil {
-			log.Fatalf("read %s: %v", path, err)
+			panic(fmt.Sprintf("read embedded description %s: %v", path, err))
 		}
 		var entries map[string]toolEntry
 		if err := json.Unmarshal(data, &entries); err != nil {
-			log.Fatalf("parse %s: %v", path, err)
+			panic(fmt.Sprintf("parse embedded description %s: %v", path, err))
 		}
 		for k, v := range entries {
 			m[k] = v
@@ -63,18 +63,27 @@ func ServerInstructions() string { return serverInstructionsTxt }
 
 // HTML returns the contents of html/<name>.html from the embedded FS.
 func HTML(name string) string {
-	b, _ := htmlFS.ReadFile("html/" + name + ".html")
+	b, err := htmlFS.ReadFile("html/" + name + ".html")
+	if err != nil {
+		panic(fmt.Sprintf("embedded HTML %q not found: %v", name, err))
+	}
 	return string(b)
 }
 
 // CSS returns the contents of html/<name>.css from the embedded FS.
 func CSS(name string) string {
-	b, _ := htmlFS.ReadFile("html/" + name + ".css")
+	b, err := htmlFS.ReadFile("html/" + name + ".css")
+	if err != nil {
+		panic(fmt.Sprintf("embedded CSS %q not found: %v", name, err))
+	}
 	return string(b)
 }
 
 // JS returns the contents of html/<name>.js from the embedded FS.
 func JS(name string) string {
-	b, _ := htmlFS.ReadFile("html/" + name + ".js")
+	b, err := htmlFS.ReadFile("html/" + name + ".js")
+	if err != nil {
+		panic(fmt.Sprintf("embedded JS %q not found: %v", name, err))
+	}
 	return string(b)
 }
