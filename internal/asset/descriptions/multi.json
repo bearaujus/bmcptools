@@ -10,7 +10,8 @@
     "desc": "Write content to multiple files in a single call — more efficient than calling write_file repeatedly. Creates or overwrites each file. Creates parent dirs automatically.",
     "params": {
       "files": "Array of {\"path\": \"...\", \"content\": \"...\"} objects to write",
-      "create_dirs": "Create missing parent directories. Default: true"
+      "create_dirs": "Create missing parent directories. Default: true",
+      "show_diff": "When true, include a per-file unified diff of what changed for files that were overwritten. Default: false."
     }
   },
   "find_replace_in_files": {

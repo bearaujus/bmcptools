@@ -40,7 +40,7 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.Description(asset.ParamDesc(toolname.WriteMultipleFiles, "create_dirs")),
 		),
 		mcp.WithBoolean("show_diff",
-			mcp.Description("When true, include a per-file unified diff of what changed for files that were overwritten. Default: false."),
+			mcp.Description(asset.ParamDesc(toolname.WriteMultipleFiles, "show_diff")),
 		),
 	), writeMultipleFilesHandler)
 

@@ -156,7 +156,7 @@ Each `internal/tool/<name>/` package exports a single `Register(s toolreg.ToolRe
 
 ### Previewing browser UI templates (macOS/Windows)
 
-The browser-based tools (`ask_user`, `open_chat`, `rest`) use embedded HTML templates under `assets/`. To preview them locally without running the full MCP server:
+The browser-based tools (`ask_user`, `open_chat`, `rest`) use embedded HTML templates under `internal/asset/html/`. To preview them locally without running the full MCP server:
 
 ```sh
 # Preview all pages (opens in your default browser)

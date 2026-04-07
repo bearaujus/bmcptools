@@ -26,7 +26,7 @@ func TestDescriptionsCoverage(t *testing.T) {
 
 	for _, name := range r.names {
 		if asset.ToolDesc(name) == "" {
-			t.Errorf("tool %q is registered but has no description entry in assets/descriptions/*.json", name)
+			t.Errorf("tool %q is registered but has no description entry in internal/asset/descriptions/*.json", name)
 		}
 	}
 }
