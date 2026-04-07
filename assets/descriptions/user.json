@@ -29,14 +29,14 @@
     }
   },
   "update_dialog": {
-    "desc": "Send a live update into an open non-blocking ask_user dialog (macOS only).",
+    "desc": "Send a live update into an open non-blocking ask_user dialog (macOS and Windows). Messages appear instantly in the user's browser in a scrollable \"updates\" panel with timestamps \u2014 no page refresh. Useful for sharing thinking state or context while waiting for the user's reply.",
     "params": {
       "token": "The token returned by ask_user(non_blocking=true)",
       "message": "The message to display in the dialog"
     }
   },
   "open_chat": {
-    "desc": "Open a persistent two-way browser chat window for extended back-and-forth conversations. Unlike ask_user (one question \u2192 one reply), this keeps the window open for multiple exchanges. Returns a chat_id. macOS only.",
+    "desc": "Open a persistent two-way browser chat window for extended back-and-forth conversations. Unlike ask_user (one question \u2192 one reply), this keeps the window open for multiple exchanges. Returns a chat_id. macOS and Windows only. Not supported on Linux.",
     "params": {
       "title": "Title shown in the chat window. Default: \"AI Assistant\"",
       "subtitle": "Optional subtitle (e.g. your agent or model name)."
@@ -64,7 +64,7 @@
     }
   },
   "rest": {
-    "desc": "Let the AI go idle and show an 'AI is resting' browser page with a wake-up button. IMPORTANT: call this tool — do NOT end the conversation or stop responding — whenever the user says 'take a rest', 'wait', 'stand by', or 'I will review': call rest(), then loop on get_user_response with the returned token until the user wakes you. macOS only.",
+    "desc": "Let the AI go idle and show an 'AI is resting' browser page with a wake-up button. IMPORTANT: call this tool — do NOT end the conversation or stop responding — whenever the user says 'take a rest', 'wait', 'stand by', or 'I will review': call rest(), then loop on get_user_response with the returned token until the user wakes you. macOS and Windows only. Not supported on Linux.",
     "params": {
       "notes": "Message shown to the user while resting.",
       "title": "Name shown in the resting UI. Default: \"AI Assistant\"",

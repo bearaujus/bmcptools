@@ -551,3 +551,37 @@ func TestFindReplaceInFilesBinarySniff(t *testing.T) {
 		t.Errorf("text file not modified: %q", string(data))
 	}
 }
+
+// ── find_replace_in_files CRLF ────────────────────────────────────────────────
+
+// TestFindReplaceInFilesCRLF verifies that find_replace_in_files can match and
+// replace text in CRLF files using LF-only patterns, and that CRLF is
+// preserved after the replacement.
+func TestFindReplaceInFilesCRLF(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "windows.txt")
+	crlfContent := "hello world\r\nfoo bar\r\nhello again\r\n"
+	if err := os.WriteFile(f, []byte(crlfContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{
+		"path":    dir,
+		"old_str": "hello",
+		"new_str": "hi",
+	})
+	result, err := findReplaceInFilesHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+
+	data, _ := os.ReadFile(f)
+	got := string(data)
+	want := "hi world\r\nfoo bar\r\nhi again\r\n"
+	if got != want {
+		t.Errorf("CRLF find-replace = %q, want %q", got, want)
+	}
+}

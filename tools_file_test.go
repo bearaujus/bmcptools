@@ -1075,3 +1075,182 @@ func TestAppendReadEmoji(t *testing.T) {
 		t.Errorf("append emoji round-trip mismatch:\ngot:  %q\nwant: %q", string(got), want)
 	}
 }
+
+// ── edit_file CRLF ────────────────────────────────────────────────────────────
+
+// TestEditFileHandlerCRLF verifies that edit_file can match and replace text in
+// a file that uses CRLF (\r\n) line endings even when the pattern contains only
+// LF (\n). After editing, the file should still use CRLF line endings.
+func TestEditFileHandlerCRLF(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "crlf.txt")
+	// Write a file with CRLF line endings.
+	crlfContent := "line one\r\nline two\r\nline three\r\n"
+	if err := os.WriteFile(f, []byte(crlfContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The pattern uses LF only — should still match the CRLF file.
+	req := newTestRequest(map[string]any{
+		"path":    f,
+		"old_str": "line two",
+		"new_str": "LINE TWO",
+	})
+	result, err := editFileHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+
+	data, _ := os.ReadFile(f)
+	got := string(data)
+	want := "line one\r\nLINE TWO\r\nline three\r\n"
+	if got != want {
+		t.Errorf("CRLF edit result = %q, want %q", got, want)
+	}
+}
+
+// TestEditFileHandlerCRLFMultiline checks that a multiline LF-only pattern
+// matches across CRLF line boundaries.
+func TestEditFileHandlerCRLFMultiline(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "crlf_multi.txt")
+	crlfContent := "alpha\r\nbeta\r\ngamma\r\n"
+	if err := os.WriteFile(f, []byte(crlfContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Multi-line LF pattern across two CRLF lines.
+	req := newTestRequest(map[string]any{
+		"path":    f,
+		"old_str": "alpha\nbeta",
+		"new_str": "ALPHA\nBETA",
+	})
+	result, err := editFileHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+
+	data, _ := os.ReadFile(f)
+	got := string(data)
+	want := "ALPHA\r\nBETA\r\ngamma\r\n"
+	if got != want {
+		t.Errorf("CRLF multiline edit = %q, want %q", got, want)
+	}
+}
+
+// TestEditFileHandlerMultiMatchWarning verifies that replacing old_str that
+// matches multiple times (without replace_all) emits a warning in the output.
+func TestEditFileHandlerMultiMatchWarning(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "multi.txt")
+	if err := os.WriteFile(f, []byte("foo\nfoo\nbar\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{
+		"path":    f,
+		"old_str": "foo",
+		"new_str": "baz",
+	})
+	result, err := editFileHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	txt := resultText(result)
+	if !strings.Contains(txt, "Warning") || !strings.Contains(txt, "matched multiple times") {
+		t.Errorf("expected multi-match warning, got: %s", txt)
+	}
+	// Only first occurrence replaced.
+	data, _ := os.ReadFile(f)
+	if string(data) != "baz\nfoo\nbar\n" {
+		t.Errorf("unexpected file content: %q", string(data))
+	}
+}
+
+// TestEditFileHandlerNotFoundContext verifies that when old_str is not found
+// but its first line exists elsewhere, a nearby context hint is shown.
+func TestEditFileHandlerNotFoundContext(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "ctx.txt")
+	// Write a file where the first line of old_str exists but the full pattern does not.
+	if err := os.WriteFile(f, []byte("hello world\ngoodbye\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{
+		"path":    f,
+		"old_str": "hello world\nXXX_DOES_NOT_EXIST",
+		"new_str": "replacement",
+	})
+	result, err := editFileHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt := resultText(result)
+	if !strings.Contains(txt, "not found") {
+		t.Errorf("expected 'not found' in output, got: %s", txt)
+	}
+	if !strings.Contains(txt, "nearby") || !strings.Contains(txt, "hello world") {
+		t.Errorf("expected nearby context hint with 'hello world', got: %s", txt)
+	}
+}
+
+// TestWriteFileOverwriteShowsDiff verifies that write_file shows a diff by
+// default when overwriting an existing file (show_diff not explicitly set).
+func TestWriteFileOverwriteShowsDiff(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "overwrite.txt")
+	if err := os.WriteFile(f, []byte("original content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{
+		"path":    f,
+		"content": "new content\n",
+	})
+	result, err := writeFileHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt := resultText(result)
+	if !strings.Contains(txt, "Overwrote") {
+		t.Errorf("expected 'Overwrote' in output for existing file, got: %s", txt)
+	}
+	// Should include a diff (- original content, + new content)
+	if !strings.Contains(txt, "original content") {
+		t.Errorf("expected diff showing removed content, got: %s", txt)
+	}
+}
+
+// TestWriteFileNewFileNoAutoDiff verifies that write_file does NOT show a diff
+// for a new file when show_diff is not explicitly set.
+func TestWriteFileNewFileNoAutoDiff(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "newfile.txt")
+
+	req := newTestRequest(map[string]any{
+		"path":    f,
+		"content": "brand new content\n",
+	})
+	result, err := writeFileHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt := resultText(result)
+	if !strings.Contains(txt, "Created") {
+		t.Errorf("expected 'Created' in output for new file, got: %s", txt)
+	}
+	// No diff for new files by default (content would just repeat what was written).
+	if strings.Contains(txt, "@@") {
+		t.Errorf("expected no diff for new file, got: %s", txt)
+	}
+}

@@ -11,13 +11,12 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 )
 
 // errBinaryFile is returned by grepFile / grepFileMultiline when the file appears binary.
 var errBinaryFile = errors.New("binary file")
 
-func registerSearchTools(s *server.MCPServer) {
+func registerSearchTools(s ToolRegistrar) {
 	s.AddTool(mcp.NewTool("search_files",
 		mcp.WithDescription(td("search_files")),
 		mcp.WithString("path", mcp.Description(pd("search_files", "path"))),
@@ -230,27 +229,6 @@ func doubleStarMatch(pats, segs []string) (bool, error) {
 		pats = pats[1:]
 		segs = segs[1:]
 	}
-}
-
-// expandAlternation fully expands all {a,b} groups in pattern recursively.
-// "{src,lib}/**/*.{ts,tsx}" → ["src/**/*.ts","src/**/*.tsx","lib/**/*.ts","lib/**/*.tsx"]
-func expandAlternation(pattern string) []string {
-	start := strings.Index(pattern, "{")
-	end := strings.Index(pattern, "}")
-	if start == -1 || end == -1 || end < start {
-		return []string{pattern}
-	}
-	prefix := pattern[:start]
-	suffix := pattern[end+1:]
-	alternatives := strings.Split(pattern[start+1:end], ",")
-
-	var result []string
-	for _, a := range alternatives {
-		// Recursively expand the composed pattern to handle remaining {} groups.
-		expanded := expandAlternation(prefix + strings.TrimSpace(a) + suffix)
-		result = append(result, expanded...)
-	}
-	return result
 }
 
 // ── grep_files ───────────────────────────────────────────────────────────────

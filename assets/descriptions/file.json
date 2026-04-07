@@ -17,7 +17,7 @@
       "path": "Path to the file",
       "content": "Content to write",
       "create_dirs": "Create missing parent directories. Default: true",
-      "show_diff": "Return a unified diff of changes when overwriting. Default: false"
+      "show_diff": "Return a unified diff of changes when overwriting. Default: true when overwriting an existing file, false when creating a new file (no existing content to diff)."
     }
   },
   "append_to_file": {
@@ -28,7 +28,7 @@
     }
   },
   "edit_file": {
-    "desc": "Find-and-replace text in a file. Two modes: single edit (old_str + new_str) or batch edits array. Prefer batch mode when making multiple changes to the same file — more efficient than repeated single-edit calls. Supports Go regex with $1,$2 back-references. Returns a unified diff.",
+    "desc": "Find-and-replace text in a file. Two modes: single edit (old_str + new_str) or batch edits array. Prefer batch mode when making multiple changes to the same file — more efficient than repeated single-edit calls. Supports Go regex with $1,$2 back-references. Returns a unified diff. Transparently handles CRLF (\\r\\n) files — patterns with LF-only (\\n) match correctly, and the original line endings are preserved after editing. If old_str matches multiple locations and replace_all is false, only the first occurrence is replaced and a warning is included — use replace_all=true or add more context to old_str. When a pattern is not found, nearby context from the file is shown to aid diagnosis.",
     "params": {
       "path": "Path to the file",
       "old_str": "Text (or regex) to find — single-edit mode",

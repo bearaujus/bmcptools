@@ -11,10 +11,9 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 )
 
-func registerExecTools(s *server.MCPServer) {
+func registerExecTools(s ToolRegistrar) {
 	s.AddTool(mcp.NewTool("get_working_directory",
 		mcp.WithDescription(td("get_working_directory")),
 	), getWorkingDirectoryHandler)
@@ -48,7 +47,7 @@ func registerExecTools(s *server.MCPServer) {
 			mcp.Description(pd("run_command", "detach")),
 		),
 		mcp.WithBoolean("raw_output",
-			mcp.Description("When true, return only stdout/stderr without the metadata header (command echo, cwd, exit code). Useful for programmatic output parsing. Default: false."),
+			mcp.Description(pd("run_command", "raw_output")),
 		),
 	), runCommandHandler)
 

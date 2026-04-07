@@ -48,19 +48,19 @@ Communication happens over **stdio** using the `mark3labs/mcp-go` library.
 | `search_files` | Find files/directories by glob pattern. Supports `*`, `**`, `?`, and `{a,b}` alternation — **including multiple alternation groups** (e.g. `{src,lib}/**/*.{ts,tsx}`). Results include file size and modification time. **`show_hidden` toggle** (default: false). |
 | `grep_files` | Search file contents for a literal string or Go regex. **`glob` parameter restricts which files are searched (e.g. `*.go`).** Supports `output_mode`: `"content"` / `"files_with_matches"` / `"count"`. **`show_hidden` toggle** (default: false). **`multiline: true`** enables cross-line pattern matching (dot-all regex). **`context_lines` capped at 50** (before and after each match). **`offset` for pagination** — skip the first N matches and display the next page. **`max_file_size`** skips files larger than N bytes — useful for generated/minified files. **Output header always reports files searched, binary files skipped, and total match count.** `count`/`files_with_matches` modes scan all eligible files for accurate totals. |
 
-### User interaction (`tools_user.go`)
+### User interaction (`tools_user_*.go`)
 
 | Tool | Description |
 |------|-------------|
 | `notify_user` | **Non-blocking** fire-and-forget notification. Shows a balloon tip (Windows), system notification (macOS), or `notify-send` popup (Linux). Always falls back to stderr. Ideal for progress updates: `"Starting analysis…"`, `"Build complete."`. **`level`** parameter (`"info"` / `"warning"` / `"error"`) controls the notification icon and urgency on supported platforms. **`duration_seconds`** controls how long the toast stays visible (default: 5 s, max: 60 s). Returns immediately — never blocks the AI. On **macOS**: uses `display notification` with sound + level subtitle; falls back to `terminal-notifier` (if installed via Homebrew). |
-| `ask_user` | Pop up a browser-based dialog (macOS) or native dialog (Windows/Linux) to ask the user a question and capture their reply. On **macOS**, opens a two-card HTML dialog in the default browser: an AI message card (with avatar, title, optional subtitle, countdown timer, and suggested-reply chips) and a reply card (auto-expanding multi-line textarea with **Write / Preview tabs for markdown rendering**, Send/Dismiss buttons). **`choices` array** renders as clickable quick-reply chips — the user can tap a chip and/or type a custom response; both are combined and returned. **`subtitle`** parameter (optional) shows below the title (e.g. your model name) so the user knows who is asking. **`allow_freeform`** (default: `true`) — set to `false` to hide the textarea and make chip selection submit immediately (force-choose mode). **`timeout_seconds`** configures how long to wait (default: **600 s / 10 min**, max: 3600 s). **`non_blocking: true`** opens the dialog in the background and returns a poll token immediately — use this when your MCP client enforces a short request timeout (30–120 s). Activity heartbeats from the browser populate real-time typing/idle/disconnected status in `get_user_response` responses. |
+| `ask_user` | Pop up a browser-based dialog (macOS and Windows) to ask the user a question and capture their reply. **Not supported on Linux.** On **macOS and Windows**, opens a two-card HTML dialog in the default browser: an AI message card (with avatar, title, optional subtitle, countdown timer, and suggested-reply chips) and a reply card (auto-expanding multi-line textarea with **Write / Preview tabs for markdown rendering**, Send/Dismiss buttons). **`choices` array** renders as clickable quick-reply chips — the user can tap a chip and/or type a custom response; both are combined and returned. **`subtitle`** parameter (optional) shows below the title (e.g. your model name) so the user knows who is asking. **`allow_freeform`** (default: `true`) — set to `false` to hide the textarea and make chip selection submit immediately (force-choose mode). **`timeout_seconds`** configures how long to wait (default: **600 s / 10 min**, max: 3600 s). **`non_blocking: true`** opens the dialog in the background and returns a poll token immediately — use this when your MCP client enforces a short request timeout (30–120 s). Activity heartbeats from the browser populate real-time typing/idle/disconnected status in `get_user_response` responses. |
 | `get_user_response` | **Poll for a pending `ask_user` response.** Call after `ask_user(non_blocking=true)` returns a token. Each call waits up to `wait_seconds` (default: **55 s**, max: 115 s) — safely under typical MCP client timeouts. Returns the user's answer when received, or a `PENDING` message with the token so you can call again. Reports **activity-aware status**: typing, idle N seconds, or browser disconnected. Handles the MCP request timeout problem without changing the `ask_user` interface. |
-| `update_dialog` | **Push a live message into an open `ask_user` dialog** (non-blocking mode only, macOS). Messages appear instantly in the user's browser in a scrollable "updates" panel with timestamps — no page refresh. Useful for sharing thinking state or context while waiting for the user's reply. |
-| `open_chat` | **Open a persistent two-way chat window** in the user's browser (macOS). Unlike `ask_user` (one question → one reply), this creates an iMessage-style chat panel where both the AI and the user can send messages freely at any time. Returns a `chat_id`. The window stays open until `close_chat` is called. |
+| `update_dialog` | **Push a live message into an open `ask_user` dialog** (non-blocking mode only, macOS and Windows). Messages appear instantly in the user's browser in a scrollable "updates" panel with timestamps — no page refresh. Useful for sharing thinking state or context while waiting for the user's reply. |
+| `open_chat` | **Open a persistent two-way chat window** in the user's browser (macOS and Windows). Unlike `ask_user` (one question → one reply), this creates an iMessage-style chat panel where both the AI and the user can send messages freely at any time. Returns a `chat_id`. The window stays open until `close_chat` is called. **Not supported on Linux.** |
 | `send_chat_message` | **Send a message from the AI into an open chat window.** The message appears instantly as an AI bubble on the left. Requires a `chat_id` from `open_chat`. |
 | `get_chat_messages` | **Poll for user messages** from an open chat window. Each call waits up to `wait_seconds` (default 55 s). Returns new messages or `PENDING`. Returns `CLOSED` if the chat was closed. Keep calling in a loop to receive messages as the user sends them. |
 | `close_chat` | **Close an open chat window** and shut down its local HTTP server. Always call this when done to free the port and stop all goroutines. |
-| `rest` | **Let the AI go AFK.** Opens a browser page showing "😴 AI is resting" with optional notes for the user (e.g. "Taking a break while you review the diff"). The user sees a "Wake me up!" button and an optional note field. Returns a token — poll with `get_user_response(token)` to detect when the user wakes you. The wakeup message includes any note the user left. Timeout defaults to 1 hour. |
+| `rest` | **Let the AI go AFK.** Opens a browser page showing "😴 AI is resting" with optional notes for the user (e.g. "Taking a break while you review the diff"). The user sees a "Wake me up!" button and an optional note field. Returns a token — poll with `get_user_response(token)` to detect when the user wakes you. The wakeup message includes any note the user left. Timeout defaults to 1 hour. macOS and Windows only. **Not supported on Linux.** |
 
 ### Shell execution (`tools_exec.go`)
 
@@ -147,23 +147,86 @@ Add to `claude_desktop_config.json`:
 ## Project structure
 
 ```
-main.go            — Entry point; wires up all tools and starts stdio server
-helpers.go         — Shared utilities: humanizeBytes, stripBOM, isBinaryContent,
-                     sniffAndOpen, readBinaryFile, readFullText, applyEdit,
-                     entryWithInfo, pluralize (go-pluralize), generateDiff (Myers/go-diff),
-                     lockFile (per-file write mutex), mkdirAllClear (diagnostic mkdir)
-tools_file.go      — File-manipulation tool handlers
-tools_multi.go     — Multi-file tools (read_multiple_files, write_multiple_files, find_replace_in_files)
-tools_dir.go       — Directory tool handlers (list_directory, create_directory, delete_directory, directory_tree)
-tools_search.go    — File search and grep tool handlers (search_files, grep_files)
-tools_exec.go      — Shell command execution tool handler
-tools_user.go      — User-interaction (ask_user) tool handler
-*_test.go          — Unit and integration tests (100+ tests)
+main.go                      — Entry point; wires up all tools and starts stdio server
+registrar.go                 — ToolRegistrar interface (decouples registerXTools from *server.MCPServer)
+descriptions.go              — Tool and parameter description strings (td/pd helpers)
+
+helpers_mime.go              — MIME/binary detection, humanizeBytes, pluralize
+helpers_read.go              — File-read utilities: sniffAndOpen, readBinaryFile, readFullText, countLines
+helpers_edit.go              — Edit utilities: applyEdit, normalizeCRLF, restoreCRLF, findNearbyContext
+helpers_diff.go              — Diff helpers: generateDiff (Myers/go-diff)
+helpers_glob.go              — Glob utilities: expandAlternation
+helpers_fs.go                — Filesystem utilities: entryWithInfo, collectFiles, lockFile, atomicWriteFile
+helpers_checksum.go          — Checksum helper: hashFile
+
+tools_file.go                — File-manipulation tool handlers
+tools_multi.go               — Multi-file tools (read_multiple_files, write_multiple_files, find_replace_in_files)
+tools_dir.go                 — Directory tool handlers
+tools_search.go              — Search tool handlers (search_files, grep_files)
+tools_exec.go                — Shell command execution tool handler
+
+tools_system_register.go     — System tool registration
+tools_system_info.go         — get_system_info, get_working_directory handlers
+tools_system_process.go      — list_processes handler
+tools_system_clipboard.go    — clipboard_read / clipboard_write handlers
+tools_system_http.go         — http_request handler
+
+tools_user_register.go       — User tool registration
+tools_user_shared.go         — Shared types/vars: dialogActivity, pendingDialogState, newDialogToken
+tools_user_ask.go            — ask_user, get_user_response, update_dialog handlers
+tools_user_chat.go           — open_chat, send_chat_message, get_chat_messages, close_chat handlers
+tools_user_notify.go         — notify_user, sendNotification, macASQuote
+tools_user_browser.go        — Browser dialog: promptBrowser, buildMacDialogHTML, buildChatHTML, buildRestHTML, restHandler
+tools_user_console.go        — Console fallbacks: promptConsole, promptChoiceConsole
+tools_user_windows.go        — Windows WPF toast notification helpers
+
+*_test.go                    — Unit and integration tests
+assets/html/                 — Embedded HTML/CSS/JS for browser dialogs
+scripts/preview/             — CLI tool to preview browser UI templates locally
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+
+---
+
+## Building
+
+```bash
+# Build binary into ./bin/
+make build
+
+# Build and stamp with a specific version
+make build VERSION=v2.8.0
+
+# Install into $GOBIN
+make install VERSION=v2.8.0
+
+# Run tests
+make test
+
+# Run linter (requires golangci-lint)
+make lint
+```
+
+On Linux/macOS, `make build` auto-detects the version from `git describe`. On Windows, pass `VERSION=<tag>` explicitly or let it default to `"dev"` for local builds.
+
+For CI/CD (e.g. GitHub Actions), the workflow automatically injects the tag via `-X main.serverVersion=${{ github.ref_name }}` so every release binary is stamped with the correct version.
 
 ---
 
 ## Changelog
+
+### 2.8.0
+- **[FEATURE]** All user-interaction tools (`ask_user`, `notify_user`, `open_chat`, `rest`, `update_dialog`, `get_user_response`) now use **browser-based dialogs on Windows**, matching the existing macOS behavior. Native WPF/PowerShell dialogs have been removed (~500 lines of dead code eliminated).
+- **[FEATURE]** **Linux** now returns a clear `"not supported on Linux"` error for `ask_user`, `open_chat`, and `rest` instead of silently failing.
+- **[BUG FIX]** `notify_user` on Windows — fixed garbled non-ASCII characters (e.g. em dashes `—` appearing as `AE`) in WPF toast notifications. Root cause: the PowerShell temp script was written without a UTF-8 BOM, causing PowerShell 5.1 to misread UTF-8 multi-byte sequences using the system OEM code page. Now writes a UTF-8 BOM (`\xEF\xBB\xBF`) prefix so PowerShell reads the file correctly.
+- **[UX]** `edit_file` — when `old_str` matches **multiple locations** and `replace_all` is false, a warning is now included in the response so the AI knows only the first occurrence was replaced. Use `replace_all=true` or add more context to `old_str` to be precise.
+- **[UX]** `edit_file` — when `old_str` is **not found**, nearby file context is shown around the first line of the search pattern to aid diagnosis (e.g. spot whitespace differences, wrong indentation, extra lines).
+- **[UX]** `write_file` — `show_diff` now **defaults to `true` when overwriting** an existing file, so changes are always visible without having to remember the flag. For new files the default remains `false` (no existing content to diff). The response message now says `Created` vs `Overwrote` to distinguish the two cases.
+- **[UX]** `run_command` — `raw_output` parameter is now documented in tool descriptions. Set `raw_output=true` to receive only stdout/stderr without the metadata header — useful when parsing programmatic output (e.g. JSON).
+
+### 2.7.0
+- **[BUG FIX]** `edit_file` / `find_replace_in_files` — both tools now correctly match and replace text in files that use **CRLF** (`\r\n`) line endings, even when the search pattern contains only LF (`\n`). Previously, patterns silently failed to match any line in Windows-style CRLF files. After editing, the file is written back with its **original CRLF line endings preserved**. LF-only files are unaffected.
 
 ### 2.6.0
 - **[UX]** `open_chat` (macOS) — **complete UI revamp** of the browser chat window:

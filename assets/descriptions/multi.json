@@ -14,7 +14,7 @@
     }
   },
   "find_replace_in_files": {
-    "desc": "Find and replace text across multiple files. Supports literal strings and Go regex with $1,$2 back-references. Returns per-file diffs.",
+    "desc": "Find and replace text across multiple files. Supports literal strings and Go regex with $1,$2 back-references. Returns per-file diffs. Transparently handles CRLF (\\r\\n) files — patterns with LF-only (\\n) match correctly, and the original line endings are preserved after editing.",
     "params": {
       "path": "Root file or directory to search",
       "old_str": "Text (or regex) to find",

@@ -13,6 +13,7 @@
       "max_output_bytes": "Truncate output to this many bytes. Default: no limit.",
       "stdin": "Content piped to the command's standard input.",
       "allow_nonzero_exit": "Return non-zero exit codes as success instead of error. Default: false.",
+      "raw_output": "Return only stdout/stderr without the metadata header (command echo, cwd, exit code). Use this when parsing programmatic output (e.g. JSON). Default: false.",
       "detach": "Start the process fully detached (new session via setsid on Unix). Returns immediately with the PID — output is not captured. Use list_processes to check status. Ignores timeout_seconds, stdin, and max_output_bytes. Default: false."
     }
   },

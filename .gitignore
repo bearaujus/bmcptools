@@ -9,8 +9,7 @@
 *.test
 
 # Output of `go build`
-bmcptools
-bmcptools.exe
+bin
 
 # Coverage output
 coverage.out

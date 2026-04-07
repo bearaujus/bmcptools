@@ -9,10 +9,9 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 )
 
-func registerDirTools(s *server.MCPServer) {
+func registerDirTools(s ToolRegistrar) {
 	s.AddTool(mcp.NewTool("list_directory",
 		mcp.WithDescription(td("list_directory")),
 		mcp.WithString("path", mcp.Description(pd("list_directory", "path"))),

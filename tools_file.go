@@ -10,12 +10,11 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 )
 
 const defaultMaxReadBytes = 10 * 1024 * 1024 // 10 MB
 
-func registerFileTools(s *server.MCPServer) {
+func registerFileTools(s ToolRegistrar) {
 	s.AddTool(mcp.NewTool("read_file",
 		mcp.WithDescription(td("read_file")),
 		mcp.WithString("path", mcp.Required(), mcp.Description(pd("read_file", "path"))),
@@ -325,14 +324,22 @@ func writeFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	}
 
 	createDirs := req.GetBool("create_dirs", true)
+	_, showDiffExplicit := req.GetArguments()["show_diff"]
 	showDiff := req.GetBool("show_diff", false)
 
-	// Capture existing content before overwriting (for diff).
+	// Always read existing content to detect overwrite vs new-file creation,
+	// and to produce a diff when overwriting.
 	var existingContent string
-	if showDiff {
-		if data, err := os.ReadFile(path); err == nil {
-			existingContent = string(data)
-		}
+	fileExisted := false
+	if existing, readErr := os.ReadFile(path); readErr == nil {
+		existingContent = string(existing)
+		fileExisted = true
+	}
+	// Default show_diff to true when overwriting — changes are visible without
+	// having to remember the flag. For new files the whole content would show
+	// as additions, which is redundant, so we skip the diff by default.
+	if !showDiffExplicit {
+		showDiff = fileExisted
 	}
 
 	if createDirs {
@@ -350,7 +357,11 @@ func writeFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	}
 
 	lines := countContentLines(content)
-	msg := fmt.Sprintf("Wrote %s (%s) → %s", humanizeBytes(int64(len(content))), pluralize(lines, "line"), path)
+	verb := "Created"
+	if fileExisted {
+		verb = "Overwrote"
+	}
+	msg := fmt.Sprintf("%s %s (%s) → %s", verb, humanizeBytes(int64(len(content))), pluralize(lines, "line"), path)
 
 	if showDiff {
 		diff := generateDiff(existingContent, content, 3)
@@ -457,12 +468,21 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot read file: %v", err)), nil
 	}
-	original := string(data)
+	original, hasCRLF := normalizeCRLF(string(data))
 	current := original
 	totalCount := 0
 	var missed []string
+	var multipleMatchWarnings []string
 
 	for i, spec := range specs {
+		// For plain-text patterns without replace_all, detect multiple occurrences
+		// before applying so we can warn about the ambiguity.
+		if !spec.replaceAll && !spec.useRegex {
+			if strings.Count(current, spec.oldStr) > 1 {
+				multipleMatchWarnings = append(multipleMatchWarnings, spec.oldStr)
+			}
+		}
+
 		modified, count, editErr := applyEdit(current, spec.oldStr, spec.newStr, spec.useRegex, spec.replaceAll)
 		if editErr != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("edits[%d]: %v", i, editErr)), nil
@@ -494,6 +514,9 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		msg := prefix + "Pattern(s) not found in file; no changes made"
 		if len(specs) == 1 {
 			msg = fmt.Sprintf("%sPattern not found in file: %q", prefix, specs[0].oldStr)
+			if hint := findNearbyContext(original, specs[0].oldStr); hint != "" {
+				msg += hint
+			}
 		}
 		return mcp.NewToolResultText(msg), nil
 	}
@@ -508,7 +531,11 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		return mcp.NewToolResultText(preview), nil
 	}
 
-	if err := atomicWriteFile(path, []byte(current), 0o644); err != nil {
+	writeCurrent := current
+	if hasCRLF {
+		writeCurrent = restoreCRLF(current)
+	}
+	if err := atomicWriteFile(path, []byte(writeCurrent), 0o644); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot write file: %v", err)), nil
 	}
 
@@ -524,6 +551,13 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 			}
 			msg += fmt.Sprintf("%q", m)
 		}
+	}
+	if len(multipleMatchWarnings) > 0 {
+		msg += fmt.Sprintf(
+			"\nWarning: %d pattern(s) matched multiple times — only the first occurrence was replaced each time."+
+				" Use replace_all=true to replace all, or add more context to old_str to make it unique.",
+			len(multipleMatchWarnings),
+		)
 	}
 	if diff := generateDiff(original, current, ctxLines); diff != "" {
 		msg += "\n\n" + diff

@@ -197,3 +197,50 @@ func TestReadMultipleFilesHandlerBinaryFile(t *testing.T) {
 		t.Errorf("expected [BINARY FILE] marker for binary file: %q", text)
 	}
 }
+
+// ── normalizeCRLF / restoreCRLF ───────────────────────────────────────────────
+
+func TestNormalizeCRLF(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantOut     string
+		wantHasCRLF bool
+	}{
+		{"no CRLF", "line one\nline two\n", "line one\nline two\n", false},
+		{"all CRLF", "line one\r\nline two\r\n", "line one\nline two\n", true},
+		{"mixed", "line one\r\nline two\n", "line one\nline two\n", true},
+		{"empty", "", "", false},
+		{"lone CR", "foo\rbar", "foo\rbar", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, hasCRLF := normalizeCRLF(tt.input)
+			if got != tt.wantOut {
+				t.Errorf("normalized = %q, want %q", got, tt.wantOut)
+			}
+			if hasCRLF != tt.wantHasCRLF {
+				t.Errorf("hasCRLF = %v, want %v", hasCRLF, tt.wantHasCRLF)
+			}
+		})
+	}
+}
+
+func TestRestoreCRLF(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"basic", "line one\nline two\n", "line one\r\nline two\r\n"},
+		{"empty", "", ""},
+		{"already has CRLF", "foo\r\nbar\n", "foo\r\r\nbar\r\n"}, // \r\n → \r\r\n (document behavior)
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := restoreCRLF(tt.input); got != tt.want {
+				t.Errorf("restoreCRLF(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

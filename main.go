@@ -8,10 +8,11 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-const (
-	serverName    = "bmcptools"
-	serverVersion = "2.6.0"
-)
+const serverName = "bmcptools"
+
+// serverVersion is overridden at build time via -ldflags "-X main.serverVersion=<tag>".
+// Falls back to "dev" when building without ldflags (e.g. go run . locally).
+var serverVersion = "dev"
 
 //go:embed assets/descriptions/server_instructions.txt
 var serverInstructions string

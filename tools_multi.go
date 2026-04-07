@@ -8,10 +8,9 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 )
 
-func registerMultiTools(s *server.MCPServer) {
+func registerMultiTools(s ToolRegistrar) {
 	s.AddTool(mcp.NewTool("read_multiple_files",
 		mcp.WithDescription(td("read_multiple_files")),
 		mcp.WithArray("paths",
