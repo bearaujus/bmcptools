@@ -9,7 +9,7 @@
     }
   },
   "ask_user": {
-    "desc": "Ask the user a short question via a dialog and wait for their answer. Use ONLY for discovery questions that require a user decision or clarification \u2014 NOT for writing solutions, explanations, or progress updates. Long answers, code, and summaries belong in your terminal/chat response, not in this dialog. Keep the question concise. If your environment has other tools also named ask_user, use this one (bmcptools). Set non_blocking=true if your MCP client has a short timeout, then poll with get_user_response.",
+    "desc": "Ask the user a short question via a browser dialog. Opens the dialog immediately and returns a token — call get_user_response(token=\u2026) to retrieve the answer. Use ONLY for discovery questions that require a user decision or clarification \u2014 NOT for writing solutions, explanations, or progress updates. Long answers, code, and summaries belong in your terminal/chat response, not in this dialog. Keep the question concise. If your environment has other tools also named ask_user, use this one (bmcptools).",
     "params": {
       "question": "A short, focused question. Do NOT include long reasoning, solutions, or explanations here \u2014 write those in your response text instead. Ask one clear question only.",
       "details": "Optional supplementary context rendered as markdown below the question. Use this for things the user needs to see alongside the question — e.g. a summary of what you just changed, your current findings, or relevant background. Keep the question itself short; put the substance here.",
@@ -18,8 +18,7 @@
       "choices": "Optional quick-reply chips. User can tap a chip and/or type a custom reply.",
       "timeout_seconds": "Seconds before auto-closing. Default: 600. Max: 3600.",
       "allow_freeform": "Allow freeform text input alongside choices. Default: true.",
-      "notify": "Flash taskbar and send a toast when dialog opens. Default: true.",
-      "non_blocking": "Return a poll token immediately instead of waiting. Use when MCP client timeout is short (e.g. 30\u2013120 s)."
+      "notify": "Flash taskbar and send a toast when dialog opens. Default: true."
     }
   },
   "get_user_response": {

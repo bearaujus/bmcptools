@@ -35,39 +35,31 @@ func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	timeout := time.Duration(timeoutSec) * time.Second
 
 	notify := req.GetBool("notify", true)
-	nonBlocking := req.GetBool("non_blocking", false)
 
-	if nonBlocking {
-		token := newDialogToken()
-		act := &dialogActivity{}
-		state := &pendingDialogState{
-			responseCh: make(chan string, 1),
-			activity:   act,
-		}
-		storePendingDialog(token, state)
-
-		go func() {
-			answer := runDialogBlocking(question, details, title, subtitle, choices, allowFreeform, notify, timeout, act)
-			select {
-			case state.responseCh <- answer:
-			default:
-			}
-			time.Sleep(5 * time.Minute)
-			deletePendingDialog(token)
-		}()
-
-		return mcp.NewToolResultText(
-			"PENDING — dialog opened in background.\n" +
-				"Token: " + token + "\n" +
-				"Call get_user_response(token=\"" + token + "\") to retrieve the answer.\n" +
-				"Each get_user_response call waits up to wait_seconds (default 55) before returning PENDING again.",
-		), nil
+	token := newDialogToken()
+	act := &dialogActivity{}
+	state := &pendingDialogState{
+		responseCh: make(chan string, 1),
+		activity:   act,
 	}
+	storePendingDialog(token, state)
 
-	askUserMu.Lock()
-	defer askUserMu.Unlock()
+	go func() {
+		answer := runDialogBlocking(question, details, title, subtitle, choices, allowFreeform, notify, timeout, act)
+		select {
+		case state.responseCh <- answer:
+		default:
+		}
+		time.Sleep(5 * time.Minute)
+		deletePendingDialog(token)
+	}()
 
-	return mcp.NewToolResultText(runDialogBlocking(question, details, title, subtitle, choices, allowFreeform, notify, timeout, nil)), nil
+	return mcp.NewToolResultText(
+		"PENDING — dialog opened in background.\n" +
+			"Token: " + token + "\n" +
+			"Call get_user_response(token=\"" + token + "\") to retrieve the answer.\n" +
+			"Each get_user_response call waits up to wait_seconds (default 55) before returning PENDING again.",
+	), nil
 }
 
 func runDialogBlocking(question, details, title, subtitle string, choices []string, allowFreeform, notify bool, timeout time.Duration, activity *dialogActivity) string {

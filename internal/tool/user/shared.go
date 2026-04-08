@@ -7,10 +7,7 @@ import (
 	"time"
 )
 
-// askUserMu ensures at most one ask_user dialog is visible at a time.
-var askUserMu sync.Mutex
-
-// pendingDialogs stores state for non-blocking ask_user sessions.
+// pendingDialogs stores state for pending ask_user sessions.
 var pendingDialogs sync.Map
 
 func storePendingDialog(token string, state *pendingDialogState) {

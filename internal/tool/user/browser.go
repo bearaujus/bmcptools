@@ -78,18 +78,23 @@ func promptBrowser(question, details, title, subtitle string, allowFreeform bool
 		fmt.Fprint(w, "ok")
 
 		var payload struct {
-			Choice string `json:"choice"`
-			Notes  string `json:"notes"`
+			Choice    string `json:"choice"`
+			Notes     string `json:"notes"`
+			Dismissed bool   `json:"dismissed"`
 		}
 		answer := ""
 		if jsonErr := json.Unmarshal(body, &payload); jsonErr == nil {
-			switch {
-			case payload.Choice != "" && payload.Notes != "":
-				answer = payload.Choice + "\n\n" + payload.Notes
-			case payload.Choice != "":
-				answer = payload.Choice
-			default:
-				answer = payload.Notes
+			if payload.Dismissed {
+				answer = "[User dismissed the dialog — no reply was sent]"
+			} else {
+				switch {
+				case payload.Choice != "" && payload.Notes != "":
+					answer = payload.Choice + "\n\n" + payload.Notes
+				case payload.Choice != "":
+					answer = payload.Choice
+				default:
+					answer = payload.Notes
+				}
 			}
 		} else {
 			answer = string(body)

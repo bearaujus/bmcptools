@@ -59,9 +59,6 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.WithBoolean("notify",
 				mcp.Description(asset.ParamDesc(toolname.AskUser, "notify")),
 			),
-			mcp.WithBoolean("non_blocking",
-				mcp.Description(asset.ParamDesc(toolname.AskUser, "non_blocking")),
-			),
 		),
 		askUserHandler,
 	)
