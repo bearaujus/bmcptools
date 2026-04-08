@@ -40,24 +40,14 @@ func Ask(ctx context.Context, title, details string) (bool, error) {
 
 // AskWithTimeout is like Ask but lets the caller override the auto-cancel timeout.
 func AskWithTimeout(ctx context.Context, title, details string, timeout time.Duration) (bool, error) {
-	switch runtime.GOOS {
-	case "darwin", "windows":
-	default:
-		return false, fmt.Errorf("confirm.Ask is not supported on %s", runtime.GOOS)
+	if err := checkPlatform(); err != nil {
+		return false, err
 	}
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return false, fmt.Errorf("failed to start confirmation server: %w", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
 
 	resultCh := make(chan bool, 1)
 	mux := http.NewServeMux()
-	srv := &http.Server{Handler: mux}
 
 	page := buildConfirmHTML(title, details, int(timeout.Seconds()))
-
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, page)
@@ -70,7 +60,6 @@ func AskWithTimeout(ctx context.Context, title, details string, timeout time.Dur
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<10))
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
-
 		var payload struct {
 			Confirmed bool `json:"confirmed"`
 		}
@@ -81,16 +70,11 @@ func AskWithTimeout(ctx context.Context, title, details string, timeout time.Dur
 		}
 	})
 
-	go func() { _ = srv.Serve(ln) }()
-	// Use graceful Shutdown (with a short deadline) instead of Close to avoid
-	// cutting off in-flight response writes and leaking goroutines.
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-
-	openBrowser(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	shutdown, err := startDialogServer(mux)
+	if err != nil {
+		return false, err
+	}
+	defer shutdown()
 
 	select {
 	case confirmed := <-resultCh:
@@ -107,21 +91,12 @@ func AskWithTimeout(ctx context.Context, title, details string, timeout time.Dur
 // to /answer when the user acts — e.g. {"confirmed": true, "extra_field": false}.
 // All JSON fields in that payload are returned in the result map.
 func AskWithHTML(ctx context.Context, pageHTML string, timeout time.Duration) (map[string]interface{}, error) {
-	switch runtime.GOOS {
-	case "darwin", "windows":
-	default:
-		return nil, fmt.Errorf("confirm.AskWithHTML is not supported on %s", runtime.GOOS)
+	if err := checkPlatform(); err != nil {
+		return nil, err
 	}
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to start confirmation server: %w", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
 
 	resultCh := make(chan map[string]interface{}, 1)
 	mux := http.NewServeMux()
-	srv := &http.Server{Handler: mux}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -135,7 +110,6 @@ func AskWithHTML(ctx context.Context, pageHTML string, timeout time.Duration) (m
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<10))
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
-
 		var payload map[string]interface{}
 		if err := json.Unmarshal(body, &payload); err != nil {
 			payload = map[string]interface{}{"confirmed": false}
@@ -146,14 +120,11 @@ func AskWithHTML(ctx context.Context, pageHTML string, timeout time.Duration) (m
 		}
 	})
 
-	go func() { _ = srv.Serve(ln) }()
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-
-	openBrowser(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	shutdown, err := startDialogServer(mux)
+	if err != nil {
+		return nil, err
+	}
+	defer shutdown()
 
 	select {
 	case payload := <-resultCh:
@@ -174,6 +145,35 @@ var openBrowser = func(url string) {
 	case "windows":
 		_ = openCommand("cmd", "/c", "start", url)
 	}
+}
+
+// checkPlatform returns an error if the current OS is unsupported.
+func checkPlatform() error {
+	switch runtime.GOOS {
+	case "darwin", "windows":
+		return nil
+	default:
+		return fmt.Errorf("confirm is not supported on %s", runtime.GOOS)
+	}
+}
+
+// startDialogServer starts a local HTTP server on a random port, opens the browser,
+// and returns a shutdown function. The caller is responsible for sending to any
+// result channel registered in the mux before calling shutdown.
+func startDialogServer(mux *http.ServeMux) (shutdown func(), err error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to start confirmation server: %w", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	openBrowser(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	return func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}, nil
 }
 
 // buildConfirmHTML generates the full HTML page for the confirmation dialog.
