@@ -102,6 +102,69 @@ func AskWithTimeout(ctx context.Context, title, details string, timeout time.Dur
 	}
 }
 
+// AskWithHTML is like AskWithTimeout but serves a caller-provided HTML page instead
+// of the built-in dialog template. The HTML is responsible for POSTing a JSON object
+// to /answer when the user acts — e.g. {"confirmed": true, "extra_field": false}.
+// All JSON fields in that payload are returned in the result map.
+func AskWithHTML(ctx context.Context, pageHTML string, timeout time.Duration) (map[string]interface{}, error) {
+	switch runtime.GOOS {
+	case "darwin", "windows":
+	default:
+		return nil, fmt.Errorf("confirm.AskWithHTML is not supported on %s", runtime.GOOS)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to start confirmation server: %w", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	resultCh := make(chan map[string]interface{}, 1)
+	mux := http.NewServeMux()
+	srv := &http.Server{Handler: mux}
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, pageHTML)
+	})
+	mux.HandleFunc("/answer", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<10))
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+
+		var payload map[string]interface{}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			payload = map[string]interface{}{"confirmed": false}
+		}
+		select {
+		case resultCh <- payload:
+		default:
+		}
+	})
+
+	go func() { _ = srv.Serve(ln) }()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+
+	openBrowser(fmt.Sprintf("http://127.0.0.1:%d/", port))
+
+	select {
+	case payload := <-resultCh:
+		return payload, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("confirmation timed out after %s — operation was not executed", timeout)
+	}
+}
+
 // openBrowser launches the default browser to the given URL.
 // It is a best-effort call; errors are intentionally ignored.
 var openBrowser = func(url string) {
