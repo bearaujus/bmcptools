@@ -65,6 +65,35 @@ for contributors or upstream maintainers:
 make test
 ```
 
+### Test helpers (per-package)
+
+Every `internal/tool/<name>/` package has a `testutil_test.go` file that
+provides shared test utilities for that package. When writing new tests, use
+these helpers — do not duplicate them:
+
+| Helper | Signature | Purpose |
+|--------|-----------|---------|
+| `newTestRequest` | `(args map[string]any) mcp.CallToolRequest` | Build a `mcp.CallToolRequest` with the given argument map — the standard way to invoke a handler in tests. |
+| `isResultError` | `(r *mcp.CallToolResult) bool` | Return `r.IsError` — used to assert that a handler returned an error result. |
+| `resultText` | `(r *mcp.CallToolResult) string` | Extract the first `TextContent` string from a result — used to inspect handler output. |
+
+**Finding them:** `grep -r "func newTestRequest" internal/` — each package
+has its own copy in `testutil_test.go`.
+
+**Adding tests:** add cases to the existing `handler_test.go` in the matching
+package. Check for name collisions first
+(`grep "^func Test" internal/tool/<pkg>/handler_test.go`).
+Always add a comment above each test explaining **why** the case is needed (what
+bug, edge case, or previously-untested code path it covers).
+
+### ask_user / get_user_response polling in tests
+
+`askUserHandler` is asynchronous — it spawns a goroutine and immediately returns
+a JSON token. To test the response-receiving side without browser interaction,
+pre-load state with `storePendingDialog(token, state)` where `state.responseCh`
+is a buffered channel pre-seeded with the answer. See
+`internal/tool/user/handler_test.go` for full examples.
+
 ## Linting
 
 ```sh

@@ -453,3 +453,69 @@ func TestDirTreeHandlerGlobPrunesEmptyDirs(t *testing.T) {
 		t.Errorf("expected main.go in tree: %q", text)
 	}
 }
+
+// ── list_directory max_depth ──────────────────────────────────────────────────
+// Reason: max_depth is a documented parameter of list_directory that was never
+// exercised. A regression in depth-limiting would make the tool ignore the
+// parameter silently, exposing unexpected deep results.
+
+func TestListDirHandlerMaxDepth(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "level1")
+	deep := filepath.Join(sub, "level2")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "shallow.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "deep.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{"path": dir, "recursive": true, "max_depth": float64(1)})
+	result, err := listDirHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "shallow.txt") {
+		t.Errorf("expected shallow.txt at depth 1: %q", text)
+	}
+	if strings.Contains(text, "deep.txt") {
+		t.Errorf("deep.txt at depth 2 should be excluded with max_depth=1: %q", text)
+	}
+}
+
+// ── delete_directory nonexistent ─────────────────────────────────────────────
+// Reason: Attempting to delete a directory that does not exist should return
+// a clear error. This common LLM mistake was untested.
+
+func TestDeleteDirHandlerNonExistent(t *testing.T) {
+	result, err := deleteDirHandler(nil, newTestRequest(map[string]any{
+		"path": filepath.Join(t.TempDir(), "ghost_dir"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error when deleting a nonexistent directory")
+	}
+}
+
+// ── create_directory empty path ───────────────────────────────────────────────
+// Reason: An empty path argument should produce a clear error, not a panic or
+// a directory created at the process's working directory root.
+
+func TestCreateDirHandlerEmptyPath(t *testing.T) {
+	result, err := createDirHandler(nil, newTestRequest(map[string]any{"path": ""}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for empty path argument")
+	}
+}

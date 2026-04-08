@@ -514,3 +514,280 @@ func TestReadMultipleFilesHandlerBinaryFile(t *testing.T) {
 		t.Errorf("expected [BINARY FILE] marker for binary file: %q", text)
 	}
 }
+
+// ── write_multiple_files (additional edge cases) ──────────────────────────────
+
+// Reason: If the "files" array contains a non-object entry (e.g., a string),
+// the handler should report an error for that entry without crashing. This
+// protects against malformed LLM output.
+func TestWriteMultipleFilesInvalidEntryType(t *testing.T) {
+	dir := t.TempDir()
+	result, err := writeMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"files": []any{
+			"not-an-object",
+			map[string]any{"path": filepath.Join(dir, "valid.txt"), "content": "ok"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The invalid entry causes a partial failure → handler returns error result
+	if !isResultError(result) {
+		t.Error("expected error result when files array contains non-object entry")
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "[entry 1]") {
+		t.Errorf("expected entry error reference in output: %q", text)
+	}
+}
+
+// Reason: An entry with an empty path should produce a clear per-entry error
+// rather than writing to the current directory or panicking.
+func TestWriteMultipleFilesEmptyPath(t *testing.T) {
+	result, err := writeMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"files": []any{
+			map[string]any{"path": "   ", "content": "data"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error result for empty path entry")
+	}
+}
+
+// Reason: show_diff=true should include a diff section when an existing file
+// is overwritten. The diff path was never exercised by existing tests.
+func TestWriteMultipleFilesShowDiff(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(f, []byte("old content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := writeMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"files": []any{
+			map[string]any{"path": f, "content": "new content"},
+		},
+		"show_diff": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "@@") {
+		t.Errorf("expected unified diff in show_diff=true output: %q", text)
+	}
+}
+
+// Reason: When all entries succeed the result should be a text result (not
+// an error). Verifies the success/failure classification logic.
+func TestWriteMultipleFilesAllSucceedReturnsText(t *testing.T) {
+	dir := t.TempDir()
+	result, err := writeMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"files": []any{
+			map[string]any{"path": filepath.Join(dir, "a.txt"), "content": "aaa"},
+			map[string]any{"path": filepath.Join(dir, "b.txt"), "content": "bbb"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "2 files of 2 files") && !strings.Contains(text, "Wrote 2") {
+		t.Errorf("expected success summary in output: %q", text)
+	}
+}
+
+// ── find_replace_in_files (additional edge cases) ─────────────────────────────
+
+// Reason: dry_run=true should report what WOULD be replaced without actually
+// modifying the file. This path was never covered.
+func TestFindReplaceInFilesDryRunNoModify(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "code.txt")
+	original := "hello world"
+	if err := os.WriteFile(f, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"old_str": "hello",
+		"new_str": "hi",
+		"dry_run": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(strings.ToLower(text), "dry run") && !strings.Contains(strings.ToLower(text), "would replace") {
+		t.Errorf("expected dry run indicator in output: %q", text)
+	}
+	// File must NOT have been modified
+	data, _ := os.ReadFile(f)
+	if string(data) != original {
+		t.Errorf("dry_run should not modify files; file content changed to: %q", string(data))
+	}
+}
+
+// Reason: use_regex=true enables Go regex patterns. This path was never tested.
+// A broken regex-replace pipeline would silently replace nothing or crash.
+func TestFindReplaceInFilesRegexMode(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "src.go")
+	if err := os.WriteFile(f, []byte("var foo123 = 1\nvar bar456 = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"old_str":   `var \w+ = `,
+		"new_str":   "const x = ",
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	data, _ := os.ReadFile(f)
+	if !strings.Contains(string(data), "const x = ") {
+		t.Errorf("expected regex replacement in file, got: %q", string(data))
+	}
+}
+
+// Reason: An invalid regex should be rejected early with a clear error.
+func TestFindReplaceInFilesInvalidRegex(t *testing.T) {
+	dir := t.TempDir()
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"old_str":   "[bad regex",
+		"new_str":   "x",
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for invalid regex in find_replace_in_files")
+	}
+}
+
+// Reason: When no files match the pattern, the handler should return a
+// descriptive text result (not an error). The LLM must be told nothing changed.
+func TestFindReplaceInFilesNoMatchFound(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("no match here"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"old_str": "XYZZY_NOT_IN_FILE",
+		"new_str": "replacement",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("expected text result (not error) when no match: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "No matches") {
+		t.Errorf("expected 'No matches' message: %q", text)
+	}
+}
+
+// Reason: show_diff=false should suppress the diff section in the output,
+// reducing noise when bulk-replacing many files.
+func TestFindReplaceInFilesShowDiffFalse(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"old_str":   "hello",
+		"new_str":   "hi",
+		"show_diff": false,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if strings.Contains(text, "@@") {
+		t.Errorf("show_diff=false should not include diff hunks: %q", text)
+	}
+}
+
+// ── read_multiple_files (additional edge cases) ───────────────────────────────
+
+// Reason: max_bytes_per_file limits how much of each file is read. This
+// truncation path was never tested; a regression could return unbounded data.
+func TestReadMultipleFilesMaxBytesPerFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "big.txt")
+	// Write 100 bytes
+	if err := os.WriteFile(f, []byte(strings.Repeat("A", 100)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":              []any{f},
+		"max_bytes_per_file": float64(10),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	// With a 10-byte limit, we should see a truncation message or at most 10 A's
+	fullContent := strings.Repeat("A", 100)
+	if strings.Contains(text, fullContent) {
+		t.Errorf("expected content to be limited to max_bytes_per_file=10: %q", text)
+	}
+}
+
+// Reason: Mixing valid and missing files should report per-file errors while
+// still returning the content of successful reads — not MCP error.
+func TestReadMultipleFilesPartialFailure(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.txt")
+	if err := os.WriteFile(good, []byte("good content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "does_not_exist.txt")
+
+	result, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{good, missing},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Partial failures still return text (not MCP error)
+	text := resultText(result)
+	if !strings.Contains(text, "good content") {
+		t.Errorf("expected successful file content in output: %q", text)
+	}
+	if !strings.Contains(text, "ERROR") && !strings.Contains(text, "failed") {
+		t.Errorf("expected error indication for missing file: %q", text)
+	}
+}

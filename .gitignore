@@ -14,6 +14,7 @@ bin
 # Coverage output
 coverage.out
 coverage.html
+coverage
 
 # Editor / IDE
 .cursor/

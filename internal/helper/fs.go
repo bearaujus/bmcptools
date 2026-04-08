@@ -106,7 +106,9 @@ func CountContentLines(content string) int {
 }
 
 // ApplyReplaceToFile reads filePath, applies the replacement, and writes back.
-// Returns (count, diffStr, skippedBinary, error).
+// Return order: (matchCount int, diffStr string, skippedBinary bool, err error).
+// When dryRun=true the file is never modified; diff is still produced if produceDiff=true.
+// When the file contains binary content, skippedBinary=true and all other values are zero.
 func ApplyReplaceToFile(filePath, oldStr, newStr string, useRegex, dryRun, produceDiff bool) (int, string, bool, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -161,23 +163,28 @@ func LockFile(absPath string) func() {
 }
 
 // MkdirAllClear calls os.MkdirAll and augments the error message on failure.
+// It walks every path ancestor (root → leaf) using filepath.Dir, so the
+// detection works correctly on both Unix and Windows (including drive letters).
 func MkdirAllClear(dir string, perm os.FileMode) error {
 	if err := os.MkdirAll(dir, perm); err == nil {
 		return nil
 	}
-	parts := strings.Split(filepath.ToSlash(filepath.Clean(dir)), "/")
-	cur := ""
-	if filepath.IsAbs(dir) {
-		cur = "/"
-	}
-	for _, part := range parts {
-		if part == "" {
-			continue
+	// Collect ancestors leaf→root, then reverse to walk root→leaf.
+	cleanDir := filepath.Clean(dir)
+	var ancestors []string
+	for p := cleanDir; ; p = filepath.Dir(p) {
+		ancestors = append(ancestors, p)
+		if parent := filepath.Dir(p); parent == p {
+			break
 		}
-		cur = filepath.Join(cur, part)
+	}
+	for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+		ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+	}
+	for _, cur := range ancestors {
 		info, statErr := os.Stat(cur)
 		if statErr != nil {
-			break
+			break // path no longer exists; stop scanning
 		}
 		if !info.IsDir() {
 			return fmt.Errorf("%q already exists as a file; cannot create a directory there", cur)

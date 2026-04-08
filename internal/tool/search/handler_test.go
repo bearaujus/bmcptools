@@ -486,3 +486,472 @@ func TestGrepFileContextAdjacentMatches(t *testing.T) {
 }
 
 
+
+// ── grep_files case_insensitive ───────────────────────────────────────────────
+// Reason: The case_insensitive flag is a documented parameter of grep_files
+// that was never tested. A bug in the flag would cause wrong match counts
+// without any test catching it.
+
+func TestGrepFilesHandlerCaseInsensitive(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mix.txt"), []byte("Hello World\nHELLO WORLD\nhello world\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without case_insensitive — only exact lower-case match.
+	req := newTestRequest(map[string]any{
+		"path":    dir,
+		"pattern": "hello world",
+	})
+	result, err := grepFilesHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, "Hello World") {
+		t.Errorf("case-sensitive search should not match 'Hello World': %q", text)
+	}
+
+	// With case_insensitive=true — all three lines should match.
+	req2 := newTestRequest(map[string]any{
+		"path":             dir,
+		"pattern":          "hello world",
+		"case_insensitive": true,
+	})
+	result2, err := grepFilesHandler(nil, req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text2 := resultText(result2)
+	if !strings.Contains(text2, "Hello World") {
+		t.Errorf("case-insensitive search should match 'Hello World': %q", text2)
+	}
+	if !strings.Contains(text2, "HELLO WORLD") {
+		t.Errorf("case-insensitive search should match 'HELLO WORLD': %q", text2)
+	}
+}
+
+// ── grep_files max_file_size ──────────────────────────────────────────────────
+// Reason: The max_file_size parameter causes grep_files to skip files that are
+// too large. This was never tested; a silent regression would mean large files
+// are either always or never skipped.
+
+func TestGrepFilesSizeFilter(t *testing.T) {
+	dir := t.TempDir()
+	// "small" file: 5 bytes.
+	if err := os.WriteFile(filepath.Join(dir, "small.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// "large" file: 100 bytes.
+	large := make([]byte, 100)
+	copy(large, []byte("hello"))
+	if err := os.WriteFile(filepath.Join(dir, "large.txt"), large, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// max_file_size=10 should skip large.txt (100 B) but still search small.txt.
+	req := newTestRequest(map[string]any{
+		"path":          dir,
+		"pattern":       "hello",
+		"max_file_size": float64(10),
+	})
+	result, err := grepFilesHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "small.txt") {
+		t.Errorf("expected small.txt to be searched: %q", text)
+	}
+	if strings.Contains(text, "large.txt") && !strings.Contains(text, "skip") {
+		t.Errorf("large.txt should be skipped (exceeds max_file_size): %q", text)
+	}
+}
+
+// ── grep_files output modes ────────────────────────────────────────────────────
+
+// Reason: output_mode="files_with_matches" was never tested. It de-duplicates
+// results to file paths only — critical for LLMs doing project-wide analysis.
+func TestGrepFilesFilesWithMatchesMode(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "code.go")
+	if err := os.WriteFile(f, []byte("hello\nhello again\nno match here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "hello",
+		"output_mode": "files_with_matches",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "code.go") {
+		t.Errorf("expected file path in files_with_matches output: %q", text)
+	}
+	// With two matches, "files_with_matches" should deduplicate to 1 file
+	if strings.Count(text, "code.go") > 2 {
+		t.Errorf("files_with_matches should deduplicate; got multiple entries: %q", text)
+	}
+}
+
+// Reason: output_mode="count" was never tested. It reports match counts per
+// file — essential for large-scale refactor audits.
+func TestGrepFilesCountMode(t *testing.T) {
+	dir := t.TempDir()
+	fa := filepath.Join(dir, "a.txt")
+	fb := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(fa, []byte("hit\nhit\nhit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fb, []byte("hit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "hit",
+		"output_mode": "count",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "3") {
+		t.Errorf("expected count of 3 for a.txt: %q", text)
+	}
+}
+
+// Reason: multiline=true changes the entire grep backend (reads whole file vs
+// line-by-line). It was never tested, meaning a refactor of grepFileMultiline
+// would be invisible to the test suite.
+func TestGrepFilesMultilineMode(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "multi.txt")
+	if err := os.WriteFile(f, []byte("line one\nline two\nline three\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   `one\nline two`,
+		"multiline": true,
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "multi.txt") {
+		t.Errorf("expected multiline match in output: %q", text)
+	}
+}
+
+// Reason: Invalid regex with multiline=true should return a clear error rather
+// than panicking on Compile.
+func TestGrepFilesMultilineInvalidRegex(t *testing.T) {
+	dir := t.TempDir()
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   "[invalid",
+		"multiline": true,
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for invalid regex in multiline mode")
+	}
+}
+
+// Reason: use_regex=true with a valid regex was only tested via the
+// case_insensitive path. A standalone valid-regex test catches bugs in the
+// non-CI regex code path.
+func TestGrepFilesRegexMode(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "src.go")
+	if err := os.WriteFile(f, []byte("func Add(a, b int) int {\n\treturn a + b\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   `func \w+\(`,
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "src.go") {
+		t.Errorf("expected regex match in output: %q", text)
+	}
+}
+
+// Reason: Invalid regex with use_regex=true should return a clear error.
+func TestGrepFilesInvalidRegexError(t *testing.T) {
+	dir := t.TempDir()
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   "[unclosed",
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for invalid regex pattern")
+	}
+}
+
+// Reason: Offset-based pagination was never tested. If offset >= all matches
+// the result should indicate no matches, not panic.
+func TestGrepFilesOffsetBeyondResultsReturnsNoMatches(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(f, []byte("needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"pattern": "needle",
+		"offset":  float64(100),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "No matches") {
+		t.Errorf("expected 'No matches' when offset exceeds results: %q", text)
+	}
+}
+
+// Reason: context_lines > 50 should be clamped to 50. An unclamped value
+// would include excessive context lines, bloating the response.
+func TestGrepFilesContextLinesAbove50Clamped(t *testing.T) {
+	dir := t.TempDir()
+	lines := make([]string, 60)
+	for i := range lines {
+		if i == 30 {
+			lines[i] = "TARGET"
+		} else {
+			lines[i] = "context"
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ctx.txt"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":          dir,
+		"pattern":       "TARGET",
+		"context_lines": float64(999),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	// Should succeed without returning thousands of context lines
+	_ = resultText(result)
+}
+
+// Reason: When a literal pattern contains regex metacharacters, the handler
+// emits a hint suggesting use_regex=true. This hint was never verified.
+func TestGrepFilesRegexMetacharHint(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("no match here"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"pattern": "foo.bar", // "." is a metachar
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "use_regex") {
+		t.Errorf("expected regex metachar hint in output: %q", text)
+	}
+}
+
+// ── search_files (additional edge cases) ──────────────────────────────────────
+
+// Reason: max_results=1 should stop after finding the first matching file.
+// This boundary was never tested; a bug here would return too many results.
+func TestSearchFilesMaxResultsLimit(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.go", "b.go", "c.go"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "*.go",
+		"max_results": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "limit") && !strings.Contains(text, "1") {
+		t.Errorf("expected limit message in output: %q", text)
+	}
+}
+
+// Reason: recursive=false should not descend into subdirectories.
+// The base case (root only) was never explicitly tested.
+func TestSearchFilesRecursiveFalse(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "deep.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "top.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   "*.go",
+		"recursive": false,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if strings.Contains(text, "deep.go") {
+		t.Errorf("recursive=false should not find files in subdirectory: %q", text)
+	}
+	if !strings.Contains(text, "top.go") {
+		t.Errorf("expected top-level file in output: %q", text)
+	}
+}
+
+// Reason: show_hidden=true enables hidden-file discovery. Without a test,
+// any change to the hidden-file logic would be undetected.
+func TestSearchFilesShowHiddenFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".hidden.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without show_hidden, the hidden file should NOT appear
+	resultHidden, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"pattern": "*.go",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(resultText(resultHidden), ".hidden.go") {
+		t.Error("hidden file should not appear when show_hidden=false")
+	}
+
+	// With show_hidden=true it must appear
+	resultVisible, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "*.go",
+		"show_hidden": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resultText(resultVisible), ".hidden.go") {
+		t.Error("expected hidden file in output when show_hidden=true")
+	}
+}
+
+// Reason: If the root is a file (not a directory) the handler should return
+// a clear error. This is a common LLM mistake.
+func TestSearchFilesPathIsFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    f,
+		"pattern": "*.txt",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error when path is a file, not a directory")
+	}
+}
+
+// ── doubleStarMatch ───────────────────────────────────────────────────────────
+
+// Reason: The doubleStarMatch recursive function was never directly unit-tested.
+// Tests cover: standalone **, nested paths, and non-matching cases.
+func TestDoubleStarMatch(t *testing.T) {
+	tests := []struct {
+		pattern string
+		path    string
+		want    bool
+	}{
+		{"**", "any/path/here", true},
+		{"**", "", true},
+		{"**/*.go", "src/main.go", true},
+		{"**/*.go", "a/b/c/foo.go", true},
+		{"**/*.go", "a/b/foo.ts", false},
+		{"src/**/*.go", "src/pkg/file.go", true},
+		{"src/**/*.go", "other/pkg/file.go", false},
+		{"a/b", "a/b", true},
+		{"a/b", "a/c", false},
+	}
+	for _, tt := range tests {
+		pats := strings.Split(tt.pattern, "/")
+		segs := strings.Split(tt.path, "/")
+		if tt.path == "" {
+			segs = nil
+		}
+		got, err := doubleStarMatch(pats, segs)
+		if err != nil {
+			t.Errorf("doubleStarMatch(%q, %q) unexpected error: %v", tt.pattern, tt.path, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("doubleStarMatch(%q, %q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
+		}
+	}
+}

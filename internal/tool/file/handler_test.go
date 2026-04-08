@@ -1301,3 +1301,361 @@ func TestWriteFileNewFileNoAutoDiff(t *testing.T) {
 		t.Errorf("expected no diff for new file, got: %s", txt)
 	}
 }
+
+// ── diff_files ────────────────────────────────────────────────────────────────
+// Reason: diffFilesHandler had zero test coverage. It is a dedicated MCP tool
+// that LLM clients rely on to compare two files; untested regressions (e.g.
+// wrong sign convention, missing header, binary rejection) would be silent.
+
+func TestDiffFilesHandler(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(a, []byte("line1\nOldName\nline3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("line1\nNewName\nline3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := diffFilesHandler(nil, newTestRequest(map[string]any{"path_a": a, "path_b": b}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "-OldName") {
+		t.Errorf("expected -OldName in diff: %q", text)
+	}
+	if !strings.Contains(text, "+NewName") {
+		t.Errorf("expected +NewName in diff: %q", text)
+	}
+	if !strings.Contains(text, "@@") {
+		t.Errorf("expected @@ hunk header in diff: %q", text)
+	}
+}
+
+func TestDiffFilesHandlerIdentical(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	content := []byte("same content\n")
+	if err := os.WriteFile(a, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := diffFilesHandler(nil, newTestRequest(map[string]any{"path_a": a, "path_b": b}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "identical") {
+		t.Errorf("expected 'identical' in result for same-content files: %q", text)
+	}
+}
+
+func TestDiffFilesHandlerMissingArgs(t *testing.T) {
+	// Both paths missing.
+	result, err := diffFilesHandler(nil, newTestRequest(map[string]any{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error when both path_a and path_b are absent")
+	}
+
+	// Only path_b missing.
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(a, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result2, err := diffFilesHandler(nil, newTestRequest(map[string]any{"path_a": a}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result2) {
+		t.Error("expected error when path_b is absent")
+	}
+}
+
+func TestDiffFilesHandlerBinaryFile(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.bin")
+	b := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(a, []byte{0x00, 0x01, 0x02}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("text"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := diffFilesHandler(nil, newTestRequest(map[string]any{"path_a": a, "path_b": b}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error when path_a is binary")
+	}
+}
+
+func TestDiffFilesHandlerContextLines(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	var sb strings.Builder
+	for i := 1; i <= 10; i++ {
+		fmt.Fprintf(&sb, "line%d\n", i)
+	}
+	contentA := sb.String()
+	contentB := strings.Replace(contentA, "line5\n", "CHANGED\n", 1)
+	if err := os.WriteFile(a, []byte(contentA), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(contentB), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// context_lines=0: changed hunk should not include adjacent unchanged lines.
+	result, err := diffFilesHandler(nil, newTestRequest(map[string]any{
+		"path_a":        a,
+		"path_b":        b,
+		"context_lines": float64(0),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, " line4") || strings.Contains(text, " line6") {
+		t.Errorf("context_lines=0 should not show adjacent context lines: %q", text)
+	}
+	if !strings.Contains(text, "-line5") || !strings.Contains(text, "+CHANGED") {
+		t.Errorf("expected changed lines in diff: %q", text)
+	}
+}
+
+// ── calculate_checksum ────────────────────────────────────────────────────────
+// Reason: calculateChecksumHandler had zero test coverage. It delegates to
+// HashFile for each path; we need integration-level tests to verify the handler
+// wires algorithm selection correctly, reports per-file errors inline, and
+// rejects unsupported algorithm values at the handler boundary.
+
+func TestCalculateChecksumHandlerDefault(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "hello.txt")
+	if err := os.WriteFile(f, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := calculateChecksumHandler(nil, newTestRequest(map[string]any{"paths": []any{f}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "SHA256") {
+		t.Errorf("expected 'SHA256' header in output: %q", text)
+	}
+	// Known sha256("hello").
+	const wantHash = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	if !strings.Contains(text, wantHash) {
+		t.Errorf("expected sha256 digest in output: %q", text)
+	}
+}
+
+func TestCalculateChecksumHandlerMD5(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "hello.txt")
+	if err := os.WriteFile(f, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := calculateChecksumHandler(nil, newTestRequest(map[string]any{
+		"paths":     []any{f},
+		"algorithm": "md5",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "MD5") {
+		t.Errorf("expected 'MD5' header in output: %q", text)
+	}
+	const wantMD5 = "5d41402abc4b2a76b9719d911017c592"
+	if !strings.Contains(text, wantMD5) {
+		t.Errorf("expected md5 digest in output: %q", text)
+	}
+}
+
+func TestCalculateChecksumHandlerSHA1(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "hello.txt")
+	if err := os.WriteFile(f, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := calculateChecksumHandler(nil, newTestRequest(map[string]any{
+		"paths":     []any{f},
+		"algorithm": "sha1",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "SHA1") {
+		t.Errorf("expected 'SHA1' header in output: %q", text)
+	}
+	const wantSHA1 = "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
+	if !strings.Contains(text, wantSHA1) {
+		t.Errorf("expected sha1 digest in output: %q", text)
+	}
+}
+
+func TestCalculateChecksumHandlerMultiplePaths(t *testing.T) {
+	dir := t.TempDir()
+	fa := filepath.Join(dir, "a.txt")
+	fb := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(fa, []byte("aaa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fb, []byte("bbb"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := calculateChecksumHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{fa, fb},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "a.txt") || !strings.Contains(text, "b.txt") {
+		t.Errorf("expected both file names in output: %q", text)
+	}
+}
+
+func TestCalculateChecksumHandlerEmptyPaths(t *testing.T) {
+	result, err := calculateChecksumHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for empty paths slice")
+	}
+}
+
+func TestCalculateChecksumHandlerUnsupportedAlgorithm(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := calculateChecksumHandler(nil, newTestRequest(map[string]any{
+		"paths":     []any{f},
+		"algorithm": "blake2b",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for unsupported algorithm")
+	}
+}
+
+func TestCalculateChecksumHandlerMissingFile(t *testing.T) {
+	// A missing file should NOT make the handler return an MCP error — it should
+	// report the per-file ERROR inline and still return a text result, because
+	// the handler processes all paths individually.
+	result, err := calculateChecksumHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{filepath.Join(t.TempDir(), "ghost.txt")},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Error("expected non-error result (per-file ERROR reported inline)")
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "ERROR") {
+		t.Errorf("expected per-file ERROR notice in output: %q", text)
+	}
+}
+
+// ── copy_file overwrite ───────────────────────────────────────────────────────
+// Reason: The overwrite=true path was never exercised; only the rejection case
+// (overwrite=false with existing dst) was tested, leaving the success branch dark.
+
+func TestCopyFileHandlerOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	dst := filepath.Join(dir, "dst.txt")
+	if err := os.WriteFile(src, []byte("new content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := copyFileHandler(nil, newTestRequest(map[string]any{
+		"source":      src,
+		"destination": dst,
+		"overwrite":   true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error with overwrite=true: %s", resultText(result))
+	}
+	data, _ := os.ReadFile(dst)
+	if string(data) != "new content" {
+		t.Errorf("destination content = %q, want %q", string(data), "new content")
+	}
+}
+
+// ── delete_file on nonexistent path ──────────────────────────────────────────
+// Reason: Deleting a nonexistent file should return a clear error, not panic.
+// This edge-case is trivially reachable in LLM sessions.
+
+func TestDeleteFileNotExist(t *testing.T) {
+	result, err := deleteFileHandler(nil, newTestRequest(map[string]any{
+		"path": filepath.Join(t.TempDir(), "ghost.txt"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error when deleting a nonexistent file")
+	}
+}
+
+// ── append_to_file creates new file ──────────────────────────────────────────
+// Reason: The README states append_to_file "creates [the file] if absent".
+// This contract was never verified in tests — a regression here would break a
+// core advertised behaviour.
+
+func TestAppendFileCreatesNewFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "new_append.txt")
+	result, err := appendFileHandler(nil, newTestRequest(map[string]any{
+		"path":    f,
+		"content": "first line\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	data, _ := os.ReadFile(f)
+	if string(data) != "first line\n" {
+		t.Errorf("file content = %q, want %q", string(data), "first line\n")
+	}
+}
