@@ -379,6 +379,9 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 
 	if len(allMatches) == 0 {
 		msg := fmt.Sprintf("No matches for %q in %s (%s)", pattern, root, searchCtx)
+		if !useRegex && containsRegexMetachars(pattern) {
+			msg += "\nHint: your pattern contains regex metacharacters (|, ., *, +, ^, $, [, (, \\). Set use_regex=true to enable Go regex syntax."
+		}
 		msg += formatBinarySkippedFooter(binarySkippedPaths)
 		return mcp.NewToolResultText(msg), nil
 	}
@@ -449,6 +452,10 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func containsRegexMetachars(s string) bool {
+	return strings.ContainsAny(s, `|.+*?^$()[]{}\`)
 }
 
 func formatBinarySkippedFooter(paths []string) string {

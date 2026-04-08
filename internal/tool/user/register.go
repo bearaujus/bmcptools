@@ -88,8 +88,22 @@ func Register(s toolreg.ToolRegistrar) {
 				mcp.Required(),
 				mcp.Description(asset.ParamDesc(toolname.UpdateDialog, "message")),
 			),
+			mcp.WithBoolean("replace_last",
+				mcp.Description(asset.ParamDesc(toolname.UpdateDialog, "replace_last")),
+			),
 		),
 		updateDialogHandler,
+	)
+
+	s.AddTool(
+		mcp.NewTool(toolname.CancelAskUser,
+			mcp.WithDescription(asset.ToolDesc(toolname.CancelAskUser)),
+			mcp.WithString("token",
+				mcp.Required(),
+				mcp.Description(asset.ParamDesc(toolname.CancelAskUser, "token")),
+			),
+		),
+		cancelAskUserHandler,
 	)
 
 	s.AddTool(

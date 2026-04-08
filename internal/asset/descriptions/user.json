@@ -22,17 +22,24 @@
     }
   },
   "get_user_response": {
-    "desc": "Poll for a pending ask_user(non_blocking=true) response. Returns PENDING until answered.",
+    "desc": "Poll for a pending ask_user response. Returns PENDING until answered.",
     "params": {
-      "token": "The token returned by ask_user(non_blocking=true)",
+      "token": "The token returned by ask_user",
       "wait_seconds": "Seconds to wait per poll. Default: 55. Max: 115."
     }
   },
   "update_dialog": {
     "desc": "Send a live update into an open non-blocking ask_user dialog (macOS and Windows). Messages appear instantly in the user's browser in a scrollable \"updates\" panel with timestamps \u2014 no page refresh. Useful for sharing thinking state or context while waiting for the user's reply.",
     "params": {
-      "token": "The token returned by ask_user(non_blocking=true)",
-      "message": "The message to display in the dialog"
+      "token": "The token returned by ask_user",
+      "message": "The message to display in the dialog",
+      "replace_last": "When true, replaces the most recent update instead of appending a new one. Useful for streaming progress updates (e.g. percentage counters). Default: false."
+    }
+  },
+  "cancel_ask_user": {
+    "desc": "Cancel an open ask_user dialog identified by its token. The browser dialog will dismiss immediately and get_user_response will return a cancellation message. Use this when the question is no longer relevant — e.g. you already have the answer from another source, or the task was aborted.",
+    "params": {
+      "token": "The token returned by ask_user"
     }
   },
   "open_chat": {

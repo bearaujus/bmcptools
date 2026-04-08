@@ -2,6 +2,7 @@ package user
 
 import (
 	cryptorand "crypto/rand"
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -76,6 +77,7 @@ func (a *dialogActivity) broadcast(msg string) {
 type pendingDialogState struct {
 	responseCh chan string
 	activity   *dialogActivity
+	cancelFn   context.CancelFunc // non-nil for ask_user dialogs; call to cancel the open dialog
 }
 
 func newDialogToken() string {

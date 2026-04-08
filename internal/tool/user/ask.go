@@ -23,7 +23,19 @@ func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	subtitle := req.GetString("subtitle", "")
 
 	choices := req.GetStringSlice("choices", nil)
+	// Strip empty strings — empty chip choices produce unclickable buttons
+	// and cause silent empty-answer retry loops.
+	filtered := choices[:0]
+	for _, c := range choices {
+		if strings.TrimSpace(c) != "" {
+			filtered = append(filtered, c)
+		}
+	}
+	choices = filtered
 	allowFreeform := req.GetBool("allow_freeform", true)
+	if !allowFreeform && len(choices) == 0 {
+		return mcp.NewToolResultError("allow_freeform=false requires at least one choice"), nil
+	}
 
 	timeoutSec := req.GetFloat("timeout_seconds", 600)
 	if timeoutSec <= 0 {
@@ -38,14 +50,17 @@ func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 
 	token := newDialogToken()
 	act := &dialogActivity{}
+	ctx, cancel := context.WithCancel(context.Background())
 	state := &pendingDialogState{
 		responseCh: make(chan string, 1),
 		activity:   act,
+		cancelFn:   cancel,
 	}
 	storePendingDialog(token, state)
 
 	go func() {
-		answer := runDialogBlocking(question, details, title, subtitle, choices, allowFreeform, notify, timeout, act)
+		answer := runDialogBlocking(ctx, question, details, title, subtitle, choices, allowFreeform, notify, timeout, act)
+		cancel() // release context resources
 		select {
 		case state.responseCh <- answer:
 		default:
@@ -55,14 +70,15 @@ func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	}()
 
 	return mcp.NewToolResultText(
-		"PENDING — dialog opened in background.\n" +
-			"Token: " + token + "\n" +
-			"Call get_user_response(token=\"" + token + "\") to retrieve the answer.\n" +
-			"Each get_user_response call waits up to wait_seconds (default 55) before returning PENDING again.",
+		"{\n" +
+			"  \"status\": \"PENDING\",\n" +
+			"  \"token\": \"" + token + "\",\n" +
+			"  \"instructions\": \"Call get_user_response(token=\\\"" + token + "\\\") to retrieve the answer. Each call waits up to wait_seconds (default 55) before returning PENDING again. Keep polling indefinitely — the user may take a long time to reply.\"\n" +
+			"}",
 	), nil
 }
 
-func runDialogBlocking(question, details, title, subtitle string, choices []string, allowFreeform, notify bool, timeout time.Duration, activity *dialogActivity) string {
+func runDialogBlocking(ctx context.Context, question, details, title, subtitle string, choices []string, allowFreeform, notify bool, timeout time.Duration, activity *dialogActivity) string {
 	if notify {
 		msg := question
 		if len(msg) > 120 {
@@ -83,9 +99,9 @@ func runDialogBlocking(question, details, title, subtitle string, choices []stri
 		var answer string
 		var err error
 		if len(choices) > 0 {
-			answer, err = promptUserChoice(question, details, title, subtitle, allowFreeform, choices, remaining, activity)
+			answer, err = promptUserChoice(ctx, question, details, title, subtitle, allowFreeform, choices, remaining, activity)
 		} else {
-			answer, err = promptUser(question, details, title, subtitle, remaining, activity)
+			answer, err = promptUser(ctx, question, details, title, subtitle, remaining, activity)
 		}
 		if err != nil {
 			return fmt.Sprintf("[Failed to get user input: %v]", err)
@@ -152,7 +168,7 @@ func buildPendingMessage(token string, act *dialogActivity) string {
 	}
 
 	beatAge := time.Since(lastBeat).Seconds()
-	if beatAge > 20 {
+	if !lastBeat.IsZero() && beatAge > 20 {
 		return fmt.Sprintf(
 			"PENDING — browser connection appears lost (last heartbeat was %.0fs ago). "+
 				"The user may have closed the tab. "+
@@ -188,6 +204,7 @@ func updateDialogHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	if strings.TrimSpace(message) == "" {
 		return mcp.NewToolResultError("message is required"), nil
 	}
+	replaceLast := req.GetBool("replace_last", false)
 
 	state := loadPendingDialog(token)
 	if state == nil {
@@ -197,6 +214,28 @@ func updateDialogHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError("this dialog does not support live updates"), nil
 	}
 
-	state.activity.broadcast(message)
+	if replaceLast {
+		state.activity.broadcast("__REPLACE__" + message)
+	} else {
+		state.activity.broadcast(message)
+	}
 	return mcp.NewToolResultText("message delivered to dialog"), nil
+}
+
+func cancelAskUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	token := req.GetString("token", "")
+	if strings.TrimSpace(token) == "" {
+		return mcp.NewToolResultError("token is required"), nil
+	}
+
+	state := loadPendingDialog(token)
+	if state == nil {
+		return mcp.NewToolResultError("unknown or expired token — dialog may have been answered or timed out"), nil
+	}
+	if state.cancelFn == nil {
+		return mcp.NewToolResultError("this dialog does not support cancellation"), nil
+	}
+
+	state.cancelFn()
+	return mcp.NewToolResultText("dialog cancelled — browser will dismiss and get_user_response will return a cancellation message"), nil
 }

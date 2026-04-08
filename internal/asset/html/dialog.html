@@ -149,7 +149,6 @@ textarea::placeholder{color:var(--text3)}
 .ur-info{flex:1}
 .ur-name{font-size:13px;font-weight:600;color:var(--text)}
 .ur-sublabel{font-size:11px;color:var(--text2);margin-top:1px}
-.ur-time{font-size:11px;color:var(--text3);white-space:nowrap}
 .ur-body{padding:14px 18px;min-height:44px}
 .ur-chip-badge{
   display:inline-block;background:#007aff;color:#fff;
@@ -247,7 +246,7 @@ textarea::placeholder{color:var(--text3)}
   if(d){d.innerHTML=mdRender(d.textContent);}
 })();
 
-var total=600,rem=total,selIdx=-1,selVal='',allowFreeform=[[ALLOW_FREEFORM]];
+var total=[[TIMEOUT_SEC]],rem=total,selIdx=-1,selVal='',allowFreeform=[[ALLOW_FREEFORM]],dialogDone=false;
 var timerPaused=false, resumeTimer=null;
 
 function fmt(s){var m=Math.floor(s/60),sec=s%60;return m+':'+(sec<10?'0':'')+sec;}
@@ -311,6 +310,7 @@ function sendAnswer(){
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function done(payload){
+  dialogDone=true;
   clearInterval(iv);
   if(resumeTimer){clearTimeout(resumeTimer);}
   var combined=payload?(payload.choice?(payload.choice+(payload.notes?'\n\n'+payload.notes:'')):payload.notes):'';
@@ -396,12 +396,19 @@ ta.addEventListener('input',function(){
   } else {
     charCountEl.textContent='';
   }
-  // Reset timer to 10 min on every keystroke so the dialog never closes mid-typing.
+  // If the textarea has content, freeze the timer completely — never auto-close
+  // while the user is composing. Resume normal countdown only when they clear it.
   rem=total;
   document.getElementById('pfill').style.width='100%';
-  badge.textContent=fmt(rem);
   badge.classList.remove('urgent');
-  pauseTimer();
+  if(this.value.trim()){
+    timerPaused=true;
+    if(resumeTimer){clearTimeout(resumeTimer);resumeTimer=null;}
+    badge.classList.add('paused');
+    badge.textContent='\u23f8 \u2014 reply in progress';
+  } else {
+    pauseTimer();
+  }
 });
 ta.addEventListener('keydown',function(e){
   if(e.key==='Enter'&&!e.shiftKey&&!e.metaKey&&!e.ctrlKey&&!document.getElementById('sendBtn').disabled){
@@ -433,13 +440,28 @@ if(!allowFreeform){
   var panel = document.getElementById('updatesPanel');
   var es = new EventSource('/updates');
   es.onmessage = function(e){
+    if(e.data === '__DISMISS__'){
+      done(null);
+      es.close();
+      return;
+    }
+    var msg = e.data;
+    var isReplace = msg.indexOf('__REPLACE__') === 0;
+    if(isReplace) msg = msg.slice('__REPLACE__'.length);
     panel.style.display = 'block';
-    var item = document.createElement('div');
-    item.className = 'upd-item';
     var now = new Date();
     var t = now.getHours() + ':' + (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
+    if(isReplace && panel.lastChild){
+      var last = panel.lastChild;
+      last.querySelector('.upd-text').innerHTML = mdRender(msg);
+      last.querySelector('.upd-time').textContent = t;
+      panel.scrollTop = panel.scrollHeight;
+      return;
+    }
+    var item = document.createElement('div');
+    item.className = 'upd-item';
     item.innerHTML = '<div class="upd-dot"></div><div class="upd-body"><div class="upd-text"></div><div class="upd-time">' + t + '</div></div>';
-    item.querySelector('.upd-text').innerHTML = mdRender(e.data);
+    item.querySelector('.upd-text').innerHTML = mdRender(msg);
     panel.appendChild(item);
     panel.scrollTop = panel.scrollHeight;
   };
@@ -459,7 +481,7 @@ if(!allowFreeform){
     isTyping=this.value.trim().length>0;
   });
   setInterval(function(){
-    if(document.getElementById('sentWrap').style.display==='block')return;
+    if(dialogDone)return;
     var idle=(Date.now()-lastActivity)/1000;
     fetch('/heartbeat',{
       method:'POST',

@@ -13,8 +13,8 @@
     "desc": "Search file contents for a pattern. Returns matching lines with file path and line number. Supports literal strings and Go regex, context lines, pagination, glob filtering, multiline patterns, and three output modes (content / files_with_matches / count).",
     "params": {
       "path": "File or directory to search. Defaults to the server's current working directory.",
-      "pattern": "Literal text or regular expression",
-      "use_regex": "Treat pattern as a Go regular expression. Default: false",
+    "pattern": "Literal text or regular expression. For regex syntax (|, ., *, +, ^, $, [], \\w, \\d, etc.) set use_regex=true; otherwise the pattern is matched as a literal string.",
+    "use_regex": "Treat pattern as a Go regular expression. Default: false. Required for alternation (|), wildcards (., +, *), anchors (^, $), and character classes.",
       "case_insensitive": "Case-insensitive matching. Default: false",
       "recursive": "Search subdirectories recursively. Default: true",
       "context_lines": "Context lines before and after each match. Default: 0. Max: 50.",

@@ -62,6 +62,7 @@ const (
 	ToolAskUser         = toolname.AskUser
 	ToolGetUserResponse = toolname.GetUserResponse
 	ToolUpdateDialog    = toolname.UpdateDialog
+	ToolCancelAskUser   = toolname.CancelAskUser
 	ToolOpenChat        = toolname.OpenChat
 	ToolSendChatMessage = toolname.SendChatMessage
 	ToolGetChatMessages = toolname.GetChatMessages

@@ -58,6 +58,7 @@ const (
 	AskUser         = "ask_user"
 	GetUserResponse = "get_user_response"
 	UpdateDialog    = "update_dialog"
+	CancelAskUser   = "cancel_ask_user"
 	OpenChat        = "open_chat"
 	SendChatMessage = "send_chat_message"
 	GetChatMessages = "get_chat_messages"

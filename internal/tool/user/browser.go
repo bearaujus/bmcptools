@@ -17,19 +17,19 @@ import (
 	"github.com/bearaujus/bmcptools/internal/asset"
 )
 
-func promptUser(question, details, title, subtitle string, timeout time.Duration, activity *dialogActivity) (string, error) {
+func promptUser(ctx context.Context, question, details, title, subtitle string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		return promptBrowser(question, details, title, subtitle, true, nil, timeout, activity)
+		return promptBrowser(ctx, question, details, title, subtitle, true, nil, timeout, activity)
 	default:
 		return "", fmt.Errorf("ask_user is not supported on Linux")
 	}
 }
 
-func promptUserChoice(question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
+func promptUserChoice(ctx context.Context, question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		return promptBrowser(question, details, title, subtitle, allowFreeform, choices, timeout, activity)
+		return promptBrowser(ctx, question, details, title, subtitle, allowFreeform, choices, timeout, activity)
 	default:
 		return "", fmt.Errorf("ask_user is not supported on Linux")
 	}
@@ -44,7 +44,7 @@ func openBrowser(url string) {
 	}
 }
 
-func promptBrowser(question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
+func promptBrowser(ctx context.Context, question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	timeoutSec := int(timeout.Seconds())
 	if timeoutSec <= 0 {
 		timeoutSec = 600
@@ -67,6 +67,11 @@ func promptBrowser(question, details, title, subtitle string, allowFreeform bool
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, page)
+		if activity != nil {
+			activity.mu.Lock()
+			activity.connected = true
+			activity.mu.Unlock()
+		}
 	})
 	mux.HandleFunc("/answer", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -156,12 +161,16 @@ func promptBrowser(question, details, title, subtitle string, allowFreeform bool
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 
-	go sendNotification("Your input is needed — check your browser", title, "info", 10)
 	openBrowser(fmt.Sprintf("http://127.0.0.1:%d/", port))
 
 	select {
 	case answer := <-resultCh:
 		return answer, nil
+	case <-ctx.Done():
+		if activity != nil {
+			activity.broadcast("__DISMISS__")
+		}
+		return "[Dialog cancelled by AI]", nil
 	case <-time.After(timeout + 2*time.Second):
 		return "", nil
 	}

@@ -80,9 +80,10 @@ Grab a pre-built binary from the [Releases](https://github.com/bearaujus/bmcptoo
 | Tool | Description |
 |------|-------------|
 | `notify_user` | **Non-blocking** fire-and-forget notification. Supports Windows, macOS, and Linux (falls back to stderr). **`level`** (`info`/`warning`/`error`) and **`duration_seconds`** control appearance. |
-| `ask_user` | Pop up a browser-based dialog (macOS and Windows) to ask the user a question and capture their reply. Supports `details` (markdown context shown below the question — e.g. change summary, findings), `choices` chips, `subtitle`, `allow_freeform`, `timeout_seconds`, and `non_blocking`. Not supported on Linux. |
-| `get_user_response` | Poll for a pending `ask_user` response after `non_blocking=true`. Waits up to `wait_seconds` (default: 55 s) per call. Returns the answer or a `PENDING` status. |
-| `update_dialog` | Push a live message into an open `ask_user` dialog (non-blocking mode, macOS and Windows). |
+| `ask_user` | Pop up a browser-based dialog (macOS and Windows) to ask the user a question and capture their reply. Always returns a `token` immediately (structured JSON). Supports `details` (markdown context), `choices` chips, `subtitle`, `allow_freeform`, `timeout_seconds`, and `notify`. Not supported on Linux. |
+| `get_user_response` | Poll for a pending `ask_user` response. Waits up to `wait_seconds` (default: 55 s) per call. Returns the answer or a `PENDING` status. |
+| `update_dialog` | Push a live message into an open `ask_user` dialog. **`replace_last: true`** replaces the most recent update instead of appending — useful for streaming progress counters. |
+| `cancel_ask_user` | Cancel an open `ask_user` dialog by token. The browser dismisses immediately and `get_user_response` returns a cancellation message. |
 | `open_chat` | Open a persistent two-way chat window in the browser (macOS and Windows). Returns a `chat_id`. Not supported on Linux. |
 | `send_chat_message` | Send a message from the AI into an open chat window. |
 | `get_chat_messages` | Poll for user messages from an open chat window. Returns `PENDING` or `CLOSED`. |
