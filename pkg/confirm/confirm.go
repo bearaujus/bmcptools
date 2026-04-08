@@ -136,6 +136,28 @@ func AskWithHTML(ctx context.Context, pageHTML string, timeout time.Duration) (m
 	}
 }
 
+// ShowHTML opens a browser window displaying the given HTML for displayDuration,
+// then shuts down the local server. It returns immediately after opening the browser
+// (fire-and-forget). Errors starting the server are silently ignored.
+func ShowHTML(pageHTML string, displayDuration time.Duration) {
+	if checkPlatform() != nil {
+		return
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, pageHTML)
+	})
+	shutdown, err := startDialogServer(mux)
+	if err != nil {
+		return
+	}
+	go func() {
+		time.Sleep(displayDuration)
+		shutdown()
+	}()
+}
+
 // openBrowser launches the default browser to the given URL.
 // It is a best-effort call; errors are intentionally ignored.
 var openBrowser = func(url string) {
