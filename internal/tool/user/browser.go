@@ -35,7 +35,9 @@ func promptUserChoice(ctx context.Context, question, details, title, subtitle st
 	}
 }
 
-func openBrowser(url string) {
+// openBrowserFn is called whenever a browser window needs to open.
+// Tests override this to a no-op to prevent real browser windows from appearing.
+var openBrowserFn = func(url string) {
 	switch runtime.GOOS {
 	case "darwin":
 		_ = exec_command_run("open", url)
@@ -161,7 +163,7 @@ func promptBrowser(ctx context.Context, question, details, title, subtitle strin
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 
-	openBrowser(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
 
 	select {
 	case answer := <-resultCh:
@@ -331,8 +333,8 @@ func restHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 		deletePendingDialog(token)
 	}()
 
-	go sendNotification(title+" is now resting", title, "info", 10)
-	openBrowser(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	go sendNotificationFn(title+" is now resting", title, "info", 10)
+	openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
 
 	return mcp.NewToolResultText(
 		"AI is now resting. Browser page opened for the user.\n" +

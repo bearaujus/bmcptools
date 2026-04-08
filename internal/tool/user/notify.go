@@ -11,6 +11,10 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// sendNotificationFn is called whenever an OS notification needs to be sent.
+// Tests override this to a no-op to prevent real notifications from appearing.
+var sendNotificationFn = sendNotification
+
 func notifyUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	message := req.GetString("message", "")
 	if strings.TrimSpace(message) == "" {
@@ -32,13 +36,15 @@ func notifyUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		durationSec = 60
 	}
 
-	go sendNotification(message, title, level, int(durationSec))
-	fmt.Fprintf(os.Stderr, "\n[AI NOTIFY][%s] %s: %s\n", strings.ToUpper(level), title, message)
+	go sendNotificationFn(message, title, level, int(durationSec))
 
 	return mcp.NewToolResultText(fmt.Sprintf("[Notification sent] %s", message)), nil
 }
 
 func sendNotification(message, title, level string, durationSec int) {
+	// Always echo to stderr so there is a log trail even when the OS notification
+	// is silently skipped (CI, headless, unsupported platform, etc.).
+	fmt.Fprintf(os.Stderr, "\n[AI NOTIFY][%s] %s: %s\n", strings.ToUpper(level), title, message)
 	var delivered bool
 	switch runtime.GOOS {
 	case "windows":

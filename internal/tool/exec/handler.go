@@ -203,6 +203,20 @@ func openInAppHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	}
 	app := req.GetString("app", "")
 
+	if err := openInAppFn(target, app); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to open %q: %v", target, err)), nil
+	}
+
+	msg := fmt.Sprintf("Opened %q", target)
+	if app != "" {
+		msg += fmt.Sprintf(" in %s", app)
+	}
+	return mcp.NewToolResultText(msg), nil
+}
+
+// openInAppFn opens target in the default (or specified) system application.
+// Tests replace this with a no-op to avoid spawning real OS windows/dialogs.
+var openInAppFn = func(target, app string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -216,15 +230,9 @@ func openInAppHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	default:
 		cmd = exec.Command("xdg-open", target)
 	}
-
 	if err := cmd.Start(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to open %q: %v", target, err)), nil
+		return err
 	}
 	go func() { _ = cmd.Wait() }()
-
-	msg := fmt.Sprintf("Opened %q", target)
-	if app != "" {
-		msg += fmt.Sprintf(" in %s", app)
-	}
-	return mcp.NewToolResultText(msg), nil
+	return nil
 }

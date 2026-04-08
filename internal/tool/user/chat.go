@@ -184,8 +184,8 @@ func openChatHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 
 	go func() { _ = srv.Serve(ln) }()
 
-	go sendNotification("Chat opened — check your browser", title, "info", 10)
-	openBrowser(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	go sendNotificationFn("Chat opened — check your browser", title, "info", 10)
+	openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
 
 	return mcp.NewToolResultText(
 		"Chat opened in browser.\n" +

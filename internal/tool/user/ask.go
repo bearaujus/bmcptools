@@ -84,7 +84,7 @@ func runDialogBlocking(ctx context.Context, question, details, title, subtitle s
 		if len(msg) > 120 {
 			msg = msg[:120] + "..."
 		}
-		go sendNotification(msg, title, "info", 10)
+		go sendNotificationFn(msg, title, "info", 10)
 	}
 
 	deadline := time.Now().Add(timeout)
