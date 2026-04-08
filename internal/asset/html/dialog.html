@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>[[TITLE]]</title>
+<link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23007aff'/><text x='16' y='22' font-family='system-ui' font-size='20' font-weight='bold' text-anchor='middle' fill='white'>?</text></svg>">
+[[MD_CSS]]
+<style>
+:root{
+  --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#c7c7cc;
+  --border:#e5e5ea;--chip-bg:#f0f0f5;--chip-hover:#e5f0ff;
+  --bubble-bg:#edf3ff;--reply-bg:#fff;--dismiss-bg:#f2f2f7;
+  --dismiss-fg:#3c3c43;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#000;--card:#1c1c1e;--text:#fff;--text2:#8e8e93;--text3:#48484a;
+  --border:#38383a;--chip-bg:#2c2c2e;--chip-hover:#1a3460;
+  --bubble-bg:#0a2560;--reply-bg:#1c1c1e;--dismiss-bg:#2c2c2e;
+  --dismiss-fg:#ebebf5;
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+  background:var(--bg);min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;
+  padding:32px 16px;gap:10px;
+}
+/* ── AI message card ── */
+.ai-card{
+  background:var(--card);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);overflow:hidden;
+}
+.header{display:flex;align-items:center;padding:14px 18px;gap:10px}
+.avatar{
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(140deg,#007aff,#5856d6);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.avatar svg{width:17px;height:17px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.header-info{flex:1}
+.header-name{font-size:13px;font-weight:600;color:var(--text)}
+.header-sub{font-size:11px;color:var(--text2)}
+.header-sub:empty{display:none}
+.timer-area{display:flex;align-items:center;gap:6px;position:relative}
+.timer-badge{
+  font-size:12px;font-weight:600;color:var(--text2);
+  font-variant-numeric:tabular-nums;white-space:nowrap;cursor:default;
+}
+.timer-badge::after{
+  content:'Closes when time runs out';
+  position:absolute;right:0;top:calc(100% + 5px);
+  background:var(--text);color:var(--card);
+  font-size:11px;font-weight:400;
+  padding:4px 8px;border-radius:6px;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity .15s;
+}
+.timer-area:hover .timer-badge::after{opacity:1}
+.timer-badge.urgent{color:#ff3b30}
+.timer-badge.paused{color:#34c759}
+.msg-area{padding:0 18px 14px}
+.bubble{
+  background:var(--bubble-bg);border-radius:4px 14px 14px 14px;
+  padding:12px 14px;font-size:14px;color:var(--text);line-height:1.6;
+}
+.details-body{
+  font-size:13px;color:var(--text2);line-height:1.6;
+  margin-top:10px;padding-top:10px;border-top:1px solid var(--border);
+}
+/* ── Chips ── */
+.suggested-label{
+  font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;
+  letter-spacing:.5px;padding:14px 18px 8px;border-top:1px solid var(--border);
+}
+.chips-row{display:flex;flex-wrap:wrap;gap:7px;padding:0 18px 16px}
+.chip{
+  display:inline-flex;align-items:center;text-align:center;
+  padding:6px 13px;border-radius:14px;border:1.5px solid var(--border);
+  background:var(--chip-bg);color:var(--text);cursor:pointer;font-size:13px;
+  font-family:inherit;line-height:1.4;user-select:none;transition:all .15s;
+}
+.chip:hover{border-color:#007aff;background:var(--chip-hover);color:#007aff}
+.chip.sel{background:#007aff;border-color:#007aff;color:#fff;font-weight:500}
+/* ── Reply card ── */
+.reply-card{
+  background:var(--reply-bg);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);
+  overflow:hidden;border:1.5px solid var(--border);
+}
+.reply-tabs{
+  display:flex;align-items:center;gap:0;padding:10px 16px 0;border-bottom:1px solid var(--border);
+}
+.reply-tab{
+  font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;
+  padding:4px 10px 8px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;
+  user-select:none;transition:color .15s,border-color .15s;
+}
+.reply-tab.active{color:var(--text);border-bottom-color:#007aff;}
+.reply-tab:hover:not(.active){color:var(--text);}
+textarea{
+  width:100%;min-height:90px;height:auto;
+  border:none;padding:10px 16px 12px;
+  font:14px/1.55 -apple-system,sans-serif;color:var(--text);
+  resize:none;outline:none;background:transparent;overflow:hidden;
+}
+textarea::placeholder{color:var(--text3)}
+.md-preview{
+  min-height:90px;padding:10px 16px 12px;
+  font-size:14px;line-height:1.55;color:var(--text);
+  display:none;
+}
+.reply-footer{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 16px 12px;border-top:1px solid var(--border);gap:8px;
+}
+.hint{font-size:11px;color:var(--text3)}
+.char-count{font-size:11px;color:var(--text3);transition:color .2s}
+.char-count.warn{color:#ff9f0a}
+.char-count.limit{color:#ff3b30}
+.actions{display:flex;gap:8px}
+.btn{
+  padding:8px 16px;border-radius:9px;border:none;cursor:pointer;
+  font-size:13px;font-weight:500;font-family:inherit;line-height:1;transition:all .15s;
+}
+.btn-dismiss{background:var(--dismiss-bg);color:var(--dismiss-fg)}
+.btn-dismiss:hover{opacity:.7}
+.btn-send{background:#007aff;color:#fff;padding:8px 20px}
+.btn-send:not(:disabled):hover{background:#0066d6}
+.btn-send:disabled{opacity:.35;cursor:not-allowed}
+/* ── Progress bar ── */
+.progress{height:3px;background:var(--border);overflow:hidden}
+.progress-fill{
+  height:100%;background:linear-gradient(90deg,#5856d6,#007aff);
+  transition:width 1s linear;
+}
+/* ── User reply card (post-send) ── */
+@keyframes slide-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.user-card{
+  background:var(--card);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);
+  overflow:hidden;animation:slide-up .3s ease;
+}
+.ur-header{display:flex;align-items:center;padding:14px 18px 12px;gap:10px;border-bottom:1px solid var(--border)}
+.ur-avatar{
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(140deg,#34c759,#30d158);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.ur-avatar svg{width:17px;height:17px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ur-info{flex:1}
+.ur-name{font-size:13px;font-weight:600;color:var(--text)}
+.ur-sublabel{font-size:11px;color:var(--text2);margin-top:1px}
+.ur-body{padding:14px 18px;min-height:44px}
+.ur-chip-badge{
+  display:inline-block;background:#007aff;color:#fff;
+  padding:4px 12px;border-radius:12px;
+  font-size:13px;font-weight:500;margin-bottom:8px;
+}
+.ur-notes{font-size:14px;line-height:1.6;color:var(--text);word-break:break-word}
+.ur-dismissed{font-size:14px;color:var(--text3);font-style:italic}
+.ur-footer{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 18px 14px;border-top:1px solid var(--border);gap:8px;
+}
+.ur-processing{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)}
+.processing-dots{display:flex;gap:3px;align-items:center}
+.processing-dots span{
+  width:5px;height:5px;border-radius:50%;background:#007aff;animation:pd .9s infinite;
+}
+.processing-dots span:nth-child(2){animation-delay:.2s}
+.processing-dots span:nth-child(3){animation-delay:.4s}
+@keyframes pd{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
+.btn-close-tab{
+  padding:6px 14px;border-radius:8px;border:1.5px solid var(--border);
+  background:var(--chip-bg);color:var(--text);cursor:pointer;
+  font-size:12px;font-family:inherit;font-weight:500;line-height:1;transition:all .15s;
+  white-space:nowrap;
+}
+.btn-close-tab:hover{border-color:#007aff;background:var(--chip-hover);color:#007aff}
+.btn-close-tab kbd{
+  font-family:inherit;font-size:10px;font-weight:400;
+  background:rgba(0,0,0,.08);padding:1px 5px;border-radius:3px;margin-left:4px;
+}
+/* AI card: asked-time badge replaces countdown after send */
+.asked-badge{font-size:11px;color:var(--text3)!important}
+.asked-badge::after{display:none!important}
+/* ── Live updates (AI → dialog) ── */
+.updates-panel{border-top:1px solid var(--border);max-height:200px;overflow-y:auto;padding:8px 18px 6px;scroll-behavior:smooth}
+.upd-item{display:flex;gap:10px;align-items:flex-start;padding:4px 0;animation:upd-in .25s ease}
+@keyframes upd-in{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+.upd-dot{width:6px;height:6px;border-radius:50%;background:#007aff;margin-top:5px;flex-shrink:0}
+.upd-body{flex:1;min-width:0}
+.upd-text{font-size:13px;color:var(--text2);line-height:1.5;word-break:break-word}
+.upd-time{font-size:10px;color:var(--text3);margin-top:2px}
+</style>
+</head>
+<body>
+
+<div class="ai-card" id="aiCard">
+  <div class="header">
+    <div class="avatar">
+      <svg viewBox="0 0 24 24"><path d="M12 2l2.4 4.8L20 8l-4 3.8.9 5.2L12 14.5l-4.9 2.5.9-5.2L4 8l5.6-1.2z"/></svg>
+    </div>
+    <div class="header-info">
+      <div class="header-name">[[TITLE]]</div>
+      <div class="header-sub">[[SUBTITLE]]</div>
+    </div>
+    <div class="timer-area">
+      <div class="timer-badge" id="tbadge"></div>
+    </div>
+  </div>
+  <div class="msg-area">
+    <div class="bubble md-body">[[QUESTION]]</div>
+    [[DETAILS_SECTION]]
+  </div>
+  <div class="updates-panel" id="updatesPanel" style="display:none"></div>
+  [[CHIPS_SECTION]]
+</div>
+
+<div class="reply-card" id="replyCard">
+  <div class="reply-tabs">
+    <div class="reply-tab active" id="tabWrite" onclick="switchTab('write')">Write</div>
+    <div class="reply-tab" id="tabPreview" onclick="switchTab('preview')">Preview</div>
+  </div>
+  <textarea id="ans" placeholder="Type your reply&#x2026; (or tap a suggestion above)"></textarea>
+  <div class="md-preview md-body" id="mdPreview"></div>
+  <div class="reply-footer">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="hint" id="kbHint">&#8984;&#8629; to send</div>
+      <div class="char-count" id="charCount"></div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-dismiss" onclick="done(null)" title="Close without sending a reply">No Reply</button>
+      <button class="btn btn-send" id="sendBtn" onclick="sendAnswer()" disabled>Send Reply &#x2192;</button>
+    </div>
+  </div>
+  <div class="progress"><div class="progress-fill" id="pfill" style="width:100%"></div></div>
+</div>
+
+[[MD_JS]]
+<script>
+// Render the AI question bubble and details as markdown.
+(function(){
+  var b=document.querySelector('.bubble');
+  if(b){b.innerHTML=mdRender(b.textContent);}
+  var d=document.querySelector('.details-body');
+  if(d){d.innerHTML=mdRender(d.textContent);}
+})();
+
+var total=[[TIMEOUT_SEC]],rem=total,selIdx=-1,selVal='',allowFreeform=[[ALLOW_FREEFORM]],dialogDone=false;
+var timerPaused=false, resumeTimer=null;
+
+function fmt(s){var m=Math.floor(s/60),sec=s%60;return m+':'+(sec<10?'0':'')+sec;}
+var badge=document.getElementById('tbadge');
+badge.textContent=fmt(rem);
+
+var iv=setInterval(function(){
+  if(timerPaused)return;
+  rem--;
+  document.getElementById('pfill').style.width=(rem/total*100)+'%';
+  badge.textContent=fmt(rem);
+  if(rem<=60){badge.classList.add('urgent');badge.classList.remove('paused');}
+  else{badge.classList.remove('urgent');}
+  if(rem<=0){clearInterval(iv);done(null);}
+},1000);
+
+function pauseTimer(){
+  timerPaused=true;
+  badge.classList.remove('urgent');
+  badge.classList.add('paused');
+  badge.textContent='⏸ '+fmt(rem);
+  if(resumeTimer){clearTimeout(resumeTimer);}
+  resumeTimer=setTimeout(function(){
+    timerPaused=false;
+    badge.classList.remove('paused');
+    badge.textContent=fmt(rem);
+    if(rem<=60)badge.classList.add('urgent');
+  },3000);
+}
+
+function extendTime(){}
+
+function updateSend(){
+  var canSend=selVal!==''||document.getElementById('ans').value.trim()!=='';
+  document.getElementById('sendBtn').disabled=!canSend;
+}
+
+function pickChip(val,idx){
+  document.querySelectorAll('.chip').forEach(function(s){s.classList.remove('sel');});
+  if(!allowFreeform){
+    // In choices-only mode: tap = immediate submit.
+    done({choice:val,notes:''});
+    return;
+  }
+  rem=total;document.getElementById('pfill').style.width='100%';
+  badge.textContent=fmt(rem);badge.classList.remove('urgent');
+  pauseTimer();
+  if(selIdx===idx){selIdx=-1;selVal='';}
+  else{
+    document.getElementById('chip'+idx).classList.add('sel');
+    selIdx=idx;selVal=val;
+  }
+  updateSend();
+}
+
+function sendAnswer(){
+  var notes=document.getElementById('ans').value.trim();
+  done({choice:selVal,notes:notes});
+}
+
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function done(payload){
+  dialogDone=true;
+  clearInterval(iv);
+  if(resumeTimer){clearTimeout(resumeTimer);}
+  var combined=payload?(payload.choice?(payload.choice+(payload.notes?'\n\n'+payload.notes:'')):payload.notes):'';
+  var isDismissed=!combined.trim();
+  // Always include `dismissed` so the server can skip retrying on an explicit dismissal.
+  var body=JSON.stringify(Object.assign({},payload||{},{dismissed:isDismissed}));
+  var FAVICON_SENT="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%2334c759'/><path d='M8 16l5 6 11-11' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>";
+  var FAVICON_ERR="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23ff3b30'/><text x='16' y='22' font-family='system-ui' font-size='20' font-weight='bold' text-anchor='middle' fill='white'>!</text></svg>";
+  function setFavicon(url){var f=document.getElementById('favicon');if(f)f.href=url;}
+  fetch('/answer',{method:'POST',headers:{'Content-Type':'application/json'},body:body})
+    .then(function(r){
+      if(!isDismissed){
+        var sa=document.getElementById('statusArea');
+        if(sa)sa.innerHTML='<span style="color:#34c759;font-size:12px">&#10003; Message sent</span>';
+        setFavicon(FAVICON_SENT);
+      }
+    })
+    .catch(function(){
+      if(!isDismissed){
+        var sa=document.getElementById('statusArea');
+        if(sa)sa.innerHTML='<span style="color:#ff3b30;font-size:12px">&#9888; Failed to send</span>';
+        setFavicon(FAVICON_ERR);
+      }
+    });
+
+  var now=new Date();
+  var timeStr=(now.getHours()<10?'0':'')+now.getHours()+':'+(now.getMinutes()<10?'0':'')+now.getMinutes();
+
+  var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
+  var closeKey=isMac?'\u2318W':'Ctrl+W';
+
+  // Card 1: Freeze AI card — replace countdown with 'Asked HH:MM', lock chips.
+  var tbadge=document.getElementById('tbadge');
+  tbadge.textContent='Asked '+timeStr;
+  tbadge.className='asked-badge';
+  document.querySelectorAll('.chip').forEach(function(c){c.style.pointerEvents='none';});
+
+  // Card 2: Transform reply card → user reply card.
+  var rc=document.getElementById('replyCard');
+  rc.className='user-card';
+  rc.style.display='block';
+
+  var chipHtml='';
+  if(payload&&payload.choice){chipHtml='<div><span class="ur-chip-badge">'+escHtml(payload.choice)+'</span></div>';}
+  var notesHtml='';
+  if(payload&&payload.notes&&payload.notes.trim()){notesHtml='<div class="ur-notes md-body">'+mdRender(payload.notes.trim())+'</div>';}
+  var bodyContent=isDismissed?'<div class="ur-dismissed">No reply was sent</div>':chipHtml+notesHtml;
+
+  var sublabel=isDismissed?'Dismissed':'Replied at '+timeStr;
+  var processingHtml=isDismissed?'<span style="color:var(--text2);font-size:12px">\u2715 No reply sent</span>':
+    '<div class="ur-processing" id="statusArea">'+
+      '<div class="processing-dots"><span></span><span></span><span></span></div>'+
+      '<span>Sending reply\u2026</span>'+
+    '</div>';
+
+  rc.innerHTML=
+    '<div class="ur-header">'+
+      '<div class="ur-avatar"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>'+
+      '<div class="ur-info"><div class="ur-name">You</div><div class="ur-sublabel">'+sublabel+'</div></div>'+
+    '</div>'+
+    '<div class="ur-body">'+bodyContent+'</div>'+
+    '<div class="ur-footer">'+
+      processingHtml+
+      '<button class="btn-close-tab" onclick="window.close()">Close tab <kbd>'+escHtml(closeKey)+'</kbd></button>'+
+    '</div>';
+}
+
+// Write / Preview tab toggle for the freeform reply textarea.
+function switchTab(tab){
+  var ta=document.getElementById('ans');
+  var preview=document.getElementById('mdPreview');
+  var tw=document.getElementById('tabWrite');
+  var tp=document.getElementById('tabPreview');
+  if(tab==='preview'){
+    var raw=ta.value;
+    preview.innerHTML=raw.trim()?mdRender(raw):'<em style="color:var(--text3)">Nothing to preview yet…</em>';
+    ta.style.display='none';
+    preview.style.display='block';
+    tw.classList.remove('active');tp.classList.add('active');
+  } else {
+    ta.style.display='';
+    preview.style.display='none';
+    tw.classList.add('active');tp.classList.remove('active');
+    ta.focus();
+  }
+}
+
+
+var ta=document.getElementById('ans');
+var charCountEl=document.getElementById('charCount');
+ta.addEventListener('input',function(){
+  this.style.height='auto';
+  this.style.height=this.scrollHeight+'px';
+  updateSend();
+  // Update character counter
+  var len=this.value.length;
+  if(len>0){
+    charCountEl.textContent=len+' char'+(len===1?'':'s');
+    charCountEl.className='char-count'+(len>800?' warn':len>1200?' limit':'');
+  } else {
+    charCountEl.textContent='';
+  }
+  // If the textarea has content, freeze the timer completely — never auto-close
+  // while the user is composing. Resume normal countdown only when they clear it.
+  rem=total;
+  document.getElementById('pfill').style.width='100%';
+  badge.classList.remove('urgent');
+  if(this.value.trim()){
+    timerPaused=true;
+    if(resumeTimer){clearTimeout(resumeTimer);resumeTimer=null;}
+    badge.classList.add('paused');
+    badge.textContent='\u23f8 \u2014 reply in progress';
+  } else {
+    pauseTimer();
+  }
+});
+ta.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&!e.shiftKey&&!e.metaKey&&!e.ctrlKey&&!document.getElementById('sendBtn').disabled){
+    e.preventDefault();
+    sendAnswer();
+  }
+  // Shift+Enter, ⌘+Enter, Ctrl+Enter → insert newline
+});
+ta.focus();
+
+// Platform-adaptive keyboard shortcut hint
+(function(){
+  var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
+  var el=document.getElementById('kbHint');
+  if(el)el.textContent='↩ send  ·  ⇧↩ new line';
+})();
+
+// When freeform is disabled, hide the reply card — chips submit directly.
+if(!allowFreeform){
+  document.getElementById('replyCard').style.display='none';
+  document.getElementById('aiCard').style.borderBottomLeftRadius='20px';
+  document.getElementById('aiCard').style.borderBottomRightRadius='20px';
+}
+
+// AI → dialog live updates via Server-Sent Events.
+// Messages from update_dialog appear instantly in the updates panel.
+(function(){
+  if(!window.EventSource) return;
+  var panel = document.getElementById('updatesPanel');
+  var es = new EventSource('/updates');
+  es.onmessage = function(e){
+    if(e.data === '__DISMISS__'){
+      done(null);
+      es.close();
+      return;
+    }
+    var msg = e.data;
+    var isReplace = msg.indexOf('__REPLACE__') === 0;
+    if(isReplace) msg = msg.slice('__REPLACE__'.length);
+    panel.style.display = 'block';
+    var now = new Date();
+    var t = now.getHours() + ':' + (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
+    if(isReplace && panel.lastChild){
+      var last = panel.lastChild;
+      last.querySelector('.upd-text').innerHTML = mdRender(msg);
+      last.querySelector('.upd-time').textContent = t;
+      panel.scrollTop = panel.scrollHeight;
+      return;
+    }
+    var item = document.createElement('div');
+    item.className = 'upd-item';
+    item.innerHTML = '<div class="upd-dot"></div><div class="upd-body"><div class="upd-text"></div><div class="upd-time">' + t + '</div></div>';
+    item.querySelector('.upd-text').innerHTML = mdRender(msg);
+    panel.appendChild(item);
+    panel.scrollTop = panel.scrollHeight;
+  };
+  es.onerror = function(){ es.close(); };
+})();
+
+// Heartbeat: report user activity to the server every 5 s so the AI can see
+// whether the user is typing, idle, or has left — used by get_user_response.
+(function(){
+  var lastActivity=Date.now();
+  var isTyping=false;
+  function touch(){lastActivity=Date.now();}
+  document.addEventListener('mousemove',touch,{passive:true});
+  document.addEventListener('keydown',touch,{passive:true});
+  document.getElementById('ans').addEventListener('input',function(){
+    touch();
+    isTyping=this.value.trim().length>0;
+  });
+  setInterval(function(){
+    if(dialogDone)return;
+    var idle=(Date.now()-lastActivity)/1000;
+    fetch('/heartbeat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({typing:isTyping,idle_seconds:idle})
+    }).catch(function(){});
+  },5000);
+})();
+</script>
+</body>
+</html>

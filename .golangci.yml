@@ -1,0 +1,40 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck       # unchecked errors
+    - gosimple       # simplifications
+    - govet          # vet checks
+    - ineffassign    # unused assignments
+    - staticcheck    # staticcheck suite
+    - unused         # unused code
+    - gofmt          # formatting
+    - goimports      # import ordering
+    - misspell       # common spelling mistakes
+    - godot          # comment punctuation
+    - noctx          # HTTP requests without context
+    - bodyclose      # unclosed HTTP response bodies
+    - contextcheck   # context propagation
+    - exhaustive     # exhaustive switch statements for enums
+    - nilnil         # returning (nil, nil) in error-returning funcs
+    - nolintlint     # malformed nolint directives
+
+linters-settings:
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: github.com/bearaujus/bmcptools
+  misspell:
+    locale: US
+  godot:
+    scope: declarations
+    capital: false
+
+issues:
+  exclude-rules:
+    # Test files get a little more leeway
+    - path: _test\.go
+      linters:
+        - errcheck
+        - godot

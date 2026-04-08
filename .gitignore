@@ -1,0 +1,33 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of `go build`
+bin
+
+# Coverage output
+coverage.out
+coverage.html
+coverage
+
+# Editor / IDE
+.cursor/
+.copilot/
+.vscode/
+.idea/
+.tmp/
+*.swp
+*.swo
+*~
+
+# macOS
+**/.DS_Store
+
+# golangci-lint cache
+.golangci-lint-cache/
