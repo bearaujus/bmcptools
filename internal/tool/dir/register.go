@@ -4,8 +4,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/bearaujus/bmcptools/internal/asset"
-	"github.com/bearaujus/bmcptools/internal/toolname"
-	"github.com/bearaujus/bmcptools/internal/toolreg"
+	"github.com/bearaujus/bmcptools/pkg/toolname"
+	"github.com/bearaujus/bmcptools/pkg/toolreg"
 )
 
 // Register registers all directory tools with s.

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"runtime"
 	"strings"
@@ -13,6 +12,8 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/bearaujus/bmcptools/pkg/browser"
 )
 
 var pendingChats sync.Map
@@ -22,7 +23,7 @@ type chatState struct {
 	subs       []chan string
 	inbound    chan string
 	done       chan struct{}
-	srv        *http.Server
+	shutdown   func()
 	lastSeenAt time.Time
 }
 
@@ -54,7 +55,8 @@ func (c *chatState) broadcast(msg string) {
 	c.mu.Unlock()
 }
 
-func openChatHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func makeOpenChatHandler(htmlSource string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if runtime.GOOS == "linux" {
 		return mcp.NewToolResultError("open_chat is not supported on Linux"), nil
 	}
@@ -64,24 +66,16 @@ func openChatHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	}
 	subtitle := req.GetString("subtitle", "")
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return mcp.NewToolResultError("failed to open chat: " + err.Error()), nil
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-
 	chatID := newDialogToken()
 	state := &chatState{
 		inbound: make(chan string, 64),
 		done:    make(chan struct{}),
 	}
-
-	mux := http.NewServeMux()
-	srv := &http.Server{Handler: mux}
-	state.srv = srv
 	pendingChats.Store(chatID, state)
 
-	page := buildChatHTML(title, subtitle)
+	mux := http.NewServeMux()
+
+		page := buildChatHTML(htmlSource, title, subtitle)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, page)
@@ -166,7 +160,7 @@ func openChatHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		}
 		go func() {
 			time.Sleep(300 * time.Millisecond)
-			srv.Close()
+			state.shutdown()
 		}()
 	})
 
@@ -182,16 +176,22 @@ func openChatHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		fmt.Fprint(w, "ok")
 	})
 
-	go func() { _ = srv.Serve(ln) }()
+	port, shutdown, err := browser.Serve(mux)
+	if err != nil {
+		pendingChats.Delete(chatID)
+		return mcp.NewToolResultError("failed to open chat: " + err.Error()), nil
+	}
+	state.shutdown = shutdown
 
 	go sendNotificationFn("Chat opened — check your browser", title, "info", 10)
 	openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
 
-	return mcp.NewToolResultText(
-		"Chat opened in browser.\n" +
-			"chat_id: " + chatID + "\n" +
-			"Use send_chat_message to send messages and get_chat_messages to receive replies.",
-	), nil
+		return mcp.NewToolResultText(
+			"Chat opened in browser.\n" +
+				"chat_id: " + chatID + "\n" +
+				"Use send_chat_message to send messages and get_chat_messages to receive replies.",
+		), nil
+	}
 }
 
 func sendChatMessageHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -324,7 +324,7 @@ func closeChatHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	}
 	go func() {
 		time.Sleep(300 * time.Millisecond)
-		state.srv.Close()
+		state.shutdown()
 	}()
 
 	return mcp.NewToolResultText("chat closed"), nil

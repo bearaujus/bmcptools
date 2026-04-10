@@ -96,7 +96,7 @@ func TestNotifyUserWhitespaceOnlyMessage(t *testing.T) {
 // stripping) that would silently regress without tests.
 
 func TestAskUserHandlerMissingQuestion(t *testing.T) {
-	result, err := askUserHandler(nil, newTestRequest(nil))
+	result, err := makeAskUserHandler("")(nil, newTestRequest(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestAskUserHandlerMissingQuestion(t *testing.T) {
 }
 
 func TestAskUserHandlerWhitespaceQuestion(t *testing.T) {
-	result, err := askUserHandler(nil, newTestRequest(map[string]any{
+	result, err := makeAskUserHandler("")(nil, newTestRequest(map[string]any{
 		"question": "   ",
 	}))
 	if err != nil {
@@ -120,7 +120,7 @@ func TestAskUserHandlerWhitespaceQuestion(t *testing.T) {
 // Reason: allow_freeform=false with no choices should be rejected — an LLM
 // sending this would create an un-answerable dialog.
 func TestAskUserHandlerNoChoicesAllowFreeformFalse(t *testing.T) {
-	result, err := askUserHandler(nil, newTestRequest(map[string]any{
+	result, err := makeAskUserHandler("")(nil, newTestRequest(map[string]any{
 		"question":      "pick one",
 		"allow_freeform": false,
 	}))
@@ -135,7 +135,7 @@ func TestAskUserHandlerNoChoicesAllowFreeformFalse(t *testing.T) {
 // Reason: Choices containing only whitespace should be stripped silently.
 // If they're kept, they create invisible buttons that a user can never click.
 func TestAskUserHandlerEmptyChoicesFiltered(t *testing.T) {
-	result, err := askUserHandler(nil, newTestRequest(map[string]any{
+	result, err := makeAskUserHandler("")(nil, newTestRequest(map[string]any{
 		"question": "pick one",
 		"choices":  []any{"", "  ", "valid choice"},
 	}))
@@ -158,7 +158,7 @@ func TestAskUserHandlerEmptyChoicesFiltered(t *testing.T) {
 // Reason: Happy path — a valid question should return a PENDING token immediately.
 // LLM clients depend on this token to poll for the user response.
 func TestAskUserHandlerReturnsToken(t *testing.T) {
-	result, err := askUserHandler(nil, newTestRequest(map[string]any{
+	result, err := makeAskUserHandler("")(nil, newTestRequest(map[string]any{
 		"question": "What is your name?",
 	}))
 	if err != nil {

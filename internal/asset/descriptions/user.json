@@ -22,9 +22,9 @@
     }
   },
   "get_user_response": {
-    "desc": "Poll for a pending ask_user response. Returns PENDING until answered.",
+    "desc": "Poll for a pending ask_user or rest response. Each call blocks up to wait_seconds (default 55, max 115) before returning. Returns the user's answer string when ready, or a PENDING string when still waiting. IMPORTANT: keep calling this in a loop until you get a non-PENDING answer — the user may take a long time to reply. Never give up after one PENDING.",
     "params": {
-      "token": "The token returned by ask_user",
+      "token": "The token returned by ask_user or rest",
       "wait_seconds": "Seconds to wait per poll. Default: 55. Max: 115."
     }
   },
@@ -37,13 +37,13 @@
     }
   },
   "cancel_ask_user": {
-    "desc": "Cancel an open ask_user dialog identified by its token. The browser dialog will dismiss immediately and get_user_response will return a cancellation message. Use this when the question is no longer relevant — e.g. you already have the answer from another source, or the task was aborted.",
+    "desc": "Cancel an open ask_user dialog identified by its token. The browser dialog will dismiss immediately and get_user_response will return a cancellation message. Use this when the question is no longer relevant — e.g. you already have the answer from another source, the task was aborted, or you are about to ask a different question with a new ask_user call.",
     "params": {
       "token": "The token returned by ask_user"
     }
   },
   "open_chat": {
-    "desc": "Open a persistent two-way browser chat window for extended back-and-forth conversations. Unlike ask_user (one question \u2192 one reply), this keeps the window open for multiple exchanges. Returns a chat_id. macOS and Windows only. Not supported on Linux.",
+    "desc": "Open a persistent two-way browser chat window for extended back-and-forth conversations. Unlike ask_user (one question → one reply), this keeps the window open for multiple exchanges. Typical workflow: (1) call open_chat → get chat_id, (2) call send_chat_message to push AI messages, (3) call get_chat_messages in a loop to receive user replies (returns PENDING if no new message yet — keep looping), (4) call close_chat when the conversation is finished. Returns a chat_id. macOS and Windows only. Not supported on Linux.",
     "params": {
       "title": "Title shown in the chat window. Default: \"AI Assistant\"",
       "subtitle": "Optional subtitle (e.g. your agent or model name)."
@@ -71,7 +71,7 @@
     }
   },
   "rest": {
-    "desc": "Let the AI go idle and show an 'AI is resting' browser page with a wake-up button. IMPORTANT: call this tool — do NOT end the conversation or stop responding — whenever the user says 'take a rest', 'wait', 'stand by', or 'I will review': call rest(), then loop on get_user_response with the returned token until the user wakes you. macOS and Windows only. Not supported on Linux.",
+    "desc": "Let the AI go idle and show an 'AI is resting' browser page with a wake-up button. IMPORTANT: call this tool — do NOT end the conversation or stop responding — whenever the user says 'take a rest', 'wait', 'stand by', or 'I will review'. Workflow: (1) call rest() → it returns a token in the result text, (2) extract the token from the response (look for 'Token: <token>'), (3) loop on get_user_response(token=<token>) indefinitely until the user clicks the wake-up button and you get a non-PENDING response. macOS and Windows only. Not supported on Linux.",
     "params": {
       "notes": "Message shown to the user while resting.",
       "title": "Name shown in the resting UI. Default: \"AI Assistant\"",

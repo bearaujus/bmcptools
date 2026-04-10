@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html"
 	"io"
-	"net"
 	"net/http"
 	"runtime"
 	"strings"
@@ -15,57 +14,41 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/bearaujus/bmcptools/internal/asset"
+	"github.com/bearaujus/bmcptools/pkg/browser"
 )
 
-func promptUser(ctx context.Context, question, details, title, subtitle string, timeout time.Duration, activity *dialogActivity) (string, error) {
+// openBrowserFn delegates to browser.Open and can be overridden in tests
+// to suppress real browser windows.
+var openBrowserFn = browser.Open
+
+func promptUser(ctx context.Context, htmlSource, question, details, title, subtitle string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		return promptBrowser(ctx, question, details, title, subtitle, true, nil, timeout, activity)
+		return promptBrowser(ctx, htmlSource, question, details, title, subtitle, true, nil, timeout, activity)
 	default:
 		return "", fmt.Errorf("ask_user is not supported on Linux")
 	}
 }
 
-func promptUserChoice(ctx context.Context, question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
+func promptUserChoice(ctx context.Context, htmlSource, question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		return promptBrowser(ctx, question, details, title, subtitle, allowFreeform, choices, timeout, activity)
+		return promptBrowser(ctx, htmlSource, question, details, title, subtitle, allowFreeform, choices, timeout, activity)
 	default:
 		return "", fmt.Errorf("ask_user is not supported on Linux")
 	}
 }
 
-// openBrowserFn is called whenever a browser window needs to open.
-// Tests override this to a no-op to prevent real browser windows from appearing.
-var openBrowserFn = func(url string) {
-	switch runtime.GOOS {
-	case "darwin":
-		_ = exec_command_run("open", url)
-	case "windows":
-		_ = exec_command_run_windows(url)
-	}
-}
-
-func promptBrowser(ctx context.Context, question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
+func promptBrowser(ctx context.Context, htmlSource, question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	timeoutSec := int(timeout.Seconds())
 	if timeoutSec <= 0 {
 		timeoutSec = 600
 	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		if len(choices) > 0 {
-			return promptChoiceConsole(question, details, title, choices)
-		}
-		return promptConsole(question, details)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-
 	resultCh := make(chan string, 1)
 	mux := http.NewServeMux()
-	srv := &http.Server{Handler: mux}
 
-	page := buildMacDialogHTML(question, details, title, subtitle, allowFreeform, choices, timeoutSec)
+	page := buildDialogHTML(htmlSource, question, details, title, subtitle, allowFreeform, choices, timeoutSec)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, page)
@@ -160,8 +143,14 @@ func promptBrowser(ctx context.Context, question, details, title, subtitle strin
 		})
 	}
 
-	go func() { _ = srv.Serve(ln) }()
-	defer srv.Close()
+	port, shutdown, err := browser.Serve(mux)
+	if err != nil {
+		if len(choices) > 0 {
+			return promptChoiceConsole(question, details, title, choices)
+		}
+		return promptConsole(question, details)
+	}
+	defer shutdown()
 
 	openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
 
@@ -174,6 +163,8 @@ func promptBrowser(ctx context.Context, question, details, title, subtitle strin
 		}
 		return "[Dialog cancelled by AI]", nil
 	case <-time.After(timeout + 2*time.Second):
+		// +2s grace window lets the browser's JS timer fire and POST /answer before
+		// the server tears down. A blank string triggers a retry in runDialogBlocking.
 		return "", nil
 	}
 }
@@ -182,7 +173,9 @@ func chipHTML(c string) string {
 	return strings.ReplaceAll(html.EscapeString(c), "\n", "<br>")
 }
 
-func buildMacDialogHTML(question, details, title, subtitle string, allowFreeform bool, choices []string, timeoutSec int) string {
+// buildDialogHTML renders the ask_user dialog HTML template.
+// htmlSource is the base template (default or custom override).
+func buildDialogHTML(htmlSource, question, details, title, subtitle string, allowFreeform bool, choices []string, timeoutSec int) string {
 	chipsSection := ""
 	if len(choices) > 0 {
 		var sb strings.Builder
@@ -211,7 +204,7 @@ func buildMacDialogHTML(question, details, title, subtitle string, allowFreeform
 	mdCSS := asset.CSS("md")
 	mdJS := asset.JS("md")
 
-	page := strings.ReplaceAll(asset.HTML("dialog"), "[[TITLE]]", html.EscapeString(title))
+	page := strings.ReplaceAll(htmlSource, "[[TITLE]]", html.EscapeString(title))
 	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
 	page = strings.ReplaceAll(page, "[[QUESTION]]", html.EscapeString(question))
 	page = strings.ReplaceAll(page, "[[DETAILS_SECTION]]", detailsSection)
@@ -223,21 +216,21 @@ func buildMacDialogHTML(question, details, title, subtitle string, allowFreeform
 	return page
 }
 
-func buildChatHTML(title, subtitle string) string {
+func buildChatHTML(htmlSource, title, subtitle string) string {
 	mdCSS := asset.CSS("md")
 	mdJS := asset.JS("md")
-	page := strings.ReplaceAll(asset.HTML("chat"), "[[TITLE]]", html.EscapeString(title))
+	page := strings.ReplaceAll(htmlSource, "[[TITLE]]", html.EscapeString(title))
 	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
 	page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+mdCSS+"\n</style>")
 	page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+mdJS+"\n</script>")
 	return page
 }
 
-func buildRestHTML(title, subtitle, notes string, timeoutSec int) string {
+func buildRestHTML(htmlSource, title, subtitle, notes string, timeoutSec int) string {
 	notesJSON, _ := json.Marshal(notes)
 	mdCSS := asset.CSS("md")
 	mdJS := asset.JS("md")
-	page := strings.ReplaceAll(asset.HTML("rest"), "[[TITLE]]", html.EscapeString(title))
+	page := strings.ReplaceAll(htmlSource, "[[TITLE]]", html.EscapeString(title))
 	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
 	page = strings.ReplaceAll(page, "[[NOTES_ESCAPED]]", string(notesJSON))
 	page = strings.ReplaceAll(page, "[[TIMEOUT_SEC]]", fmt.Sprintf("%d", timeoutSec))
@@ -246,99 +239,97 @@ func buildRestHTML(title, subtitle, notes string, timeoutSec int) string {
 	return page
 }
 
-func restHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if runtime.GOOS == "linux" {
-		return mcp.NewToolResultError("rest is not supported on Linux"), nil
-	}
-
-	title := req.GetString("title", "AI Assistant")
-	if title == "" {
-		title = "AI Assistant"
-	}
-	subtitle := req.GetString("subtitle", "")
-	notes := req.GetString("notes", "")
-
-	timeoutSec := req.GetFloat("timeout_seconds", 3600)
-	if timeoutSec <= 0 {
-		timeoutSec = 3600
-	}
-	if timeoutSec > 86400 {
-		timeoutSec = 86400
-	}
-	timeout := time.Duration(timeoutSec) * time.Second
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return mcp.NewToolResultError("failed to open rest page: " + err.Error()), nil
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	token := newDialogToken()
-	act := &dialogActivity{}
-	state := &pendingDialogState{
-		responseCh: make(chan string, 1),
-		activity:   act,
-	}
-	storePendingDialog(token, state)
-
-	resultCh := make(chan string, 1)
-	mux := http.NewServeMux()
-	srv := &http.Server{Handler: mux}
-
-	page := buildRestHTML(title, subtitle, notes, int(timeoutSec))
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, page)
-		act.mu.Lock()
-		act.connected = true
-		act.mu.Unlock()
-	})
-	mux.HandleFunc("/answer", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
+func makeRestHandler(htmlSource string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if runtime.GOOS == "linux" {
+			return mcp.NewToolResultError("rest is not supported on Linux"), nil
 		}
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
 
-		var payload struct {
-			Notes string `json:"notes"`
+		title := req.GetString("title", "AI Assistant")
+		if title == "" {
+			title = "AI Assistant"
 		}
-		wakeMsg := "User woke up the AI."
-		if err := json.Unmarshal(body, &payload); err == nil && strings.TrimSpace(payload.Notes) != "" {
-			wakeMsg = "User woke up the AI with note: " + strings.TrimSpace(payload.Notes)
-		}
-		select {
-		case resultCh <- wakeMsg:
-		default:
-		}
-	})
+		subtitle := req.GetString("subtitle", "")
+		notes := req.GetString("notes", "")
 
-	go func() { _ = srv.Serve(ln) }()
-
-	go func() {
-		var answer string
-		select {
-		case answer = <-resultCh:
-		case <-time.After(timeout):
-			answer = "[Rest timed out — user did not wake the AI]"
+		timeoutSec := req.GetFloat("timeout_seconds", 3600)
+		if timeoutSec <= 0 {
+			timeoutSec = 3600
 		}
-		select {
-		case state.responseCh <- answer:
-		default:
+		if timeoutSec > 86400 {
+			timeoutSec = 86400
 		}
-		srv.Close()
-		time.Sleep(5 * time.Minute)
-		deletePendingDialog(token)
-	}()
+		timeout := time.Duration(timeoutSec) * time.Second
 
-	go sendNotificationFn(title+" is now resting", title, "info", 10)
-	openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
+		token := newDialogToken()
+		act := &dialogActivity{}
+		state := &pendingDialogState{
+			responseCh: make(chan string, 1),
+			activity:   act,
+		}
+		storePendingDialog(token, state)
 
-	return mcp.NewToolResultText(
-		"AI is now resting. Browser page opened for the user.\n" +
-			"Token: " + token + "\n" +
-			"Call get_user_response(token=\"" + token + "\") to wait for the user to wake you up.",
-	), nil
+		resultCh := make(chan string, 1)
+		mux := http.NewServeMux()
+
+		page := buildRestHTML(htmlSource, title, subtitle, notes, int(timeoutSec))
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprint(w, page)
+			act.mu.Lock()
+			act.connected = true
+			act.mu.Unlock()
+		})
+		mux.HandleFunc("/answer", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "ok")
+
+			var payload struct {
+				Notes string `json:"notes"`
+			}
+			wakeMsg := "User woke up the AI."
+			if err := json.Unmarshal(body, &payload); err == nil && strings.TrimSpace(payload.Notes) != "" {
+				wakeMsg = "User woke up the AI with note: " + strings.TrimSpace(payload.Notes)
+			}
+			select {
+			case resultCh <- wakeMsg:
+			default:
+			}
+		})
+
+		port, shutdown, err := browser.Serve(mux)
+		if err != nil {
+			return mcp.NewToolResultError("failed to open rest page: " + err.Error()), nil
+		}
+
+		go func() {
+			var answer string
+			select {
+			case answer = <-resultCh:
+			case <-time.After(timeout):
+				answer = "[Rest timed out — user did not wake the AI]"
+			}
+			select {
+			case state.responseCh <- answer:
+			default:
+			}
+			shutdown()
+			time.Sleep(5 * time.Minute)
+			deletePendingDialog(token)
+		}()
+
+		go sendNotificationFn(title+" is now resting", title, "info", 10)
+		openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
+
+		return mcp.NewToolResultText(
+			"AI is now resting. Browser page opened for the user.\n" +
+				"Token: " + token + "\n" +
+				"Call get_user_response(token=\"" + token + "\") to wait for the user to wake you up.",
+		), nil
+	}
 }

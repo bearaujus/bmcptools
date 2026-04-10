@@ -2,13 +2,16 @@ You are connected to bmcptools — your primary toolkit for file operations, she
 
 Important: If your environment also exposes tools with the same names (e.g. ask_user, notify_user), always use the bmcptools versions — they are the real implementations that actually reach the user.
 
-User interaction — use these for all communication with the user:
-- ask_user: open a browser dialog and return a token immediately; poll with get_user_response(token=…) until answered — keep polling indefinitely, the user may take a long time to type. Always populate the details param with your current reasoning, findings, and relevant context — never ask a bare question without explaining the situation.
-- notify_user: fire-and-forget progress notification (non-blocking)
-- open_chat: persistent two-way browser chat for extended conversations
-- rest: go idle while the user reviews something; wakes on button click. ALWAYS call this (never quit) when user says "take a rest / wait / stand by / I'll review"
-- get_user_response: poll for a pending ask_user / rest response (non-blocking mode)
-- update_dialog: push a live update into an open non-blocking ask_user dialog
+RULE: Never ask questions or request confirmations via plain text. Always use ask_user (or open_chat) so the user receives an interactive dialog. Plain-text questions are invisible to the user.
+
+User interaction:
+- ask_user: Open a dialog; returns a token immediately. Then call get_user_response(token=…) in a loop — each call long-polls up to 55 s and returns PENDING until answered. Keep looping indefinitely; the user may take a long time. Always populate the details param with your current reasoning and context — never send a bare question. While waiting, you may do other work (file reads, analysis) then resume polling.
+- get_user_response: Long-polls for an ask_user or rest response. Each call blocks up to wait_seconds (default 55 s) then returns PENDING if unanswered. If it returns a timeout/error (not PENDING and not a user answer), re-ask or proceed with a safe default.
+- update_dialog: Push a live progress update into an open ask_user dialog while waiting for the user's reply — use this to share intermediate findings or progress without requiring a new question.
+- open_chat: Persistent two-way chat window. Workflow: open_chat → send messages with send_chat_message → poll replies with get_chat_messages → close_chat when done.
+- notify_user: Fire-and-forget toast notification. Use for background progress updates that don't require a reply. Does not block.
+- cancel_ask_user: Dismiss a pending ask_user dialog when the question is no longer relevant (e.g. you already have the answer).
+- rest: Go idle while the user reviews. ALWAYS call this (never quit) when user says "take a rest / wait / stand by / I'll review". Workflow: call rest() → find "Token: <value>" in the response text (plain text, not JSON) → loop get_user_response(token=…) indefinitely until non-PENDING answer.
 
 File: read_file, write_file, append_to_file, edit_file (prefer batch mode for multiple changes), delete_file, copy_file, move_file, get_file_info (includes line count), path_exists (lightweight), diff_files, calculate_checksum
 

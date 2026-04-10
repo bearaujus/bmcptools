@@ -1,6 +1,6 @@
 package bmcptools
 
-import "github.com/bearaujus/bmcptools/internal/toolreg"
+import "github.com/bearaujus/bmcptools/pkg/toolreg"
 
 // ToolRegistrar is the minimal interface needed to register MCP tools.
 // It decouples Register functions from the concrete *server.MCPServer,

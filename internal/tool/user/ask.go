@@ -9,7 +9,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	question := req.GetString("question", "")
 	if strings.TrimSpace(question) == "" {
 		return mcp.NewToolResultError("question is required"), nil
@@ -59,7 +60,7 @@ func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	storePendingDialog(token, state)
 
 	go func() {
-		answer := runDialogBlocking(ctx, question, details, title, subtitle, choices, allowFreeform, notify, timeout, act)
+			answer := runDialogBlocking(ctx, htmlSource, question, details, title, subtitle, choices, allowFreeform, notify, timeout, act)
 		cancel() // release context resources
 		select {
 		case state.responseCh <- answer:
@@ -69,16 +70,17 @@ func askUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		deletePendingDialog(token)
 	}()
 
-	return mcp.NewToolResultText(
-		"{\n" +
-			"  \"status\": \"PENDING\",\n" +
-			"  \"token\": \"" + token + "\",\n" +
-			"  \"instructions\": \"Call get_user_response(token=\\\"" + token + "\\\") to retrieve the answer. Each call waits up to wait_seconds (default 55) before returning PENDING again. Keep polling indefinitely — the user may take a long time to reply.\"\n" +
-			"}",
-	), nil
+		return mcp.NewToolResultText(
+			"{\n" +
+				"  \"status\": \"PENDING\",\n" +
+				"  \"token\": \"" + token + "\",\n" +
+				"  \"instructions\": \"Call get_user_response(token=\\\"" + token + "\\\") to retrieve the answer. Each call waits up to wait_seconds (default 55) before returning PENDING again. Keep polling indefinitely — the user may take a long time to reply.\"\n" +
+				"}",
+		), nil
+	}
 }
 
-func runDialogBlocking(ctx context.Context, question, details, title, subtitle string, choices []string, allowFreeform, notify bool, timeout time.Duration, activity *dialogActivity) string {
+func runDialogBlocking(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, allowFreeform, notify bool, timeout time.Duration, activity *dialogActivity) string {
 	if notify {
 		msg := question
 		if len(msg) > 120 {
@@ -99,9 +101,9 @@ func runDialogBlocking(ctx context.Context, question, details, title, subtitle s
 		var answer string
 		var err error
 		if len(choices) > 0 {
-			answer, err = promptUserChoice(ctx, question, details, title, subtitle, allowFreeform, choices, remaining, activity)
+			answer, err = promptUserChoice(ctx, htmlSource, question, details, title, subtitle, allowFreeform, choices, remaining, activity)
 		} else {
-			answer, err = promptUser(ctx, question, details, title, subtitle, remaining, activity)
+			answer, err = promptUser(ctx, htmlSource, question, details, title, subtitle, remaining, activity)
 		}
 		if err != nil {
 			return fmt.Sprintf("[Failed to get user input: %v]", err)

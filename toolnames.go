@@ -1,8 +1,10 @@
 package bmcptools
 
-import "github.com/bearaujus/bmcptools/internal/toolname"
+import "github.com/bearaujus/bmcptools/pkg/toolname"
 
-// Tool name constants — single source of truth for MCP tool identifiers.
+// Tool name constants re-exported from pkg/toolname for convenient embedding.
+// Importers can use these instead of importing pkg/toolname directly.
+// pkg/toolname is the canonical source; this file is a re-export convenience layer.
 
 // File tools.
 const (

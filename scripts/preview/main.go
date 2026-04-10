@@ -12,29 +12,13 @@ import (
 	"html"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/bearaujus/bmcptools/internal/asset"
 )
 
 func main() {
-	// Resolve the repo root (one level up from scripts/preview).
-	exe, _ := os.Executable()
-	scriptDir := filepath.Dir(exe)
-	_ = scriptDir
-
-	// When run with `go run`, the CWD is typically the repo root.
-	// Read assets relative to CWD.
-	assetsDir := filepath.Join("assets", "html")
-
-	mdCSS := mustRead(filepath.Join(assetsDir, "md.css"))
-	mdJS := mustRead(filepath.Join(assetsDir, "md.js"))
-
-	inject := func(page string) string {
-		page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+mdCSS+"\n</style>")
-		page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+mdJS+"\n</script>")
-		return page
-	}
-
 	targets := os.Args[1:]
 	if len(targets) == 0 {
 		targets = []string{"dialog", "chat", "rest"}
@@ -43,11 +27,11 @@ func main() {
 	for _, t := range targets {
 		switch t {
 		case "dialog":
-			openPreview("dialog", renderDialog(inject, assetsDir))
+			openPreview("dialog", renderDialog())
 		case "chat":
-			openPreview("chat", renderChat(inject, assetsDir))
+			openPreview("chat", renderChat())
 		case "rest":
-			openPreview("rest", renderRest(inject, assetsDir))
+			openPreview("rest", renderRest())
 		default:
 			fmt.Fprintf(os.Stderr, "unknown template %q — must be dialog, chat, or rest\n", t)
 			os.Exit(1)
@@ -57,11 +41,16 @@ func main() {
 
 // ── per-template renderers ────────────────────────────────────────────────────
 
-func renderDialog(inject func(string) string, dir string) string {
-	tmpl := mustRead(filepath.Join(dir, "dialog.html"))
-	tmpl = inject(tmpl)
+func inject(page string) string {
+	page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+asset.CSS("md")+"\n</style>")
+	page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+asset.JS("md")+"\n</script>")
+	return page
+}
 
-	chips := `<div class="chips">` +
+func renderDialog() string {
+	tmpl := inject(asset.HTML("dialog"))
+
+	chips := `<div class="chips-row">` +
 		chip("Yes, looks great!", 0) +
 		chip("I have some tweaks", 1) +
 		chip("Let me think…", 2) +
@@ -69,29 +58,25 @@ func renderDialog(inject func(string) string, dir string) string {
 
 	tmpl = strings.ReplaceAll(tmpl, "[[TITLE]]", html.EscapeString("Preview: ask_user dialog"))
 	tmpl = strings.ReplaceAll(tmpl, "[[SUBTITLE]]", html.EscapeString("claude-sonnet-4.6 · preview mode"))
-	tmpl = strings.ReplaceAll(tmpl, "[[QUESTION]]", html.EscapeString("Does the new `open_chat` UI look good to you?\n\nThis is a **sample question** rendered as markdown. You can write `code`, lists, and more.\n\n- Option A\n- Option B\n- Option C"))
+	tmpl = strings.ReplaceAll(tmpl, "[[QUESTION]]", html.EscapeString("Does the new `open_chat` UI look good to you?\n\nThis is a **sample question** rendered as markdown."))
+	tmpl = strings.ReplaceAll(tmpl, "[[DETAILS_SECTION]]", `<div class="details-body">Some optional details here.</div>`)
 	tmpl = strings.ReplaceAll(tmpl, "[[CHIPS_SECTION]]", chips)
 	tmpl = strings.ReplaceAll(tmpl, "[[TIMEOUT_SEC]]", "600")
 	tmpl = strings.ReplaceAll(tmpl, "[[ALLOW_FREEFORM]]", "true")
 	return tmpl
 }
 
-func renderChat(inject func(string) string, dir string) string {
-	tmpl := mustRead(filepath.Join(dir, "chat.html"))
-	tmpl = inject(tmpl)
-
+func renderChat() string {
+	tmpl := inject(asset.HTML("chat"))
 	tmpl = strings.ReplaceAll(tmpl, "[[TITLE]]", html.EscapeString("Preview: open_chat"))
 	tmpl = strings.ReplaceAll(tmpl, "[[SUBTITLE]]", html.EscapeString("claude-sonnet-4.6 · preview mode"))
 	return tmpl
 }
 
-func renderRest(inject func(string) string, dir string) string {
-	tmpl := mustRead(filepath.Join(dir, "rest.html"))
-	tmpl = inject(tmpl)
-
-	notes := "## Taking a short break\n\nI'm analysing the codebase. Feel free to:\n\n- Review the diff above\n- Grab a coffee ☕\n- Come back whenever you're ready\n\nI'll wake up the moment you press the button."
+func renderRest() string {
+	tmpl := inject(asset.HTML("rest"))
+	notes := "## Taking a short break\n\nI'm analysing the codebase."
 	notesJSON, _ := json.Marshal(notes)
-
 	tmpl = strings.ReplaceAll(tmpl, "[[TITLE]]", html.EscapeString("Preview: rest page"))
 	tmpl = strings.ReplaceAll(tmpl, "[[SUBTITLE]]", html.EscapeString("claude-sonnet-4.6 · preview mode"))
 	tmpl = strings.ReplaceAll(tmpl, "[[NOTES_ESCAPED]]", string(notesJSON))
@@ -109,21 +94,17 @@ func chip(label string, idx int) string {
 	)
 }
 
-func mustRead(path string) string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading %s: %v\n", path, err)
-		os.Exit(1)
-	}
-	return string(b)
-}
-
-func openPreview(name, html string) {
-	tmpFile := filepath.Join(os.TempDir(), "bmcptools_preview_"+name+".html")
-	if err := os.WriteFile(tmpFile, []byte(html), 0o644); err != nil {
+func openPreview(name, pageHTML string) {
+	tmpFile := fmt.Sprintf("%s/bmcptools_preview_%s.html", os.TempDir(), name)
+	if err := os.WriteFile(tmpFile, []byte(pageHTML), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "error writing %s: %v\n", tmpFile, err)
 		os.Exit(1)
 	}
 	fmt.Printf("▸ %s → %s\n", name, tmpFile)
-	_ = exec.Command("open", tmpFile).Start()
+	switch runtime.GOOS {
+	case "darwin":
+		_ = exec.Command("open", tmpFile).Start()
+	case "windows":
+		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", tmpFile).Start()
+	}
 }

@@ -1,7 +1,9 @@
 package system
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -76,15 +78,19 @@ func listProcessesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 	maxCmdLen := 60
 	nameColFmt := fmt.Sprintf("%%-%ds", maxNameLen)
-	header := fmt.Sprintf("%-8s "+nameColFmt+" %6s %6s  %s\n", "PID", "NAME", "CPU%", "MEM%", "COMMAND")
+	cpuHeader, memHeader := "CPU%", "MEM%"
+	if runtime.GOOS == "windows" {
+		cpuHeader, memHeader = "CPU(s)", "MEM(MB)"
+	}
+	header := fmt.Sprintf("%-8s "+nameColFmt+" %7s %8s  %s\n", "PID", "NAME", cpuHeader, memHeader, "COMMAND")
 	fmt.Fprint(&sb, header)
-	fmt.Fprintln(&sb, strings.Repeat("\u2500", 8+1+maxNameLen+1+6+1+6+2+maxCmdLen))
+	fmt.Fprintln(&sb, strings.Repeat("\u2500", 8+1+maxNameLen+1+7+1+8+2+maxCmdLen))
 	for _, p := range procs {
 		cmd := p.Command
 		if len(cmd) > maxCmdLen {
 			cmd = cmd[:maxCmdLen-3] + "..."
 		}
-		fmt.Fprintf(&sb, "%-8d "+nameColFmt+" %6.1f %6.1f  %s\n", p.PID, p.Name, p.CPU, p.Mem, cmd)
+		fmt.Fprintf(&sb, "%-8d "+nameColFmt+" %7.1f %8.1f  %s\n", p.PID, p.Name, p.CPU, p.Mem, cmd)
 	}
 	fmt.Fprintf(&sb, "\nShowing %d of %d processes", len(procs), total)
 	if filter != "" {
@@ -134,22 +140,20 @@ func listProcessesWindows() ([]processInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	r := csv.NewReader(bytes.NewReader(out))
+	records, err := r.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("parse process CSV: %w", err)
+	}
 	var procs []processInfo
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines[1:] {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	for _, fields := range records[1:] { // skip header row
+		if len(fields) < 4 {
 			continue
 		}
-		parts := strings.Split(line, ",")
-		if len(parts) < 4 {
-			continue
-		}
-		stripQ := func(s string) string { return strings.Trim(strings.TrimSpace(s), `"`) }
-		pid, _ := strconv.Atoi(stripQ(parts[0]))
-		name := stripQ(parts[1])
-		cpu, _ := strconv.ParseFloat(stripQ(parts[2]), 64)
-		memBytes, _ := strconv.ParseFloat(stripQ(parts[3]), 64)
+		pid, _ := strconv.Atoi(fields[0])
+		name := fields[1]
+		cpu, _ := strconv.ParseFloat(fields[2], 64)
+		memBytes, _ := strconv.ParseFloat(fields[3], 64)
 		procs = append(procs, processInfo{PID: pid, Name: name, CPU: cpu, Mem: memBytes / 1024 / 1024, Command: name})
 	}
 	return procs, nil

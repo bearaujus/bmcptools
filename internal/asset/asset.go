@@ -14,7 +14,7 @@ var descFS embed.FS
 //go:embed descriptions/server_instructions.txt
 var serverInstructionsTxt string
 
-//go:embed html/dialog.html html/chat.html html/rest.html html/md.css html/md.js
+//go:embed html/dialog.html html/chat.html html/rest.html html/confirm.html html/md.css html/md.js
 var htmlFS embed.FS
 
 type toolEntry struct {

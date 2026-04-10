@@ -1,3 +1,5 @@
+// Package toolname provides string constants for every bmcptools MCP tool name.
+// Import this package to reference tool names without hardcoding strings.
 package toolname
 
 // File tools.

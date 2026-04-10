@@ -23,7 +23,7 @@
     }
   },
   "list_processes": {
-    "desc": "List running processes with PID, name, CPU%, memory%, and full command. Cross-platform — prefer this over running ps/tasklist via run_command. Optionally filter by name.",
+    "desc": "List running processes with PID, name, CPU/memory usage, and full command. Cross-platform — prefer this over running ps/tasklist via run_command. On POSIX (macOS/Linux) CPU and MEM are percentages from ps; on Windows CPU is total CPU time in seconds and MEM is working-set in MB — column headers reflect this automatically. Optionally filter by name.",
     "params": {
       "filter": "Case-insensitive substring to filter by name or command. Omit to list all.",
       "sort_by": "Sort by \"pid\" (default), \"cpu\", or \"mem\".",
@@ -31,7 +31,7 @@
     }
   },
   "get_system_info": {
-    "desc": "Return system resource snapshot: CPU model, core count, memory usage, and disk usage.",
+    "desc": "Return system resource snapshot: CPU model, core count, memory usage, and disk usage. Memory values are reported in KB.",
     "params": {}
   }
 }

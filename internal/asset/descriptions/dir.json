@@ -7,7 +7,7 @@
       "recursive": "List subdirectories recursively. Default: false",
       "max_depth": "Max recursion depth when recursive=true. Default: 3",
       "sort_by": "Sort by \"name\" (default) or \"size\" (largest first).",
-      "glob": "Only show files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Default: all files"
+      "glob": "Only show files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Applies to files only — directories are always traversed and shown regardless of glob. Default: all files"
     }
   },
   "create_directory": {

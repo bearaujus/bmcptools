@@ -4,12 +4,20 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/bearaujus/bmcptools/internal/asset"
-	"github.com/bearaujus/bmcptools/internal/toolname"
-	"github.com/bearaujus/bmcptools/internal/toolreg"
+	"github.com/bearaujus/bmcptools/pkg/toolname"
+	"github.com/bearaujus/bmcptools/pkg/toolreg"
 )
 
 // Register registers all user interaction tools with s.
-func Register(s toolreg.ToolRegistrar) {
+// opts can override the default HTML templates for ask_user, open_chat, and rest dialogs.
+func Register(s toolreg.ToolRegistrar, opts ...Option) {
+	cfg := userConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	dialogHTML := cfg.dialogHTMLSource()
+	chatHTML := cfg.chatHTMLSource()
+	restHTML := cfg.restHTMLSource()
 	s.AddTool(
 		mcp.NewTool(toolname.NotifyUser,
 			mcp.WithDescription(asset.ToolDesc(toolname.NotifyUser)),
@@ -60,7 +68,7 @@ func Register(s toolreg.ToolRegistrar) {
 				mcp.Description(asset.ParamDesc(toolname.AskUser, "notify")),
 			),
 		),
-		askUserHandler,
+		makeAskUserHandler(dialogHTML),
 	)
 
 	s.AddTool(
@@ -116,7 +124,7 @@ func Register(s toolreg.ToolRegistrar) {
 				mcp.Description(asset.ParamDesc(toolname.OpenChat, "subtitle")),
 			),
 		),
-		openChatHandler,
+		makeOpenChatHandler(chatHTML),
 	)
 
 	s.AddTool(
@@ -179,6 +187,6 @@ func Register(s toolreg.ToolRegistrar) {
 				mcp.Description(asset.ParamDesc(toolname.Rest, "timeout_seconds")),
 			),
 		),
-		restHandler,
+		makeRestHandler(restHTML),
 	)
 }

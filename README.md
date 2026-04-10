@@ -98,7 +98,7 @@ Grab a pre-built binary from the [Releases](https://github.com/bearaujus/bmcptoo
 | `run_command` | Execute any shell command. Returns stdout+stderr, exit code, elapsed time, and working directory. Supports `timeout_seconds`, `cwd`, `env`, `stdin`, `max_output_bytes`, and `raw_output`. |
 | `open_in_app` | Open a file, directory, or URL in the default system app. Cross-platform, non-blocking. |
 | `get_system_info` | Return CPU, memory, and disk usage snapshot. |
-| `list_processes` | List running processes with PID, name, CPU%, memory%, and command. Optional `filter` and `sort_by`. |
+| `list_processes` | List running processes with PID, name, and command. CPU and memory units differ by platform: **POSIX** shows CPU% / MEM%, **Windows** shows CPU(s) (total processor seconds) / MEM(MB). Optional `filter` and `sort_by`. |
 | `http_request` | Make an HTTP request. Returns status code, response body, and timing. Supports all methods, headers, auth, redirects, and timeout. |
 | `clipboard_read` | Read text from the system clipboard (macOS/Linux/Windows). |
 | `clipboard_write` | Write text to the system clipboard (macOS/Linux/Windows). |
@@ -132,17 +132,22 @@ On Linux/macOS/Windows, `make build` auto-detects the version from `git describe
 
 ### Repository structure
 
-The codebase follows a modular `internal/` layout — no business logic lives in the root package:
+The codebase follows a modular layout. Public APIs live under `pkg/` (importable by external repos); internal implementation lives under `internal/`.
 
 ```
 bmcptools/                     ← public API (server.go, registrar.go, toolnames.go)
 ├── cmd/bmcptools/             ← package main (entry point)
 ├── scripts/preview/           ← browser UI preview helper
+├── pkg/
+│   ├── browser/               ← shared HTTP server + browser-open infrastructure
+│   ├── confirm/               ← standalone blocking confirm/cancel dialog
+│   ├── connector/             ← Connector interface for external tool groups
+│   ├── dialog/                ← HTML template contract types (DialogTemplate, ChatTemplate, RestTemplate)
+│   ├── toolname/              ← public tool name constants (importable by connectors)
+│   └── toolreg/               ← public ToolRegistrar interface
 └── internal/
     ├── asset/                 ← embedded JSON descriptions + HTML/CSS/JS templates
     ├── helper/                ← shared utilities (fs, read, diff, edit, mime, glob, checksum)
-    ├── toolname/              ← all tool name string constants
-    ├── toolreg/               ← ToolRegistrar interface
     └── tool/
         ├── dir/               ← directory tools
         ├── exec/              ← exec / process tools
@@ -151,6 +156,57 @@ bmcptools/                     ← public API (server.go, registrar.go, toolname
         ├── search/            ← search & grep tools
         ├── system/            ← system info, HTTP, clipboard, processes
         └── user/              ← interactive UI tools (ask, chat, notify, rest)
+```
+
+### Embedding bmcptools in another MCP server
+
+#### Register all tools at once
+
+```go
+import bmcptools "github.com/bearaujus/bmcptools"
+
+bmcptools.Register(s)                         // all tool groups, default HTML
+bmcptools.Register(s, bmcptools.WithUserOptions(
+    bmcptools.UserWithDialogTemplate(myDialogTmpl),  // custom ask_user HTML
+))
+```
+
+#### Register individual tool groups
+
+```go
+bmcptools.RegisterFile(s)
+bmcptools.RegisterDir(s)
+bmcptools.RegisterSearch(s)
+bmcptools.RegisterExec(s)
+bmcptools.RegisterSystem(s)
+bmcptools.RegisterMulti(s)
+bmcptools.RegisterUser(s)                     // default HTML
+bmcptools.RegisterUser(s, bmcptools.UserWithDialogTemplate(myTmpl))
+```
+
+#### Register external connectors (Lark, Slack, etc.)
+
+```go
+import (
+    bmcptools "github.com/bearaujus/bmcptools"
+    "github.com/bearaujus/bmcptools/pkg/connector"
+)
+
+// Your connector implements connector.Connector:
+//   Name() string
+//   Register(s toolreg.ToolRegistrar)
+bmcptools.RegisterConnectors(s, larkConnector, slackConnector)
+```
+
+#### Override dialog HTML
+
+```go
+import "github.com/bearaujus/bmcptools/pkg/dialog"
+
+tmpl, err := dialog.NewDialogTemplate(myHTML) // validated at construction
+if err != nil { ... }
+
+bmcptools.RegisterUser(s, bmcptools.UserWithDialogTemplate(tmpl))
 ```
 
 Each `internal/tool/<name>/` package exports a single `Register(s toolreg.ToolRegistrar)` function. The root `Register(s ToolRegistrar)` delegates to all of them.
@@ -180,6 +236,24 @@ Pushing a tag (`v*`) triggers the release workflow, which cross-compiles for all
 | `bmcptools-linux-amd64` | Linux x86-64 |
 | `bmcptools-linux-arm64` | Linux ARM64 |
 | `bmcptools.exe` | Windows x86-64 |
+
+---
+
+## Package stability
+
+All packages under `pkg/` are considered **stable public API**:
+
+| Package | Stability |
+|---------|----------|
+| `pkg/browser` | Stable — `Serve`, `Open`, `ServeAndOpen`, `OpenFn` |
+| `pkg/confirm` | Stable — `Ask`, `AskWithHTML`, `ShowHTML`, `WithHTML`, `WithTimeout` |
+| `pkg/connector` | Stable — `Connector` interface |
+| `pkg/dialog` | Stable — `DialogTemplate`, `ChatTemplate`, `RestTemplate` and their constructors |
+| `pkg/toolname` | Stable — tool name constants |
+| `pkg/toolreg` | Stable — `ToolRegistrar` interface |
+
+Root-level exports in `server.go`, `registrar.go`, and `toolnames.go` are also stable.
+Packages under `internal/` are **not** part of the public API and may change without notice.
 
 ---
 
