@@ -286,6 +286,148 @@ func TestApplyEditRegex(t *testing.T) {
 	}
 }
 
+// ── ApplyEdit normalized ──────────────────────────────────────────────────────
+
+func TestApplyEditNormalized(t *testing.T) {
+	tests := []struct {
+		name       string
+		original   string
+		oldStr     string
+		newStr     string
+		replaceAll bool
+		wantResult string
+		wantCount  int
+	}{
+		{
+			name:       "trailing_space_in_file",
+			original:   "line1  \nline2\nline3",
+			oldStr:     "line1\nline2",
+			newStr:     "replaced",
+			wantResult: "replaced\nline3",
+			wantCount:  1,
+		},
+		{
+			name:       "trailing_space_in_pattern",
+			original:   "line1\nline2\nline3",
+			oldStr:     "line1  \nline2",
+			newStr:     "replaced",
+			wantResult: "replaced\nline3",
+			wantCount:  1,
+		},
+		{
+			name:       "both_have_trailing_whitespace",
+			original:   "line1   \nline2\t\nline3",
+			oldStr:     "line1\t\nline2 ",
+			newStr:     "replaced",
+			wantResult: "replaced\nline3",
+			wantCount:  1,
+		},
+		{
+			name:       "leading_whitespace_differs_no_match",
+			original:   "  line1\n  line2",
+			oldStr:     "line1\nline2",
+			newStr:     "replaced",
+			wantResult: "  line1\n  line2",
+			wantCount:  0,
+		},
+		{
+			name:       "exact_match_still_works",
+			original:   "hello world",
+			oldStr:     "hello",
+			newStr:     "hi",
+			wantResult: "hi world",
+			wantCount:  1,
+		},
+		{
+			name:       "no_match",
+			original:   "line1\nline2",
+			oldStr:     "line3\nline4",
+			newStr:     "replaced",
+			wantResult: "line1\nline2",
+			wantCount:  0,
+		},
+		{
+			name:       "replaceAll_normalized",
+			original:   "line1  \nline2\nline1  \nline2",
+			oldStr:     "line1\nline2",
+			newStr:     "X",
+			replaceAll: true,
+			wantResult: "X\nX",
+			wantCount:  2,
+		},
+		{
+			name:       "single_line_trailing_space_in_pattern",
+			original:   "hello",
+			oldStr:     "hello   ",
+			newStr:     "world",
+			wantResult: "world",
+			wantCount:  1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, count, err := ApplyEdit(tt.original, tt.oldStr, tt.newStr, false, tt.replaceAll)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.wantResult {
+				t.Errorf("result = %q, want %q", got, tt.wantResult)
+			}
+			if count != tt.wantCount {
+				t.Errorf("count = %d, want %d", count, tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestCountNormalizedMatches(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		oldStr  string
+		want    int
+	}{
+		{
+			name:    "exact_match_fast_path",
+			content: "foo\nbar\nfoo\nbar",
+			oldStr:  "foo\nbar",
+			want:    2,
+		},
+		{
+			name:    "normalized_single",
+			content: "line1  \nline2\nline3",
+			oldStr:  "line1\nline2",
+			want:    1,
+		},
+		{
+			name:    "normalized_multiple",
+			content: "a  \nb\na  \nb",
+			oldStr:  "a\nb",
+			want:    2,
+		},
+		{
+			name:    "no_match",
+			content: "hello\nworld",
+			oldStr:  "foo\nbar",
+			want:    0,
+		},
+		{
+			name:    "leading_ws_no_match",
+			content: "  a\n  b",
+			oldStr:  "a\nb",
+			want:    0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CountNormalizedMatches(tt.content, tt.oldStr)
+			if got != tt.want {
+				t.Errorf("CountNormalizedMatches(%q, %q) = %d, want %d", tt.content, tt.oldStr, got, tt.want)
+			}
+		})
+	}
+}
+
 // ── ExpandAlternation ─────────────────────────────────────────────────────────
 
 func TestExpandAlternation(t *testing.T) {

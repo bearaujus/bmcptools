@@ -10,7 +10,7 @@
     "params": {}
   },
   "http_request": {
-    "desc": "Make an HTTP request. Returns status code, response body (JSON auto-pretty-printed), and timing. Cross-platform — prefer this over running curl/wget via run_command.",
+    "desc": "Make an HTTP request. Returns status code, response body (JSON auto-pretty-printed), and timing. Response body is capped at 1 MB. Timeout max: 300 s. Cross-platform — prefer this over running curl/wget via run_command.",
     "params": {
       "url": "The full URL to request.",
       "method": "HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS. Default: GET.",
@@ -31,7 +31,17 @@
     }
   },
   "get_system_info": {
-    "desc": "Return system resource snapshot: CPU model, core count, memory usage, and disk usage. Memory values are reported in KB.",
+    "desc": "Return system resource snapshot: CPU model, core count, memory usage, and disk usage.",
     "params": {}
+  },
+  "download_file": {
+    "desc": "Download a file from a URL and save it to a local path. Supports large files with streaming (no memory buffering). Creates parent directories automatically. Returns file size and elapsed time. Prefer this over http_request + write_file for binary or large downloads.",
+    "params": {
+      "url": "The URL to download from",
+      "path": "Local file path to save to. Creates parent directories automatically.",
+      "headers": "Optional request headers as a JSON object, e.g. {\"Authorization\": \"Bearer token\"}.",
+      "timeout_seconds": "Request timeout in seconds. Default: 300, max: 600.",
+      "overwrite": "Overwrite if file already exists. Default: false."
+    }
   }
 }

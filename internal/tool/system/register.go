@@ -67,4 +67,13 @@ func Register(s toolreg.ToolRegistrar) {
 	s.AddTool(mcp.NewTool(toolname.GetSystemInfo,
 		mcp.WithDescription(asset.ToolDesc(toolname.GetSystemInfo)),
 	), getSystemInfoHandler)
+
+	s.AddTool(mcp.NewTool(toolname.DownloadFile,
+		mcp.WithDescription(asset.ToolDesc(toolname.DownloadFile)),
+		mcp.WithString("url", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.DownloadFile, "url"))),
+		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.DownloadFile, "path"))),
+		mcp.WithObject("headers", mcp.Description(asset.ParamDesc(toolname.DownloadFile, "headers"))),
+		mcp.WithNumber("timeout_seconds", mcp.Description(asset.ParamDesc(toolname.DownloadFile, "timeout_seconds"))),
+		mcp.WithBoolean("overwrite", mcp.Description(asset.ParamDesc(toolname.DownloadFile, "overwrite"))),
+	), downloadFileHandler)
 }

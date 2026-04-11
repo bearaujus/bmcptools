@@ -9,14 +9,13 @@ import (
 )
 
 // Register registers all user interaction tools with s.
-// opts can override the default HTML templates for ask_user, open_chat, and rest dialogs.
+// opts can override the default HTML templates for ask_user and rest dialogs.
 func Register(s toolreg.ToolRegistrar, opts ...Option) {
 	cfg := userConfig{}
 	for _, o := range opts {
 		o(&cfg)
 	}
 	dialogHTML := cfg.dialogHTMLSource()
-	chatHTML := cfg.chatHTMLSource()
 	restHTML := cfg.restHTMLSource()
 	s.AddTool(
 		mcp.NewTool(toolname.NotifyUser,
@@ -112,63 +111,6 @@ func Register(s toolreg.ToolRegistrar, opts ...Option) {
 			),
 		),
 		cancelAskUserHandler,
-	)
-
-	s.AddTool(
-		mcp.NewTool(toolname.OpenChat,
-			mcp.WithDescription(asset.ToolDesc(toolname.OpenChat)),
-			mcp.WithString("title",
-				mcp.Description(asset.ParamDesc(toolname.OpenChat, "title")),
-			),
-			mcp.WithString("subtitle",
-				mcp.Description(asset.ParamDesc(toolname.OpenChat, "subtitle")),
-			),
-		),
-		makeOpenChatHandler(chatHTML),
-	)
-
-	s.AddTool(
-		mcp.NewTool(toolname.SendChatMessage,
-			mcp.WithDescription(asset.ToolDesc(toolname.SendChatMessage)),
-			mcp.WithString("chat_id",
-				mcp.Required(),
-				mcp.Description(asset.ParamDesc(toolname.SendChatMessage, "chat_id")),
-			),
-			mcp.WithString("message",
-				mcp.Required(),
-				mcp.Description(asset.ParamDesc(toolname.SendChatMessage, "message")),
-			),
-			mcp.WithArray("suggestions",
-				mcp.Description(asset.ParamDesc(toolname.SendChatMessage, "suggestions")),
-				mcp.Items(map[string]any{"type": "string"}),
-			),
-		),
-		sendChatMessageHandler,
-	)
-
-	s.AddTool(
-		mcp.NewTool(toolname.GetChatMessages,
-			mcp.WithDescription(asset.ToolDesc(toolname.GetChatMessages)),
-			mcp.WithString("chat_id",
-				mcp.Required(),
-				mcp.Description(asset.ParamDesc(toolname.GetChatMessages, "chat_id")),
-			),
-			mcp.WithNumber("wait_seconds",
-				mcp.Description(asset.ParamDesc(toolname.GetChatMessages, "wait_seconds")),
-			),
-		),
-		getChatMessagesHandler,
-	)
-
-	s.AddTool(
-		mcp.NewTool(toolname.CloseChat,
-			mcp.WithDescription(asset.ToolDesc(toolname.CloseChat)),
-			mcp.WithString("chat_id",
-				mcp.Required(),
-				mcp.Description(asset.ParamDesc(toolname.CloseChat, "chat_id")),
-			),
-		),
-		closeChatHandler,
 	)
 
 	s.AddTool(

@@ -7,7 +7,6 @@ import (
 
 type userConfig struct {
 	dialogHTML string
-	chatHTML   string
 	restHTML   string
 }
 
@@ -16,13 +15,6 @@ func (c *userConfig) dialogHTMLSource() string {
 		return c.dialogHTML
 	}
 	return asset.HTML("dialog")
-}
-
-func (c *userConfig) chatHTMLSource() string {
-	if c.chatHTML != "" {
-		return c.chatHTML
-	}
-	return asset.HTML("chat")
 }
 
 func (c *userConfig) restHTMLSource() string {
@@ -39,12 +31,6 @@ type Option func(*userConfig)
 // The template must satisfy the dialog.DialogTemplate contract.
 func WithDialogTemplate(t dialog.DialogTemplate) Option {
 	return func(c *userConfig) { c.dialogHTML = t.HTML() }
-}
-
-// WithChatTemplate overrides the default open_chat HTML.
-// The template must satisfy the dialog.ChatTemplate contract.
-func WithChatTemplate(t dialog.ChatTemplate) Option {
-	return func(c *userConfig) { c.chatHTML = t.HTML() }
 }
 
 // WithRestTemplate overrides the default rest HTML.

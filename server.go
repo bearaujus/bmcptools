@@ -11,13 +11,28 @@ import (
 	"github.com/bearaujus/bmcptools/internal/tool/user"
 	"github.com/bearaujus/bmcptools/pkg/connector"
 	"github.com/bearaujus/bmcptools/pkg/dialog"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // ServerName is the MCP server identifier.
 const ServerName = "bmcptools"
 
-// ServerInstructions is the system-level prompt loaded from the embedded asset.
-var ServerInstructions = asset.ServerInstructions()
+// Version is the bmcptools module version.
+// The standalone binary sets this via cmd/main.go ldflags.
+// Library consumers can read it after import.
+var Version = "dev"
+
+// ServerInstructions returns the full server instructions covering all tool groups.
+func ServerInstructions() string { return asset.ServerInstructions() }
+
+// ServerInstructionsForGroups returns server instructions filtered to only
+// the specified groups. Valid group names: "user", "file", "dir", "search",
+// "exec", "system". The intro section is always included.
+// Passing no groups returns the full instructions (same as ServerInstructions).
+func ServerInstructionsForGroups(groups ...string) string {
+	return asset.ServerInstructionsForGroups(groups...)
+}
 
 // UserOption configures the user interaction tool group (ask_user, open_chat, rest).
 // It is a public alias for the internal option type so external consumers never need
@@ -28,9 +43,6 @@ type UserOption = user.Option
 // Use dialog.NewDialogTemplate to build and validate the template first.
 func UserWithDialogTemplate(t dialog.DialogTemplate) UserOption { return user.WithDialogTemplate(t) }
 
-// UserWithChatTemplate overrides the HTML used for open_chat windows.
-func UserWithChatTemplate(t dialog.ChatTemplate) UserOption { return user.WithChatTemplate(t) }
-
 // UserWithRestTemplate overrides the HTML used for rest pages.
 func UserWithRestTemplate(t dialog.RestTemplate) UserOption { return user.WithRestTemplate(t) }
 
@@ -39,11 +51,38 @@ type Option func(*serverConfig)
 
 type serverConfig struct {
 	userOpts []UserOption
+	exclude  map[string]bool
 }
 
 // WithUserOptions passes options to the user tool group (e.g., custom HTML templates).
 func WithUserOptions(opts ...UserOption) Option {
 	return func(c *serverConfig) { c.userOpts = append(c.userOpts, opts...) }
+}
+
+// WithExcludeTools prevents the listed tools from being registered.
+// Use tool name constants from pkg/toolname (e.g. toolname.CompressFiles).
+func WithExcludeTools(names ...string) Option {
+	return func(c *serverConfig) {
+		if c.exclude == nil {
+			c.exclude = make(map[string]bool)
+		}
+		for _, n := range names {
+			c.exclude[n] = true
+		}
+	}
+}
+
+// filteringRegistrar wraps a ToolRegistrar and silently drops excluded tools.
+type filteringRegistrar struct {
+	inner   ToolRegistrar
+	exclude map[string]bool
+}
+
+func (f *filteringRegistrar) AddTool(tool mcp.Tool, handler server.ToolHandlerFunc) {
+	if f.exclude[tool.Name] {
+		return
+	}
+	f.inner.AddTool(tool, handler)
 }
 
 // Register registers all bmcptools tool groups with s.
@@ -53,13 +92,19 @@ func Register(s ToolRegistrar, opts ...Option) {
 	for _, o := range opts {
 		o(cfg)
 	}
-	user.Register(s, cfg.userOpts...)
-	file.Register(s)
-	dir.Register(s)
-	search.Register(s)
-	exec.Register(s)
-	multi.Register(s)
-	system.Register(s)
+
+	var reg ToolRegistrar = s
+	if len(cfg.exclude) > 0 {
+		reg = &filteringRegistrar{inner: s, exclude: cfg.exclude}
+	}
+
+	user.Register(reg, cfg.userOpts...)
+	file.Register(reg)
+	dir.Register(reg)
+	search.Register(reg)
+	exec.Register(reg)
+	multi.Register(reg)
+	system.Register(reg)
 }
 
 // RegisterFile registers only the file tool group.

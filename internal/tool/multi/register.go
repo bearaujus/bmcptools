@@ -77,4 +77,22 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "show_hidden")),
 		),
 	), findReplaceInFilesHandler)
+
+	s.AddTool(mcp.NewTool(toolname.PathExistsBatch,
+		mcp.WithDescription(asset.ToolDesc(toolname.PathExistsBatch)),
+		mcp.WithArray("paths",
+			mcp.Required(),
+			mcp.Description(asset.ParamDesc(toolname.PathExistsBatch, "paths")),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+	), pathExistsBatchHandler)
+
+	s.AddTool(mcp.NewTool(toolname.GetMultipleFileInfo,
+		mcp.WithDescription(asset.ToolDesc(toolname.GetMultipleFileInfo)),
+		mcp.WithArray("paths",
+			mcp.Required(),
+			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "paths")),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+	), getMultipleFileInfoHandler)
 }

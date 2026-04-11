@@ -10,8 +10,26 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -count=1 ./...
+
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -31,6 +49,9 @@ jobs:
           - goos: windows
             goarch: amd64
             artifact: bmcptools.exe
+          - goos: windows
+            goarch: arm64
+            artifact: bmcptools-win-arm64.exe
 
     steps:
       - uses: actions/checkout@v4
@@ -67,8 +88,9 @@ jobs:
           merge-multiple: true
           path: dist/
 
-      - name: List artifacts
-        run: ls -lh dist/
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > checksums.txt && cat checksums.txt
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

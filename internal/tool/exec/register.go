@@ -57,4 +57,10 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.Description(asset.ParamDesc(toolname.OpenInApp, "app")),
 		),
 	), openInAppHandler)
+
+	s.AddTool(mcp.NewTool(toolname.GetEnv,
+		mcp.WithDescription(asset.ToolDesc(toolname.GetEnv)),
+		mcp.WithString("key", mcp.Description(asset.ParamDesc(toolname.GetEnv, "key"))),
+		mcp.WithString("filter", mcp.Description(asset.ParamDesc(toolname.GetEnv, "filter"))),
+	), getEnvHandler)
 }

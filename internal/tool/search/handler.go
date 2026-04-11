@@ -218,15 +218,15 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	showHidden := req.GetBool("show_hidden", false)
 	multiline := req.GetBool("multiline", false)
 
-	outputMode := req.GetString("output_mode", "content")
+	outputMode := req.GetString("output_mode", "auto")
 	switch outputMode {
-	case "content", "files_with_matches", "count":
+	case "content", "files_with_matches", "count", "auto":
 	default:
-		outputMode = "content"
+		outputMode = "auto"
 	}
 
 	ctxLines := 0
-	if outputMode == "content" {
+	if outputMode == "content" || outputMode == "auto" {
 		if cl := req.GetFloat("context_lines", 0); cl > 0 {
 			ctxLines = int(cl)
 			if ctxLines > 50 {
@@ -364,7 +364,7 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 
 	totalCollected := len(allMatches)
 
-	if outputMode == "content" {
+	if outputMode == "content" || outputMode == "auto" {
 		if offset > 0 {
 			if offset >= len(allMatches) {
 				allMatches = nil
@@ -389,6 +389,42 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	var sb strings.Builder
 
 	switch outputMode {
+	case "auto":
+		if !limited {
+			matchDesc := helper.Pluralize(totalCollected, "match")
+			fmt.Fprintf(&sb, "Found %s for %q (%s):\n\n", matchDesc, pattern, searchCtx)
+			for _, m := range allMatches {
+				for i, cl := range m.context {
+					lineN := m.lineNum - len(m.context) + i
+					fmt.Fprintf(&sb, "%s:%d- %s\n", m.file, lineN, cl)
+				}
+				fmt.Fprintf(&sb, "%s:%d: %s\n", m.file, m.lineNum, m.line)
+				for i, al := range m.after {
+					fmt.Fprintf(&sb, "%s:%d- %s\n", m.file, m.lineNum+i+1, al)
+				}
+				if ctxLines > 0 {
+					fmt.Fprintf(&sb, "---\n")
+				}
+			}
+			sb.WriteString(formatBinarySkippedFooter(binarySkippedPaths))
+		} else {
+			seen := make(map[string]bool)
+			var files []string
+			for _, m := range allMatches {
+				if !seen[m.file] {
+					seen[m.file] = true
+					files = append(files, m.file)
+				}
+			}
+			fmt.Fprintf(&sb, "Found %d+ matches for %q across %s (%s) — showing file list (results were capped).\n"+
+				"Use output_mode:\"content\" to see matching lines, or increase max_results.\n\n",
+				totalCollected, pattern, helper.Pluralize(len(files), "file"), searchCtx)
+			for _, f := range files {
+				fmt.Fprintf(&sb, "  %s\n", f)
+			}
+			sb.WriteString(formatBinarySkippedFooter(binarySkippedPaths))
+		}
+
 	case "files_with_matches":
 		seen := make(map[string]bool)
 		var files []string

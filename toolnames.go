@@ -19,13 +19,18 @@ const (
 	ToolPathExists        = toolname.PathExists
 	ToolDiffFiles         = toolname.DiffFiles
 	ToolCalculateChecksum = toolname.CalculateChecksum
+	ToolCreateSymlink     = toolname.CreateSymlink
+	ToolCompressFiles     = toolname.CompressFiles
+	ToolExtractArchive    = toolname.ExtractArchive
 )
 
 // Multi-file tools.
 const (
-	ToolReadMultipleFiles  = toolname.ReadMultipleFiles
-	ToolWriteMultipleFiles = toolname.WriteMultipleFiles
-	ToolFindReplaceInFiles = toolname.FindReplaceInFiles
+	ToolReadMultipleFiles   = toolname.ReadMultipleFiles
+	ToolWriteMultipleFiles  = toolname.WriteMultipleFiles
+	ToolFindReplaceInFiles  = toolname.FindReplaceInFiles
+	ToolPathExistsBatch     = toolname.PathExistsBatch
+	ToolGetMultipleFileInfo = toolname.GetMultipleFileInfo
 )
 
 // Directory tools.
@@ -41,6 +46,7 @@ const (
 	ToolGetWorkingDirectory = toolname.GetWorkingDirectory
 	ToolRunCommand          = toolname.RunCommand
 	ToolOpenInApp           = toolname.OpenInApp
+	ToolGetEnv              = toolname.GetEnv
 )
 
 // Search tools.
@@ -56,6 +62,7 @@ const (
 	ToolHTTPRequest    = toolname.HTTPRequest
 	ToolListProcesses  = toolname.ListProcesses
 	ToolGetSystemInfo  = toolname.GetSystemInfo
+	ToolDownloadFile   = toolname.DownloadFile
 )
 
 // User interaction tools.
@@ -65,9 +72,5 @@ const (
 	ToolGetUserResponse = toolname.GetUserResponse
 	ToolUpdateDialog    = toolname.UpdateDialog
 	ToolCancelAskUser   = toolname.CancelAskUser
-	ToolOpenChat        = toolname.OpenChat
-	ToolSendChatMessage = toolname.SendChatMessage
-	ToolGetChatMessages = toolname.GetChatMessages
-	ToolCloseChat       = toolname.CloseChat
 	ToolRest            = toolname.Rest
 )

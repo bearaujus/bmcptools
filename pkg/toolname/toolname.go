@@ -15,13 +15,18 @@ const (
 	PathExists        = "path_exists"
 	DiffFiles         = "diff_files"
 	CalculateChecksum = "calculate_checksum"
+	CreateSymlink     = "create_symlink"
+	CompressFiles     = "compress_files"
+	ExtractArchive    = "extract_archive"
 )
 
 // Multi-file tools.
 const (
-	ReadMultipleFiles  = "read_multiple_files"
-	WriteMultipleFiles = "write_multiple_files"
-	FindReplaceInFiles = "find_replace_in_files"
+	ReadMultipleFiles    = "read_multiple_files"
+	WriteMultipleFiles   = "write_multiple_files"
+	FindReplaceInFiles   = "find_replace_in_files"
+	PathExistsBatch      = "path_exists_batch"
+	GetMultipleFileInfo  = "get_multiple_file_info"
 )
 
 // Directory tools.
@@ -37,6 +42,7 @@ const (
 	GetWorkingDirectory = "get_working_directory"
 	RunCommand          = "run_command"
 	OpenInApp           = "open_in_app"
+	GetEnv              = "get_env"
 )
 
 // Search tools.
@@ -52,6 +58,7 @@ const (
 	HTTPRequest    = "http_request"
 	ListProcesses  = "list_processes"
 	GetSystemInfo  = "get_system_info"
+	DownloadFile   = "download_file"
 )
 
 // User interaction tools.
@@ -61,9 +68,5 @@ const (
 	GetUserResponse = "get_user_response"
 	UpdateDialog    = "update_dialog"
 	CancelAskUser   = "cancel_ask_user"
-	OpenChat        = "open_chat"
-	SendChatMessage = "send_chat_message"
-	GetChatMessages = "get_chat_messages"
-	CloseChat       = "close_chat"
 	Rest            = "rest"
 )

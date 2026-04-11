@@ -1,4 +1,12 @@
 /* ── Markdown + syntax-highlight shared styles ── */
+/*
+ * Typography best practices for compact dialog/card UI:
+ *   Body: 14px, line-height 1.5 (Material UI / Tailwind Typography)
+ *   Headings: scaled down from page layouts; 1.25x type scale
+ *   Spacing: 12-16px between blocks; headings get more top than bottom
+ *   Tables: body-size font, 6-8px cell padding, subtle borders
+ *   Code: 13px mono, line-height 1.45 for readability
+ */
 
 /* Code color variables — light theme (GitHub-inspired) */
 :root {
@@ -30,44 +38,80 @@
   }
 }
 
-/* ── Shared .md-body element styles ── */
-.md-body p         { margin: 0 0 8px }
-.md-body p:last-child { margin-bottom: 0 }
-.md-body h1, .md-body h2, .md-body h3 { font-weight:600; line-height:1.3; margin:4px 0 6px }
-.md-body h1 { font-size:16px } .md-body h2 { font-size:15px } .md-body h3 { font-size:14px }
-.md-body ul, .md-body ol { margin:0 0 8px; padding-left:20px }
-.md-body li { margin:2px 0 }
-.md-body strong { font-weight:600 }
-.md-body em { font-style:italic }
-.md-body hr { border:none; border-top:1px solid var(--border, #e5e5ea); margin:10px 0 }
-.md-body a { color:#007aff; text-decoration:none }
-.md-body a:hover { text-decoration:underline }
+/* ── Base typography ── */
+.md-body {
+  font-size: 14px;
+  line-height: 1.5;
+}
 
-/* Blockquotes */
+/* ── Paragraphs ── */
+.md-body p { margin: 0 0 10px }
+.md-body p:last-child { margin-bottom: 0 }
+
+/* ── Headings — 1.25x type scale, em-based vertical rhythm ── */
+.md-body h1, .md-body h2, .md-body h3,
+.md-body h4, .md-body h5, .md-body h6 {
+  font-weight: 600;
+  line-height: 1.25;
+}
+.md-body h1 { font-size: 1.25rem; margin: 1.6em 0 0.5em }
+.md-body h2 { font-size: 1.15rem; margin: 1.4em 0 0.4em }
+.md-body h3 { font-size: 1.05rem; margin: 1.2em 0 0.35em }
+.md-body h4 { font-size: 1rem;    margin: 1.1em 0 0.3em }
+.md-body h5 { font-size: 0.935rem; margin: 1.0em 0 0.25em }
+.md-body h6 { font-size: 0.875rem; margin: 1.0em 0 0.25em; color: var(--code-cmt, #6e7781) }
+.md-body :first-child:is(h1,h2,h3,h4,h5,h6) { margin-top: 0 }
+
+/* ── Lists ── */
+.md-body ul, .md-body ol { margin: 0 0 10px; padding-left: 22px }
+.md-body li { margin: 3px 0 }
+
+/* ── Inline styles ── */
+.md-body strong { font-weight: 600 }
+.md-body em { font-style: italic }
+
+/* ── Horizontal rule ── */
+.md-body hr { border: none; border-top: 1px solid var(--border, #e5e5ea); margin: 14px 0 }
+
+/* ── Links ── */
+.md-body a { color: #007aff; text-decoration: none }
+.md-body a:hover { text-decoration: underline }
+
+/* ── Blockquotes ── */
 .md-body blockquote {
   border-left: 3px solid #007aff;
-  margin: 0 0 8px;
-  padding: 4px 12px;
+  margin: 0 0 10px;
+  padding: 4px 14px;
   color: inherit;
-  opacity: 0.8;
+  opacity: 0.85;
   font-style: italic;
 }
 
-/* Inline code */
+/* ── Inline code ── */
 .md-body code {
   background: var(--code-bg);
   color: var(--code-text);
   border-radius: 4px;
-  padding: 1px 5px;
+  padding: 2px 6px;
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 12px;
+  font-size: 0.85em;
 }
 
-/* Code blocks */
+/* ── Code blocks ── */
+.md-body .code-wrap { position: relative; margin: 0 0 12px }
+.md-body .code-wrap.collapsed pre { max-height: 200px; overflow: hidden }
+.md-body .code-wrap.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 30px; left: 0; right: 0; height: 80px;
+  background: linear-gradient(transparent, var(--code-bg, #f6f8fa));
+  pointer-events: none;
+  border-radius: 0 0 10px 10px;
+}
 .md-body pre {
   background: var(--code-bg);
   border-radius: 10px;
-  margin: 0 0 10px;
+  margin: 0;
   overflow: hidden;
   position: relative;
 }
@@ -77,8 +121,8 @@
   padding: 10px 14px;
   display: block;
   overflow-x: auto;
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.45;
   border-radius: 0;
 }
 
@@ -98,7 +142,41 @@
   line-height: 1.5;
 }
 .md-body .copy-btn:hover { background: var(--code-copy-hover) }
-.md-body .copy-btn.copied { background:#34c759; border-color:#34c759; color:#fff }
+.md-body .copy-btn.copied { background: #34c759; border-color: #34c759; color: #fff }
+
+/* Line numbers */
+.md-body .code-line { display: block; margin: 0; padding: 0 }
+.md-body .line-no {
+  display: inline-block;
+  width: 2.5em;
+  text-align: right;
+  padding-right: 1em;
+  color: var(--code-cmt, #6e7781);
+  opacity: .45;
+  user-select: none;
+  font-size: 0.85em;
+}
+
+/* Expand/collapse button */
+.md-body .expand-btn {
+  display: block;
+  width: 100%;
+  background: var(--code-bg, #f6f8fa);
+  border: none;
+  border-top: 1px solid var(--border, #e5e5ea);
+  color: var(--code-copy-fg, #57606a);
+  font-size: 12px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  padding: 7px 0;
+  cursor: pointer;
+  border-radius: 0 0 10px 10px;
+  transition: background .15s, color .15s;
+  letter-spacing: 0.02em;
+}
+.md-body .expand-btn:hover {
+  background: var(--code-copy-hover, rgba(0,0,0,.06));
+  color: var(--text, #1c1c1e);
+}
 
 /* Syntax token colors */
 .hl-kw   { color: var(--code-kw) }
@@ -106,3 +184,42 @@
 .hl-cmt  { color: var(--code-cmt); font-style: italic }
 .hl-num  { color: var(--code-num) }
 .hl-fn   { color: var(--code-fn) }
+
+/* ── Tables — clean, compact, research-backed UX ── */
+.md-body table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  border: 1px solid var(--border, #e5e5ea);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.md-body th, .md-body td {
+  border: none;
+  border-bottom: 1px solid var(--border, #e5e5ea);
+  padding: 8px 14px;
+  text-align: left;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 13px;
+}
+.md-body thead th {
+  font-weight: 600;
+  color: var(--code-text, #24292f);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--code-bg, #f6f8fa);
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--border, #e5e5ea);
+}
+.md-body tbody tr:nth-child(even) { background: rgba(0,0,0,.02) }
+.md-body tbody tr:last-child td { border-bottom: none }
+.md-body tbody tr:hover { background: rgba(0,122,255,.06) }
+
+@media (prefers-color-scheme: dark) {
+  .md-body tbody tr:nth-child(even) { background: rgba(255,255,255,.03) }
+  .md-body tbody tr:hover { background: rgba(0,122,255,.12) }
+}

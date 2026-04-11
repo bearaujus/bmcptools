@@ -105,27 +105,46 @@ function highlight(raw, lang) {
 // ── Markdown renderer ────────────────────────────────────────────────────────
 
 function mdRender(raw) {
+  var COLLAPSE_LINES = 10; // collapse code blocks taller than this
+
+  // Unescape literal \n and \t from AI runtimes FIRST (before code block extraction)
+  var s = raw.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"');
+
   // Extract fenced code blocks before HTML-escaping so highlighter gets raw code.
   var blocks = [];
-  var s = raw.replace(/```(\w*)\n?([\s\S]*?)```/g, function(_, lang, code) {
-    var h = highlight(code.replace(/\n$/, ''), lang);
+  // Code fences: require ``` at start of a line (^|\n) and a newline after
+  // the opening fence. This prevents inline ``` (e.g. inside table cells)
+  // from being mis-detected as a code block boundary.
+  s = s.replace(/(^|\n)```(\w*)\n([\s\S]*?)```(?=\n|$)/g, function(_, pre, lang, code) {
+    code = code.replace(/\n$/, '');
+    var h = highlight(code, lang);
+    var lines = h.split('\n');
+    var numbered = lines.map(function(line, i) {
+      return '<span class="code-line"><span class="line-no">' + (i+1) + '</span>' + (line || ' ') + '</span>';
+    }).join('');
     var idx = blocks.length;
+    var needsCollapse = lines.length > COLLAPSE_LINES;
+    var wrapClass = 'code-wrap' + (needsCollapse ? ' collapsed' : '');
     blocks.push(
+      '<div class="' + wrapClass + '">' +
       '<pre>' +
       '<button class="copy-btn" onclick="copyCode(this)">Copy</button>' +
-      '<code>' + h + '</code>' +
-      '</pre>'
+      '<code>' + numbered + '</code>' +
+      '</pre>' +
+      (needsCollapse ? '<button class="expand-btn" onclick="toggleCode(this)" data-total="' + lines.length + '" data-hidden="' + (lines.length - COLLAPSE_LINES) + '">▶ Show ' + (lines.length - COLLAPSE_LINES) + ' more lines</button>' : '') +
+      '</div>'
     );
-    return '\x00BLOCK' + idx + '\x00';
+    return pre + '\x00BLOCK' + idx + '\x00';
   });
 
   // Now HTML-escape the rest
   s = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-  // Inline code
+  // Inline code — double-backtick first (allows single ` inside), then single
+  s = s.replace(/``([^`]+)``/g, '<code>$1</code>');
   s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
   // Headings
-  s = s.replace(/^(#{1,3}) (.+)$/gm, function(_, h, t) {
+  s = s.replace(/^(#{1,6}) (.+)$/gm, function(_, h, t) {
     var n = h.length; return '<h'+n+'>'+t+'</h'+n+'>';
   });
   // Horizontal rule
@@ -156,10 +175,56 @@ function mdRender(raw) {
     var inner = b.replace(/^&gt; ?/gm, '').trimRight();
     return '<blockquote>' + inner + '</blockquote>';
   });
+  // Tables — detect header | separator | rows pattern
+  // splitCells handles escaped pipes (\|) so literal | can appear in cell text.
+  function splitCells(row) {
+    var parts = row.replace(/\\\|/g, '\x01').split('|');
+    // Strip the leading/trailing empty parts produced by outer pipes,
+    // but preserve empty cells in the middle of the row.
+    if (parts.length && !parts[0].trim()) parts.shift();
+    if (parts.length && !parts[parts.length-1].trim()) parts.pop();
+    return parts.map(function(c){return c.replace(/\x01/g, '|').trim();});
+  }
+  s = s.replace(/((?:^\|.+\|[ \t]*\n?)+)/gm, function(block) {
+    var rows = block.trim().split('\n');
+    if (rows.length < 2) return block;
+    // Check if second row is a separator (e.g. |---|---|)
+    if (!/^\|[\s:]*-{2,}[\s:]*/.test(rows[1])) return block;
+    // Parse alignment from separator row
+    var seps = rows[1].split('|').filter(function(c){return c.trim();});
+    var aligns = seps.map(function(c){
+      c = c.trim();
+      if (c[0]===':' && c[c.length-1]===':') return 'center';
+      if (c[c.length-1]===':') return 'right';
+      return 'left';
+    });
+    var html = '<table>';
+    // Header
+    var hCells = splitCells(rows[0]);
+    html += '<thead><tr>';
+    hCells.forEach(function(c,i){
+      var a = aligns[i] || 'left';
+      html += '<th style="text-align:'+a+'">'+c+'</th>';
+    });
+    html += '</tr></thead><tbody>';
+    // Body rows (skip header and separator)
+    var colCount = hCells.length;
+    for (var r = 2; r < rows.length; r++) {
+      var cells = splitCells(rows[r]);
+      html += '<tr>';
+      for (var ci = 0; ci < colCount; ci++) {
+        var a = aligns[ci] || 'left';
+        html += '<td style="text-align:'+a+'">'+(cells[ci]||'')+'</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    return html;
+  });
   // Paragraphs
   s = s.split(/\n{2,}/).map(function(p) {
     p = p.trim(); if (!p) return '';
-    if (/^<(h[1-6]|ul|ol|pre|hr|blockquote|\x00BLOCK)/.test(p)) return p;
+    if (/^<(h[1-6]|ul|ol|pre|div|hr|blockquote|table|\x00BLOCK)/.test(p)) return p;
     return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
   }).filter(Boolean).join('\n');
 
@@ -172,7 +237,22 @@ function mdRender(raw) {
 
 function copyCode(btn) {
   var codeEl = btn.nextElementSibling;
-  var text = codeEl ? codeEl.textContent : '';
+  // Extract text without line numbers
+  var lines = codeEl ? codeEl.querySelectorAll('.code-line') : [];
+  var text = '';
+  if (lines.length) {
+    var parts = [];
+    for (var i = 0; i < lines.length; i++) {
+      // Clone, remove line-no span, get remaining text
+      var clone = lines[i].cloneNode(true);
+      var noEl = clone.querySelector('.line-no');
+      if (noEl) noEl.remove();
+      parts.push(clone.textContent);
+    }
+    text = parts.join('\n');
+  } else {
+    text = codeEl ? codeEl.textContent : '';
+  }
   function flash() {
     btn.textContent = 'Copied!';
     btn.classList.add('copied');
@@ -192,7 +272,23 @@ function copyCode(btn) {
   }
 }
 
+// ── Expand/collapse handler ─────────────────────────────────────────────────
+
+function toggleCode(btn) {
+  var wrap = btn.parentElement;
+  var hidden = btn.getAttribute('data-hidden') || '?';
+  if (wrap.classList.contains('collapsed')) {
+    wrap.classList.remove('collapsed');
+    btn.textContent = '▼ Show less';
+  } else {
+    wrap.classList.add('collapsed');
+    btn.textContent = '▶ Show ' + hidden + ' more lines';
+    wrap.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+}
+
 global.mdRender = mdRender;
 global.copyCode = copyCode;
+global.toggleCode = toggleCode;
 
 })(window);

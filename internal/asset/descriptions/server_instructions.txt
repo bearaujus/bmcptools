@@ -1,26 +1,104 @@
+<!-- group:intro -->
 You are connected to bmcptools — your primary toolkit for file operations, shell execution, system tools, and user interaction.
 
 Important: If your environment also exposes tools with the same names (e.g. ask_user, notify_user), always use the bmcptools versions — they are the real implementations that actually reach the user.
 
-RULE: Never ask questions or request confirmations via plain text. Always use ask_user (or open_chat) so the user receives an interactive dialog. Plain-text questions are invisible to the user.
+RULE: Never ask questions or request confirmations via plain text. Always use ask_user so the user receives an interactive dialog. Plain-text questions are invisible to the user.
 
-User interaction:
-- ask_user: Open a dialog; returns a token immediately. Then call get_user_response(token=…) in a loop — each call long-polls up to 55 s and returns PENDING until answered. Keep looping indefinitely; the user may take a long time. Always populate the details param with your current reasoning and context — never send a bare question. While waiting, you may do other work (file reads, analysis) then resume polling.
+─── Getting started ───────────────────────────────────────────────────────────
+
+1. Call get_working_directory first to learn the OS, hostname, and current path.
+2. Use list_directory or directory_tree to explore the project structure.
+3. Use grep_files (content search) or search_files (filename search) to find what you need.
+4. Read files with read_file (single) or read_multiple_files (batch — more efficient for 2+ files).
+5. Edit with edit_file (surgical find-and-replace, preferred) or write_file (full overwrite).
+
+<!-- group:user -->
+─── User interaction ──────────────────────────────────────────────────────────
+
+All text parameters (question, details, message, notes) support full markdown rendering:
+headings, bold, italic, inline code, fenced code blocks with syntax highlighting,
+lists, tables, blockquotes, links, horizontal rules.
+
+- ask_user: Open a dialog; returns a JSON object with "status", "token", and "instructions" fields. Then call get_user_response(token=…) in a loop — each call long-polls up to 55 s and returns PENDING until answered. Keep looping indefinitely; the user may take a long time. Always populate the details param with your current reasoning and context — never send a bare question. While waiting, you may do other work (file reads, analysis) then resume polling.
 - get_user_response: Long-polls for an ask_user or rest response. Each call blocks up to wait_seconds (default 55 s) then returns PENDING if unanswered. If it returns a timeout/error (not PENDING and not a user answer), re-ask or proceed with a safe default.
-- update_dialog: Push a live progress update into an open ask_user dialog while waiting for the user's reply — use this to share intermediate findings or progress without requiring a new question.
-- open_chat: Persistent two-way chat window. Workflow: open_chat → send messages with send_chat_message → poll replies with get_chat_messages → close_chat when done.
-- notify_user: Fire-and-forget toast notification. Use for background progress updates that don't require a reply. Does not block.
+- update_dialog: Push a live progress update (rendered as markdown) into an open ask_user dialog while waiting for the user's reply — use this to share intermediate findings or progress without requiring a new question.
+- notify_user: Fire-and-forget toast notification. Use for background progress updates that don't require a reply. Does not block. Works on all platforms (macOS, Windows, Linux).
 - cancel_ask_user: Dismiss a pending ask_user dialog when the question is no longer relevant (e.g. you already have the answer).
-- rest: Go idle while the user reviews. ALWAYS call this (never quit) when user says "take a rest / wait / stand by / I'll review". Workflow: call rest() → find "Token: <value>" in the response text (plain text, not JSON) → loop get_user_response(token=…) indefinitely until non-PENDING answer.
+- rest: Go idle while the user reviews. ALWAYS call this (never quit) when user says "take a rest / wait / stand by / I'll review". Workflow: call rest() → parse the JSON response to extract the "token" field → loop get_user_response(token=…) indefinitely until non-PENDING answer.
 
-File: read_file, write_file, append_to_file, edit_file (prefer batch mode for multiple changes), delete_file, copy_file, move_file, get_file_info (includes line count), path_exists (lightweight), diff_files, calculate_checksum
+When to use which:
+  ask_user    → single question needing a reply (short interaction)
+  notify_user → progress update, no reply needed (fire-and-forget)
 
-Multi-file: read_multiple_files, write_multiple_files, find_replace_in_files
+Platform note: ask_user, rest, and update_dialog require macOS or Windows (they open a browser dialog). On Linux, notify_user still works (via notify-send). For questions on Linux, use your standard text output.
 
-Directory: list_directory, create_directory, delete_directory, directory_tree
+<!-- group:file -->
+─── File operations ───────────────────────────────────────────────────────────
 
-Search: search_files (by name/glob), grep_files (by content)
+read_file           — single file; supports line ranges (start_line/end_line), multi-range (ranges param), head/tail, line numbers
+read_multiple_files — batch read 2+ files in one call (more efficient)
+write_file          — create or overwrite; returns diff of changes
+write_multiple_files— batch write 2+ files in one call (show_diff defaults to false for performance)
+append_to_file      — append content without overwriting
+edit_file           — surgical find-and-replace (preferred for edits); supports batch mode for multiple edits in one call; returns unified diff; has near-miss probe to help refine patterns when not found
+find_replace_in_files — find-and-replace across multiple files at once; supports regex and glob filtering; use dry_run to preview
+delete_file, copy_file, move_file — self-explanatory
+get_file_info       — metadata + line count (useful before using line ranges)
+path_exists         — lightweight existence check (faster than read_file)
+diff_files          — unified diff between two files
+calculate_checksum  — MD5/SHA1/SHA256
+create_symlink      — create a symbolic link (may need elevated privileges on Windows)
+compress_files      — compress files/dirs into zip or tar.gz; auto-detects format from extension
+extract_archive     — extract zip or tar.gz archive; path-traversal protected
 
-Shell: get_working_directory (call first to orient), run_command, open_in_app
+Performance tips:
+  • Use read_multiple_files when reading 2+ files — single round-trip
+  • Use edit_file batch mode (edits array) for multiple changes to the same file
+  • Use path_exists (single) or path_exists_batch (multiple) before read/write to branch on existence — faster than get_file_info
+  • Use get_multiple_file_info for batch metadata lookups (more efficient than repeated get_file_info)
+  • edit_file has a near-miss probe: if your pattern isn't found, it shows surrounding context to help you refine it
+  • Use find_replace_in_files with dry_run=true to preview changes across a project before applying
 
-System: http_request, clipboard_read, clipboard_write, list_processes, get_system_info
+<!-- group:dir -->
+─── Directory operations ──────────────────────────────────────────────────────
+
+list_directory — contents with sizes and timestamps; supports recursion and glob filtering
+directory_tree — visual tree view with sizes; better for understanding project structure
+create_directory, delete_directory — self-explanatory
+
+When to use which:
+  list_directory → detailed file listing (sizes, dates, one level)
+  directory_tree → project structure overview (visual tree, multi-level)
+
+<!-- group:search -->
+─── Search ────────────────────────────────────────────────────────────────────
+
+search_files — find files/dirs by NAME (glob patterns: *.go, **/*.json)
+grep_files   — find files by CONTENT (literal text or regex with use_regex=true)
+
+When to use which:
+  search_files → "find all .go files", "find files named config*"
+  grep_files   → "find files containing TODO", "find function definitions"
+
+grep_files notes:
+  • Patterns are literal by default. Set use_regex=true for |, ., *, +, ^, $, [], etc.
+  • output_mode "auto" (default) shows matching lines when results fit within max_results (default 50); switches to file-path list when results are capped. Use "content" to force matching lines.
+
+<!-- group:exec -->
+─── Shell ─────────────────────────────────────────────────────────────────────
+
+get_working_directory — OS, hostname, cwd (call first to orient)
+run_command           — execute shell commands (sh -c on Unix, cmd /C on Windows); use max_output_bytes to cap large output
+open_in_app           — open file/URL in default app
+
+<!-- group:system -->
+─── System ────────────────────────────────────────────────────────────────────
+
+http_request    — HTTP client (GET/POST/PUT/PATCH/DELETE); response capped at 1 MB; timeout max 300 s
+clipboard_read  — read system clipboard
+clipboard_write — write to system clipboard
+list_processes  — running processes with CPU/memory
+get_system_info — CPU, memory, disk snapshot
+get_env         — read environment variables; specific key, filter by name, or list all
+download_file   — download a URL to a local file with streaming; prefer over http_request + write_file for binary/large files

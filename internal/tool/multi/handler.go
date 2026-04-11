@@ -276,3 +276,94 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 
 	return mcp.NewToolResultText(sb.String()), nil
 }
+
+func pathExistsBatchHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	paths := req.GetStringSlice("paths", nil)
+	if len(paths) == 0 {
+		return mcp.NewToolResultError("paths is required (array of file/directory paths)"), nil
+	}
+
+	var sb strings.Builder
+	for i, p := range paths {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		info, err := os.Lstat(p)
+		if err != nil {
+			fmt.Fprintf(&sb, "%s: false", p)
+			continue
+		}
+		kind := "file"
+		if info.IsDir() {
+			kind = "directory"
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			kind = "symlink"
+		}
+		fmt.Fprintf(&sb, "%s: %s (%s)", p, kind, helper.HumanizeBytes(info.Size()))
+	}
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	paths := req.GetStringSlice("paths", nil)
+	if len(paths) == 0 {
+		return mcp.NewToolResultError("paths is required (array of file/directory paths)"), nil
+	}
+
+	var sb strings.Builder
+	for i, p := range paths {
+		if i > 0 {
+			sb.WriteString("\n\n")
+		}
+
+		linfo, err := os.Lstat(p)
+		if err != nil {
+			fmt.Fprintf(&sb, "Path:        %s\n[ERROR] %v", p, err)
+			continue
+		}
+
+		kind := "file"
+		if linfo.IsDir() {
+			kind = "directory"
+		}
+		if linfo.Mode()&os.ModeSymlink != 0 {
+			kind = "symlink"
+		}
+
+		abs, _ := filepath.Abs(p)
+		fmt.Fprintf(&sb,
+			"Path:        %s\n"+
+				"Type:        %s\n"+
+				"Size:        %s\n"+
+				"Mode:        %s\n"+
+				"Modified:    %s\n"+
+				"Absolute:    %s",
+			p,
+			kind,
+			helper.HumanizeBytes(linfo.Size()),
+			linfo.Mode().String(),
+			linfo.ModTime().Format("2006-01-02 15:04:05 MST"),
+			abs,
+		)
+
+		if linfo.Mode()&os.ModeSymlink != 0 {
+			if target, linkErr := os.Readlink(p); linkErr == nil {
+				fmt.Fprintf(&sb, "\nSymlink →    %s", target)
+			}
+		}
+
+		if !linfo.IsDir() {
+			if f, _, _, binary, sniffErr := helper.SniffAndOpen(p); sniffErr == nil {
+				if !binary {
+					if n, countErr := helper.CountLines(f); countErr == nil {
+						fmt.Fprintf(&sb, "\nLines:       %s", helper.Pluralize(n, "line"))
+					}
+				}
+				f.Close()
+			}
+		}
+	}
+
+	return mcp.NewToolResultText(sb.String()), nil
+}

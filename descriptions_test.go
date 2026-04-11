@@ -1,6 +1,7 @@
 package bmcptools
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/bearaujus/bmcptools/internal/asset"
@@ -28,5 +29,45 @@ func TestDescriptionsCoverage(t *testing.T) {
 		if asset.ToolDesc(name) == "" {
 			t.Errorf("tool %q is registered but has no description entry in internal/asset/descriptions/*.json", name)
 		}
+	}
+}
+
+// TestWithExcludeTools verifies that excluded tools are not registered.
+func TestWithExcludeTools(t *testing.T) {
+	all := &collectingRegistrar{}
+	Register(all)
+	totalCount := len(all.names)
+
+	excluded := &collectingRegistrar{}
+	Register(excluded, WithExcludeTools("read_file", "write_file"))
+
+	if len(excluded.names) != totalCount-2 {
+		t.Errorf("expected %d tools after excluding 2, got %d", totalCount-2, len(excluded.names))
+	}
+	for _, name := range excluded.names {
+		if name == "read_file" || name == "write_file" {
+			t.Errorf("excluded tool %q was registered", name)
+		}
+	}
+}
+
+// TestServerInstructionsForGroups verifies scoped instructions contain only requested groups.
+func TestServerInstructionsForGroups(t *testing.T) {
+	full := asset.ServerInstructions()
+	if full == "" {
+		t.Fatal("full instructions are empty")
+	}
+
+	fileOnly := asset.ServerInstructionsForGroups("file")
+	if !strings.Contains(fileOnly, "File operations") {
+		t.Error("file-group instructions should contain 'File operations'")
+	}
+	if strings.Contains(fileOnly, "User interaction") {
+		t.Error("file-group instructions should NOT contain 'User interaction'")
+	}
+
+	noGroups := asset.ServerInstructionsForGroups()
+	if noGroups == "" {
+		t.Error("passing no groups should return full instructions")
 	}
 }

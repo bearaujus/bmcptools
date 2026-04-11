@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -547,5 +549,134 @@ func TestHTTPRequestServerError4xxIsTextResult(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "404") {
 		t.Errorf("expected 404 in output: %q", text)
+	}
+}
+
+// ── download_file ─────────────────────────────────────────────────────────────
+
+func TestDownloadFileSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "file content here")
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "downloaded.txt")
+	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
+		"url":  srv.URL,
+		"path": dest,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Downloaded") {
+		t.Errorf("expected 'Downloaded' in output: %q", text)
+	}
+
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("failed to read downloaded file: %v", err)
+	}
+	if string(data) != "file content here" {
+		t.Errorf("expected 'file content here', got: %q", string(data))
+	}
+}
+
+func TestDownloadFileOverwriteProtection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "new content")
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "existing.txt")
+	if err := os.WriteFile(dest, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
+		"url":  srv.URL,
+		"path": dest,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for existing file without overwrite=true")
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "already exists") {
+		t.Errorf("expected 'already exists' in error: %q", text)
+	}
+}
+
+func TestDownloadFileOverwriteAllowed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "replaced content")
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "existing.txt")
+	if err := os.WriteFile(dest, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
+		"url":       srv.URL,
+		"path":      dest,
+		"overwrite": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "replaced content" {
+		t.Errorf("expected 'replaced content', got: %q", string(data))
+	}
+}
+
+func TestDownloadFileInvalidURL(t *testing.T) {
+	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
+		"url":  "http://invalid.invalid.invalid:99999/no",
+		"path": filepath.Join(t.TempDir(), "out.txt"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for invalid URL")
+	}
+}
+
+func TestDownloadFileMissingURL(t *testing.T) {
+	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
+		"path": filepath.Join(t.TempDir(), "out.txt"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for missing URL")
+	}
+}
+
+func TestDownloadFileMissingPath(t *testing.T) {
+	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
+		"url": "http://example.com/file",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for missing path")
 	}
 }

@@ -19,6 +19,13 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithNumber("head", mcp.Description(asset.ParamDesc(toolname.ReadFile, "head"))),
 		mcp.WithNumber("tail", mcp.Description(asset.ParamDesc(toolname.ReadFile, "tail"))),
 		mcp.WithBoolean("show_line_numbers", mcp.Description(asset.ParamDesc(toolname.ReadFile, "show_line_numbers"))),
+		mcp.WithArray("ranges",
+			mcp.Description(asset.ParamDesc(toolname.ReadFile, "ranges")),
+			mcp.Items(map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "number"},
+			}),
+		),
 	), readFileHandler)
 
 	s.AddTool(mcp.NewTool(toolname.WriteFile,
@@ -106,4 +113,28 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.Description(asset.ParamDesc(toolname.CalculateChecksum, "algorithm")),
 		),
 	), calculateChecksumHandler)
+
+	s.AddTool(mcp.NewTool(toolname.CreateSymlink,
+		mcp.WithDescription(asset.ToolDesc(toolname.CreateSymlink)),
+		mcp.WithString("source", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.CreateSymlink, "source"))),
+		mcp.WithString("link", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.CreateSymlink, "link"))),
+	), createSymlinkHandler)
+
+	s.AddTool(mcp.NewTool(toolname.CompressFiles,
+		mcp.WithDescription(asset.ToolDesc(toolname.CompressFiles)),
+		mcp.WithArray("paths",
+			mcp.Required(),
+			mcp.Description(asset.ParamDesc(toolname.CompressFiles, "paths")),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithString("output", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.CompressFiles, "output"))),
+		mcp.WithString("format", mcp.Description(asset.ParamDesc(toolname.CompressFiles, "format"))),
+	), compressFilesHandler)
+
+	s.AddTool(mcp.NewTool(toolname.ExtractArchive,
+		mcp.WithDescription(asset.ToolDesc(toolname.ExtractArchive)),
+		mcp.WithString("archive", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.ExtractArchive, "archive"))),
+		mcp.WithString("output", mcp.Description(asset.ParamDesc(toolname.ExtractArchive, "output"))),
+		mcp.WithString("format", mcp.Description(asset.ParamDesc(toolname.ExtractArchive, "format"))),
+	), extractArchiveHandler)
 }

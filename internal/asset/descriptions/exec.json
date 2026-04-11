@@ -4,7 +4,7 @@
     "params": {}
   },
   "run_command": {
-    "desc": "Execute a shell command and return combined stdout+stderr. Timeout default: 60 s, max: 600 s.",
+    "desc": "Execute a shell command and return combined stdout+stderr. Runs via sh -c on Unix, cmd /C on Windows. Timeout default: 60 s, max: 600 s. Use max_output_bytes to cap large output and avoid flooding the context.",
     "params": {
       "command": "Command to run (via sh -c on Unix, cmd /C on Windows)",
       "cwd": "Working directory. Defaults to server's working directory.",
@@ -22,6 +22,13 @@
     "params": {
       "target": "File path, directory path, or URL to open",
       "app": "Specific application to use (macOS only)."
+    }
+  },
+  "get_env": {
+    "desc": "Read environment variables. Without arguments, returns all environment variables. With a key, returns that specific variable's value. With a filter, returns all variables whose names contain the filter string (case-insensitive).",
+    "params": {
+      "key": "Exact environment variable name to read. Returns just its value.",
+      "filter": "Case-insensitive substring to filter variable names. Returns all matching KEY=value pairs."
     }
   }
 }

@@ -203,6 +203,7 @@ func updateDialogHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError("token is required"), nil
 	}
 	message := req.GetString("message", "")
+
 	if strings.TrimSpace(message) == "" {
 		return mcp.NewToolResultError("message is required"), nil
 	}

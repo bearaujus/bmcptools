@@ -11,7 +11,7 @@
     "params": {
       "files": "Array of {\"path\": \"...\", \"content\": \"...\"} objects to write",
       "create_dirs": "Create missing parent directories. Default: true",
-      "show_diff": "When true, include a per-file unified diff of what changed for files that were overwritten. Default: false."
+      "show_diff": "When true, include a per-file unified diff of what changed for files that were overwritten. Default: false (unlike write_file which defaults to true — disabled here to reduce output when writing many files)."
     }
   },
   "find_replace_in_files": {
@@ -26,6 +26,18 @@
       "dry_run": "Preview matches without writing. Default: false",
       "show_diff": "Include a unified diff for each changed file. Default: true",
       "show_hidden": "Include hidden files and directories. Default: false"
+    }
+  },
+  "path_exists_batch": {
+    "desc": "Check whether multiple paths exist in a single call. Returns each path's existence, type (file/directory/symlink), and size. More efficient than calling path_exists repeatedly.",
+    "params": {
+      "paths": "Array of file/directory paths to check"
+    }
+  },
+  "get_multiple_file_info": {
+    "desc": "Return metadata for multiple files/directories in a single call. Each entry includes type, size, modification time, permissions, symlink target, and line count for text files. More efficient than calling get_file_info repeatedly.",
+    "params": {
+      "paths": "Array of file/directory paths to inspect"
     }
   }
 }

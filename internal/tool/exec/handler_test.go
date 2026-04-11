@@ -418,3 +418,89 @@ func TestGetWorkingDirectoryContainsPath(t *testing.T) {
 		t.Errorf("expected 'PATH' in get_working_directory output: %q", text)
 	}
 }
+
+// ── get_env ──────────────────────────────────────────────────────────────────
+
+func TestGetEnvSpecificKey(t *testing.T) {
+	t.Setenv("BMCPTOOLS_TEST_KEY", "test_value_123")
+	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
+		"key": "BMCPTOOLS_TEST_KEY",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "BMCPTOOLS_TEST_KEY=test_value_123") {
+		t.Errorf("expected key=value in output: %q", text)
+	}
+}
+
+func TestGetEnvNonExistentKey(t *testing.T) {
+	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
+		"key": "BMCPTOOLS_DEFINITELY_DOES_NOT_EXIST_XYZ",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "is not set") {
+		t.Errorf("expected 'is not set' in output: %q", text)
+	}
+}
+
+func TestGetEnvFilter(t *testing.T) {
+	t.Setenv("BMCPTOOLS_FILTER_AAA", "val1")
+	t.Setenv("BMCPTOOLS_FILTER_BBB", "val2")
+	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
+		"filter": "BMCPTOOLS_FILTER",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "BMCPTOOLS_FILTER_AAA=val1") {
+		t.Errorf("expected BMCPTOOLS_FILTER_AAA in output: %q", text)
+	}
+	if !strings.Contains(text, "BMCPTOOLS_FILTER_BBB=val2") {
+		t.Errorf("expected BMCPTOOLS_FILTER_BBB in output: %q", text)
+	}
+}
+
+func TestGetEnvFilterNoMatch(t *testing.T) {
+	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
+		"filter": "ZZZZNOTEXIST999",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "No environment variables matching") {
+		t.Errorf("expected 'No environment variables matching' in output: %q", text)
+	}
+}
+
+func TestGetEnvAll(t *testing.T) {
+	result, err := getEnvHandler(nil, newTestRequest(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "=") {
+		t.Errorf("expected KEY=VALUE pairs in output: %q", text)
+	}
+}

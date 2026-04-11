@@ -1,6 +1,6 @@
 {
   "list_directory": {
-    "desc": "List directory contents with sizes and modification times. Supports recursion and glob filtering.",
+    "desc": "List directory contents with sizes and modification times. Best for detailed file listings. Supports recursion and glob filtering. For a visual project structure overview, use directory_tree instead.",
     "params": {
       "path": "Directory to list. Defaults to the server's current working directory.",
       "show_hidden": "Include hidden entries (names starting with '.'). Default: false",
@@ -24,7 +24,7 @@
     }
   },
   "directory_tree": {
-    "desc": "Show a recursive visual tree of files and directories with sizes.",
+    "desc": "Show a recursive visual tree of files and directories with sizes. Best for understanding project structure at a glance. For detailed file listings with timestamps, use list_directory instead.",
     "params": {
       "path": "Root directory to display",
       "max_depth": "Maximum recursion depth. Default: 3",

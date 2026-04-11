@@ -132,8 +132,8 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 				case <-ctx.Done():
 					return
 				case msg := <-ch:
-					escaped := strings.ReplaceAll(msg, "\n", "\\n")
-					fmt.Fprintf(w, "data: %s\n\n", escaped)
+					jsonMsg, _ := json.Marshal(msg)
+					fmt.Fprintf(w, "data: %s\n\n", string(jsonMsg))
 					flusher.Flush()
 				case <-time.After(25 * time.Second):
 					fmt.Fprintf(w, ": keepalive\n\n")
@@ -173,13 +173,14 @@ func chipHTML(c string) string {
 	return strings.ReplaceAll(html.EscapeString(c), "\n", "<br>")
 }
 
+
 // buildDialogHTML renders the ask_user dialog HTML template.
 // htmlSource is the base template (default or custom override).
 func buildDialogHTML(htmlSource, question, details, title, subtitle string, allowFreeform bool, choices []string, timeoutSec int) string {
 	chipsSection := ""
 	if len(choices) > 0 {
 		var sb strings.Builder
-		sb.WriteString(`<div class="suggested-label">Suggested replies</div><div class="chips-row">`)
+		sb.WriteString(`<div class="chips-card"><div class="suggested-label">Suggested replies</div><div class="chips-row">`)
 		for i, c := range choices {
 			jC, _ := json.Marshal(c)
 			sb.WriteString(fmt.Sprintf(
@@ -187,7 +188,7 @@ func buildDialogHTML(htmlSource, question, details, title, subtitle string, allo
 				i, html.EscapeString(string(jC)), i, chipHTML(c),
 			))
 		}
-		sb.WriteString(`</div>`)
+		sb.WriteString(`</div></div>`)
 		chipsSection = sb.String()
 	}
 
@@ -196,10 +197,17 @@ func buildDialogHTML(htmlSource, question, details, title, subtitle string, allo
 		allowFreeformVal = "false"
 	}
 
+
 	detailsSection := ""
+	detailsJSON := "null"
 	if strings.TrimSpace(details) != "" {
-		detailsSection = `<div class="details-body md-body">` + html.EscapeString(details) + `</div>`
+		detailsSection = `<div class="details-card"><div class="details-body md-body" id="detailsBody"></div></div>`
+		detailsJSONBytes, _ := json.Marshal(details)
+		detailsJSON = string(detailsJSONBytes)
 	}
+
+	questionJSONBytes, _ := json.Marshal(question)
+	questionJSON := string(questionJSONBytes)
 
 	mdCSS := asset.CSS("md")
 	mdJS := asset.JS("md")
@@ -207,20 +215,12 @@ func buildDialogHTML(htmlSource, question, details, title, subtitle string, allo
 	page := strings.ReplaceAll(htmlSource, "[[TITLE]]", html.EscapeString(title))
 	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
 	page = strings.ReplaceAll(page, "[[QUESTION]]", html.EscapeString(question))
+	page = strings.ReplaceAll(page, "[[QUESTION_JSON]]", questionJSON)
 	page = strings.ReplaceAll(page, "[[DETAILS_SECTION]]", detailsSection)
+	page = strings.ReplaceAll(page, "[[DETAILS_JSON]]", detailsJSON)
 	page = strings.ReplaceAll(page, "[[CHIPS_SECTION]]", chipsSection)
 	page = strings.ReplaceAll(page, "[[TIMEOUT_SEC]]", fmt.Sprintf("%d", timeoutSec))
 	page = strings.ReplaceAll(page, "[[ALLOW_FREEFORM]]", allowFreeformVal)
-	page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+mdCSS+"\n</style>")
-	page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+mdJS+"\n</script>")
-	return page
-}
-
-func buildChatHTML(htmlSource, title, subtitle string) string {
-	mdCSS := asset.CSS("md")
-	mdJS := asset.JS("md")
-	page := strings.ReplaceAll(htmlSource, "[[TITLE]]", html.EscapeString(title))
-	page = strings.ReplaceAll(page, "[[SUBTITLE]]", html.EscapeString(subtitle))
 	page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+mdCSS+"\n</style>")
 	page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+mdJS+"\n</script>")
 	return page
@@ -327,9 +327,11 @@ func makeRestHandler(htmlSource string) func(context.Context, mcp.CallToolReques
 		openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
 
 		return mcp.NewToolResultText(
-			"AI is now resting. Browser page opened for the user.\n" +
-				"Token: " + token + "\n" +
-				"Call get_user_response(token=\"" + token + "\") to wait for the user to wake you up.",
+			"{\n" +
+				"  \"status\": \"RESTING\",\n" +
+				"  \"token\": \"" + token + "\",\n" +
+				"  \"instructions\": \"AI is now resting. Browser page opened for the user. Call get_user_response(token=\\\"" + token + "\\\") to wait for the user to wake you up.\"\n" +
+				"}",
 		), nil
 	}
 }

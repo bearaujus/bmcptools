@@ -8,11 +8,12 @@
       "max_bytes": "Maximum bytes to return (default 10485760 = 10 MB).",
       "head": "Return only the first N lines.",
       "tail": "Return only the last N lines.",
-      "show_line_numbers": "Prefix every line with its line number. Default: false"
+      "show_line_numbers": "Prefix every line with its line number. Default: false",
+      "ranges": "Array of [start_line, end_line] pairs to read multiple non-contiguous line ranges in one call (e.g. [[1,10],[50,60]]). Supersedes start_line/end_line. Ranges are read in a single pass for efficiency."
     }
   },
   "write_file": {
-    "desc": "Write content to a file, creating or overwriting it. Creates parent dirs automatically. Set show_diff=true to get a unified diff of what changed.",
+    "desc": "Write content to a file, creating or overwriting it. Creates parent dirs automatically. Returns a unified diff when overwriting (show_diff defaults to true for existing files, false for new files).",
     "params": {
       "path": "Path to the file",
       "content": "Content to write",
@@ -28,7 +29,7 @@
     }
   },
   "edit_file": {
-    "desc": "Find-and-replace text in a file. Two modes: single edit (old_str + new_str) or batch edits array. Prefer batch mode when making multiple changes to the same file — more efficient than repeated single-edit calls. Supports Go regex with $1,$2 back-references. Returns a unified diff. Transparently handles CRLF (\\r\\n) files — patterns with LF-only (\\n) match correctly, and the original line endings are preserved after editing. If old_str matches multiple locations and replace_all is false, only the first occurrence is replaced and a warning is included — use replace_all=true or add more context to old_str. When a pattern is not found, the first line of old_str is searched as a near-miss probe — if found, surrounding context lines are shown to help refine the pattern; if not found at all, only the error message is returned.",
+    "desc": "Surgical find-and-replace in a file. Two modes: single edit (old_str + new_str) or batch edits array — prefer batch for multiple changes to the same file. Returns a unified diff. Supports Go regex with $1,$2 back-references. Handles CRLF transparently — LF-only patterns match CRLF files and line endings are preserved. If old_str matches multiple locations, only the first is replaced (use replace_all=true or add more context). If pattern is not found, a near-miss probe shows surrounding context to help refine.",
     "params": {
       "path": "Path to the file",
       "old_str": "Text (or regex) to find — single-edit mode",
@@ -87,6 +88,29 @@
     "params": {
       "paths": "File paths to checksum",
       "algorithm": "Hash algorithm: \"md5\", \"sha1\", or \"sha256\". Default: \"sha256\""
+    }
+  },
+  "create_symlink": {
+    "desc": "Create a symbolic link. Cross-platform. On Windows, creating symlinks may require elevated privileges or Developer Mode enabled.",
+    "params": {
+      "source": "The path that the symlink points to (the target file or directory)",
+      "link": "The path of the symlink to create"
+    }
+  },
+  "compress_files": {
+    "desc": "Compress files or directories into an archive. Supports zip and tar.gz formats. Auto-detects format from output file extension.",
+    "params": {
+      "paths": "Array of file/directory paths to include in the archive",
+      "output": "Output archive path (e.g. backup.zip, archive.tar.gz)",
+      "format": "Archive format: \"zip\" or \"tar.gz\". Default: auto-detected from output extension."
+    }
+  },
+  "extract_archive": {
+    "desc": "Extract a zip or tar.gz archive to a directory. Auto-detects format from file extension.",
+    "params": {
+      "archive": "Path to the archive file (zip or tar.gz)",
+      "output": "Directory to extract into. Default: current working directory.",
+      "format": "Archive format: \"zip\" or \"tar.gz\". Default: auto-detected from archive extension."
     }
   }
 }

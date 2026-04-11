@@ -1,12 +1,16 @@
 package file
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bufio"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -49,6 +53,13 @@ func readFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return mcp.NewToolResultText(text), nil
+	}
+
+	// Handle multi-range reads.
+	if rawRanges, ok := req.GetArguments()["ranges"]; ok && rawRanges != nil {
+		if rangeSlice, ok := rawRanges.([]any); ok && len(rangeSlice) > 0 {
+			return readFileMultiRange(f, info, rangeSlice, limitBytes, showLineNums)
+		}
 	}
 
 	if headN > 0 {
@@ -199,6 +210,97 @@ func readFileLineRange(f *os.File, info os.FileInfo, startLine, endLine, totalLi
 		header = fmt.Sprintf("[%s \u2014 lines %d..%d]\n", info.Name(), firstKept, lastKept)
 	}
 	return mcp.NewToolResultText(header + sb.String()), nil
+}
+
+// readFileMultiRange reads multiple non-contiguous line ranges in a single pass.
+func readFileMultiRange(f *os.File, info os.FileInfo, rawRanges []any, limit int, showLineNums bool) (*mcp.CallToolResult, error) {
+	type lineRange struct {
+		start, end int
+	}
+	var ranges []lineRange
+	for _, r := range rawRanges {
+		pair, ok := r.([]any)
+		if !ok || len(pair) < 2 {
+			return mcp.NewToolResultError("each range must be a [start_line, end_line] pair"), nil
+		}
+		s, ok1 := toInt(pair[0])
+		e, ok2 := toInt(pair[1])
+		if !ok1 || !ok2 || s < 1 {
+			return mcp.NewToolResultError("range values must be positive integers"), nil
+		}
+		ranges = append(ranges, lineRange{start: s, end: e})
+	}
+	sort.Slice(ranges, func(i, j int) bool { return ranges[i].start < ranges[j].start })
+
+	scanner := bufio.NewScanner(f)
+	scanBuf := make([]byte, 64*1024)
+	scanner.Buffer(scanBuf, limit)
+
+	var sb strings.Builder
+	lineNum := 0
+	rangeIdx := 0
+	firstInRange := true
+
+	for scanner.Scan() {
+		lineNum++
+		if rangeIdx >= len(ranges) {
+			break
+		}
+		rng := ranges[rangeIdx]
+		if lineNum < rng.start {
+			continue
+		}
+		if rng.end > 0 && lineNum > rng.end {
+			rangeIdx++
+			firstInRange = true
+			if rangeIdx >= len(ranges) {
+				break
+			}
+			rng = ranges[rangeIdx]
+			if lineNum < rng.start {
+				continue
+			}
+		}
+		if firstInRange {
+			if rangeIdx > 0 {
+				sb.WriteString("\n")
+			}
+			endStr := "EOF"
+			if rng.end > 0 {
+				endStr = fmt.Sprintf("%d", rng.end)
+			}
+			fmt.Fprintf(&sb, "--- Lines %d–%s ---\n", rng.start, endStr)
+			firstInRange = false
+		}
+		if showLineNums {
+			fmt.Fprintf(&sb, "%6d|%s\n", lineNum, scanner.Text())
+		} else {
+			sb.WriteString(scanner.Text())
+			sb.WriteByte('\n')
+		}
+		if sb.Len() >= limit {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("read error: %v", err)), nil
+	}
+	if sb.Len() == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("[%s] No lines found in specified ranges", info.Name())), nil
+	}
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func toInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	}
+	return 0, false
 }
 
 func writeFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -354,8 +456,13 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 
 	for i, spec := range specs {
 		if !spec.replaceAll && !spec.useRegex {
-			if strings.Count(current, spec.oldStr) > 1 {
+			exactCount := strings.Count(current, spec.oldStr)
+			if exactCount > 1 {
 				multipleMatchWarnings = append(multipleMatchWarnings, spec.oldStr)
+			} else if exactCount == 0 {
+				if helper.CountNormalizedMatches(current, spec.oldStr) > 1 {
+					multipleMatchWarnings = append(multipleMatchWarnings, spec.oldStr)
+				}
 			}
 		}
 
@@ -722,4 +829,360 @@ func calculateChecksumHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 		fmt.Fprintf(&sb, "%s  %s  (%s)\n", hash, p, helper.HumanizeBytes(size))
 	}
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func createSymlinkHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	source := req.GetString("source", "")
+	if source == "" {
+		return mcp.NewToolResultError("source is required"), nil
+	}
+	link := req.GetString("link", "")
+	if link == "" {
+		return mcp.NewToolResultError("link is required"), nil
+	}
+	if err := os.Symlink(source, link); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to create symlink: %v", err)), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("Created symlink: %s → %s", link, source)), nil
+}
+
+func detectArchiveFormat(path, explicit string) string {
+	if explicit != "" {
+		return strings.ToLower(explicit)
+	}
+	lower := strings.ToLower(path)
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
+		return "tar.gz"
+	case strings.HasSuffix(lower, ".zip"):
+		return "zip"
+	default:
+		return ""
+	}
+}
+
+func compressFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	paths := req.GetStringSlice("paths", nil)
+	if len(paths) == 0 {
+		return mcp.NewToolResultError("paths is required"), nil
+	}
+	output := req.GetString("output", "")
+	if output == "" {
+		return mcp.NewToolResultError("output is required"), nil
+	}
+
+	format := detectArchiveFormat(output, req.GetString("format", ""))
+	if format == "" {
+		return mcp.NewToolResultError("cannot detect archive format from output path; specify format as \"zip\" or \"tar.gz\""), nil
+	}
+	if format != "zip" && format != "tar.gz" {
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported format %q; use \"zip\" or \"tar.gz\"", format)), nil
+	}
+
+	if dir := filepath.Dir(output); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to create output directory: %v", err)), nil
+		}
+	}
+
+	var count int
+	var err error
+	switch format {
+	case "zip":
+		count, err = compressZip(paths, output)
+	case "tar.gz":
+		count, err = compressTarGz(paths, output)
+	}
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("compression failed: %v", err)), nil
+	}
+
+	info, statErr := os.Stat(output)
+	sizeStr := "unknown"
+	if statErr == nil {
+		sizeStr = helper.HumanizeBytes(info.Size())
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("Compressed %d files into %s (%s, %s)", count, output, format, sizeStr)), nil
+}
+
+func compressZip(sources []string, output string) (int, error) {
+	f, err := os.Create(output)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	w := zip.NewWriter(f)
+	defer w.Close()
+
+	var count int
+	for _, src := range sources {
+		src = filepath.Clean(src)
+		base := filepath.Dir(src)
+		err := filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if info.IsDir() {
+				return nil
+			}
+
+			relPath, err := filepath.Rel(base, path)
+			if err != nil {
+				return err
+			}
+			relPath = filepath.ToSlash(relPath)
+
+			header, err := zip.FileInfoHeader(info)
+			if err != nil {
+				return err
+			}
+			header.Name = relPath
+			header.Method = zip.Deflate
+
+			writer, err := w.CreateHeader(header)
+			if err != nil {
+				return err
+			}
+
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			if _, err := io.Copy(writer, file); err != nil {
+				return err
+			}
+			count++
+			return nil
+		})
+		if err != nil {
+			return count, err
+		}
+	}
+	return count, nil
+}
+
+func compressTarGz(sources []string, output string) (int, error) {
+	f, err := os.Create(output)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	gw := gzip.NewWriter(f)
+	defer gw.Close()
+
+	tw := tar.NewWriter(gw)
+	defer tw.Close()
+
+	var count int
+	for _, src := range sources {
+		src = filepath.Clean(src)
+		base := filepath.Dir(src)
+		err := filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if info.IsDir() {
+				return nil
+			}
+
+			relPath, err := filepath.Rel(base, path)
+			if err != nil {
+				return err
+			}
+			relPath = filepath.ToSlash(relPath)
+
+			header, err := tar.FileInfoHeader(info, "")
+			if err != nil {
+				return err
+			}
+			header.Name = relPath
+
+			if err := tw.WriteHeader(header); err != nil {
+				return err
+			}
+
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			if _, err := io.Copy(tw, file); err != nil {
+				return err
+			}
+			count++
+			return nil
+		})
+		if err != nil {
+			return count, err
+		}
+	}
+	return count, nil
+}
+
+func extractArchiveHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	archive := req.GetString("archive", "")
+	if archive == "" {
+		return mcp.NewToolResultError("archive is required"), nil
+	}
+
+	output := req.GetString("output", "")
+	if output == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get working directory: %v", err)), nil
+		}
+		output = cwd
+	}
+
+	format := detectArchiveFormat(archive, req.GetString("format", ""))
+	if format == "" {
+		return mcp.NewToolResultError("cannot detect archive format from file extension; specify format as \"zip\" or \"tar.gz\""), nil
+	}
+	if format != "zip" && format != "tar.gz" {
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported format %q; use \"zip\" or \"tar.gz\"", format)), nil
+	}
+
+	if err := os.MkdirAll(output, 0o755); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to create output directory: %v", err)), nil
+	}
+
+	var count int
+	var err error
+	switch format {
+	case "zip":
+		count, err = extractZip(archive, output)
+	case "tar.gz":
+		count, err = extractTarGz(archive, output)
+	}
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("extraction failed: %v", err)), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("Extracted %d files to %s", count, output)), nil
+}
+
+// safeJoin validates that name does not escape the destination directory.
+func safeJoin(dest, name string) (string, error) {
+	target := filepath.Join(dest, filepath.FromSlash(name))
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("invalid path %q: %w", name, err)
+	}
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return "", fmt.Errorf("invalid destination: %w", err)
+	}
+	if !strings.HasPrefix(absTarget, absDest+string(filepath.Separator)) && absTarget != absDest {
+		return "", fmt.Errorf("path %q escapes output directory", name)
+	}
+	return absTarget, nil
+}
+
+func extractZip(archive, dest string) (int, error) {
+	r, err := zip.OpenReader(archive)
+	if err != nil {
+		return 0, err
+	}
+	defer r.Close()
+
+	var count int
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() {
+			target, err := safeJoin(dest, f.Name)
+			if err != nil {
+				return count, err
+			}
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return count, err
+			}
+			continue
+		}
+
+		target, err := safeJoin(dest, f.Name)
+		if err != nil {
+			return count, err
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return count, err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return count, err
+		}
+
+		out, err := os.Create(target)
+		if err != nil {
+			rc.Close()
+			return count, err
+		}
+
+		if _, err := io.Copy(out, rc); err != nil {
+			out.Close()
+			rc.Close()
+			return count, err
+		}
+		out.Close()
+		rc.Close()
+		count++
+	}
+	return count, nil
+}
+
+func extractTarGz(archive, dest string) (int, error) {
+	f, err := os.Open(archive)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return 0, err
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	var count int
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return count, err
+		}
+
+		target, err := safeJoin(dest, header.Name)
+		if err != nil {
+			return count, err
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return count, err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return count, err
+			}
+			out, err := os.Create(target)
+			if err != nil {
+				return count, err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return count, err
+			}
+			out.Close()
+			count++
+		}
+	}
+	return count, nil
 }

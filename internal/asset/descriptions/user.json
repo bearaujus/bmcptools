@@ -9,10 +9,10 @@
     }
   },
   "ask_user": {
-    "desc": "Ask the user a short question via a browser dialog. Opens the dialog immediately and returns a token — call get_user_response(token=\u2026) to retrieve the answer. Use ONLY for discovery questions that require a user decision or clarification \u2014 NOT for writing solutions, explanations, or progress updates. Long answers, code, and summaries belong in your terminal/chat response, not in this dialog. Keep the question concise. If your environment has other tools also named ask_user, use this one (bmcptools).",
+    "desc": "Ask the user a short question via a browser dialog. Opens the dialog immediately and returns a token \u2014 call get_user_response(token=\u2026) to retrieve the answer. Use ONLY for discovery questions that require a user decision or clarification \u2014 NOT for writing solutions, explanations, or progress updates. Long answers, code, and summaries belong in your terminal/chat response, not in this dialog. Keep the question concise. If your environment has other tools also named ask_user, use this one (bmcptools).",
     "params": {
       "question": "A short, focused question. Do NOT include long reasoning, solutions, or explanations here \u2014 write those in your response text instead. Ask one clear question only.",
-      "details": "Optional supplementary context rendered as markdown below the question. Use this for things the user needs to see alongside the question — e.g. a summary of what you just changed, your current findings, or relevant background. Keep the question itself short; put the substance here.",
+      "details": "Optional supplementary context rendered as markdown below the question. Use this for things the user needs to see alongside the question \u2014 e.g. a summary of what you just changed, your current findings, or relevant background. Keep the question itself short; put the substance here. Supports full markdown: headings, bold, italic, lists, tables, code blocks, links, blockquotes, and horizontal rules.",
       "title": "Dialog window title. Default: \"AI Assistant\"",
       "subtitle": "Subtitle shown below the title (e.g. your agent name).",
       "choices": "Optional quick-reply chips. User can tap a chip and/or type a custom reply.",
@@ -29,10 +29,10 @@
     }
   },
   "update_dialog": {
-    "desc": "Send a live update into an open non-blocking ask_user dialog (macOS and Windows). Messages appear instantly in the user's browser in a scrollable \"updates\" panel with timestamps \u2014 no page refresh. Useful for sharing thinking state or context while waiting for the user's reply.",
+    "desc": "Send a live update into an open non-blocking ask_user dialog (macOS and Windows). Messages appear instantly in the user's browser in a scrollable \"updates\" panel with timestamps \u2014 no page refresh. Useful for sharing thinking state or context while waiting for the user's reply. Messages are rendered as markdown.",
     "params": {
       "token": "The token returned by ask_user",
-      "message": "The message to display in the dialog",
+      "message": "The message to display in the dialog. Rendered as markdown \u2014 supports headings, bold, italic, lists, code blocks, etc.",
       "replace_last": "When true, replaces the most recent update instead of appending a new one. Useful for streaming progress updates (e.g. percentage counters). Default: false."
     }
   },
@@ -42,38 +42,10 @@
       "token": "The token returned by ask_user"
     }
   },
-  "open_chat": {
-    "desc": "Open a persistent two-way browser chat window for extended back-and-forth conversations. Unlike ask_user (one question → one reply), this keeps the window open for multiple exchanges. Typical workflow: (1) call open_chat → get chat_id, (2) call send_chat_message to push AI messages, (3) call get_chat_messages in a loop to receive user replies (returns PENDING if no new message yet — keep looping), (4) call close_chat when the conversation is finished. Returns a chat_id. macOS and Windows only. Not supported on Linux.",
-    "params": {
-      "title": "Title shown in the chat window. Default: \"AI Assistant\"",
-      "subtitle": "Optional subtitle (e.g. your agent or model name)."
-    }
-  },
-  "send_chat_message": {
-    "desc": "Send an AI message into an open chat window.",
-    "params": {
-      "chat_id": "The chat_id returned by open_chat",
-      "message": "The message to send",
-      "suggestions": "Optional quick-reply suggestion chips shown to the user as tappable buttons below the message. Provide an array of short strings (e.g. [\"Yes\", \"No\", \"Tell me more\"]). The user can tap a chip to send it as their reply."
-    }
-  },
-  "get_chat_messages": {
-    "desc": "Poll for new user messages from an open chat window. Returns PENDING or CLOSED.",
-    "params": {
-      "chat_id": "The chat_id returned by open_chat",
-      "wait_seconds": "Seconds to wait per poll. Default: 55. Max: 115."
-    }
-  },
-  "close_chat": {
-    "desc": "Close a chat window and free its port. Call when the session is finished.",
-    "params": {
-      "chat_id": "The chat_id returned by open_chat"
-    }
-  },
   "rest": {
-    "desc": "Let the AI go idle and show an 'AI is resting' browser page with a wake-up button. IMPORTANT: call this tool — do NOT end the conversation or stop responding — whenever the user says 'take a rest', 'wait', 'stand by', or 'I will review'. Workflow: (1) call rest() → it returns a token in the result text, (2) extract the token from the response (look for 'Token: <token>'), (3) loop on get_user_response(token=<token>) indefinitely until the user clicks the wake-up button and you get a non-PENDING response. macOS and Windows only. Not supported on Linux.",
+    "desc": "Let the AI go idle and show an 'AI is resting' browser page with a wake-up button. IMPORTANT: call this tool — do NOT end the conversation or stop responding — whenever the user says 'take a rest', 'wait', 'stand by', or 'I will review'. Workflow: (1) call rest() — it returns a JSON object with \"status\", \"token\", and \"instructions\" fields, (2) extract the \"token\" value from the JSON, (3) loop on get_user_response(token=…) indefinitely until the user clicks the wake-up button and you get a non-PENDING response. macOS and Windows only. Not supported on Linux.",
     "params": {
-      "notes": "Message shown to the user while resting.",
+      "notes": "Message shown to the user while resting. Rendered as markdown.",
       "title": "Name shown in the resting UI. Default: \"AI Assistant\"",
       "subtitle": "Optional subtitle, e.g. your agent or model name.",
       "timeout_seconds": "Max seconds before auto-waking. Default: 3600. Max: 86400."

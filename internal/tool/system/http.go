@@ -7,11 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/bearaujus/bmcptools/internal/helper"
 )
 
 func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -125,4 +129,80 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func downloadFileHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	rawURL := req.GetString("url", "")
+	if strings.TrimSpace(rawURL) == "" {
+		return mcp.NewToolResultError("url is required"), nil
+	}
+	path := req.GetString("path", "")
+	if strings.TrimSpace(path) == "" {
+		return mcp.NewToolResultError("path is required"), nil
+	}
+	overwrite := req.GetBool("overwrite", false)
+
+	if !overwrite {
+		if _, err := os.Stat(path); err == nil {
+			return mcp.NewToolResultError(fmt.Sprintf("file already exists: %s (use overwrite=true to replace)", path)), nil
+		}
+	}
+
+	timeoutSec := req.GetFloat("timeout_seconds", 300)
+	if timeoutSec <= 0 {
+		timeoutSec = 300
+	}
+	if timeoutSec > 600 {
+		timeoutSec = 600
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid URL: %v", err)), nil
+	}
+
+	if rawHeaders, ok := req.GetArguments()["headers"]; ok && rawHeaders != nil {
+		if hmap, ok := rawHeaders.(map[string]any); ok {
+			for k, v := range hmap {
+				httpReq.Header.Set(k, fmt.Sprintf("%v", v))
+			}
+		}
+	}
+
+	client := &http.Client{
+		Timeout: time.Duration(timeoutSec * float64(time.Second)),
+	}
+
+	start := time.Now()
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("download failed: %v", err)), nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return mcp.NewToolResultError(fmt.Sprintf("download failed: HTTP %s", resp.Status)), nil
+	}
+
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to create parent dirs: %v", err)), nil
+		}
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to create file: %v", err)), nil
+	}
+	defer f.Close()
+
+	written, err := io.Copy(f, resp.Body)
+	if err != nil {
+		os.Remove(path)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to write file: %v", err)), nil
+	}
+	elapsed := time.Since(start)
+
+	return mcp.NewToolResultText(fmt.Sprintf("Downloaded %s to %s\nSize: %s\nElapsed: %s",
+		rawURL, path, helper.HumanizeBytes(written), elapsed.Round(time.Millisecond))), nil
 }

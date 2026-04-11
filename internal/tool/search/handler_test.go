@@ -273,6 +273,121 @@ func TestGrepFilesOutputModeCount(t *testing.T) {
 
 // ── grep_files glob filter ────────────────────────────────────────────────────
 
+// ── grep_files output_mode auto ──────────────────────────────────────────────
+
+func TestGrepFilesAutoModeDefaultFewMatches(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello world\ngoodbye\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// No output_mode specified — should default to "auto" and behave like content
+	// (show matching lines) when result set is small.
+	req := newTestRequest(map[string]any{"path": dir, "pattern": "hello"})
+	result, err := grepFilesHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	// Should show matching line content (like content mode)
+	if !strings.Contains(text, "hello world") {
+		t.Errorf("auto mode (few matches) should show matching lines, got: %q", text)
+	}
+	// Should NOT show the "file list" note
+	if strings.Contains(text, "showing file list") {
+		t.Errorf("auto mode (few matches) should not show file list note, got: %q", text)
+	}
+}
+
+func TestGrepFilesAutoModeManyMatchesSwitchesToFileList(t *testing.T) {
+	dir := t.TempDir()
+	// Create files with enough matches to exceed max_results=3 cap.
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("needle\nneedle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("needle\nneedle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set max_results=3 so we hit the cap (4 total matches > 3).
+	req := newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "needle",
+		"max_results": 3,
+	})
+	result, err := grepFilesHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	// Should switch to file list format with a note.
+	if !strings.Contains(text, "showing file list") {
+		t.Errorf("auto mode (many matches) should show file list note, got: %q", text)
+	}
+	if !strings.Contains(text, "output_mode") {
+		t.Errorf("auto mode (many matches) should hint at output_mode:content, got: %q", text)
+	}
+}
+
+func TestGrepFilesExplicitContentModeAlwaysShowsLines(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("needle\nneedle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "needle",
+		"output_mode": "content",
+		"max_results": 1,
+	})
+	result, err := grepFilesHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	// Explicit content mode must always show matching lines.
+	if !strings.Contains(text, ":1:") && !strings.Contains(text, "needle") {
+		t.Errorf("content mode should show matching lines, got: %q", text)
+	}
+	if strings.Contains(text, "showing file list") {
+		t.Errorf("content mode should never show file list note, got: %q", text)
+	}
+}
+
+func TestGrepFilesExplicitFilesWithMatchesModeUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("other\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "needle",
+		"output_mode": "files_with_matches",
+	})
+	result, err := grepFilesHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "a.txt") {
+		t.Errorf("files_with_matches should include matching file, got: %q", text)
+	}
+	if strings.Contains(text, "b.txt") {
+		t.Errorf("files_with_matches should not include non-matching file, got: %q", text)
+	}
+	// Must not contain line numbers in the file list
+	if strings.Contains(text, ":1:") {
+		t.Errorf("files_with_matches should not show line numbers, got: %q", text)
+	}
+}
+
+
+
 func TestGrepFilesGlobFilter(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "match.go"), []byte("hello world\n"), 0o644); err != nil {

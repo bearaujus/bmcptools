@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -235,4 +236,39 @@ var openInAppFn = func(target, app string) error {
 	}
 	go func() { _ = cmd.Wait() }()
 	return nil
+}
+
+func getEnvHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	key := req.GetString("key", "")
+	filter := req.GetString("filter", "")
+
+	if key != "" {
+		val, ok := os.LookupEnv(key)
+		if !ok {
+			return mcp.NewToolResultText(fmt.Sprintf("%s is not set", key)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("%s=%s", key, val)), nil
+	}
+
+	envVars := os.Environ()
+	sort.Strings(envVars)
+
+	if filter != "" {
+		filterLower := strings.ToLower(filter)
+		var matched []string
+		for _, e := range envVars {
+			if idx := strings.IndexByte(e, '='); idx >= 0 {
+				name := e[:idx]
+				if strings.Contains(strings.ToLower(name), filterLower) {
+					matched = append(matched, e)
+				}
+			}
+		}
+		if len(matched) == 0 {
+			return mcp.NewToolResultText(fmt.Sprintf("No environment variables matching %q", filter)), nil
+		}
+		return mcp.NewToolResultText(strings.Join(matched, "\n")), nil
+	}
+
+	return mcp.NewToolResultText(strings.Join(envVars, "\n")), nil
 }

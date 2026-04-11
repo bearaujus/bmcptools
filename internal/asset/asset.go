@@ -14,7 +14,7 @@ var descFS embed.FS
 //go:embed descriptions/server_instructions.txt
 var serverInstructionsTxt string
 
-//go:embed html/dialog.html html/chat.html html/rest.html html/confirm.html html/md.css html/md.js
+//go:embed html/dialog.html html/rest.html html/confirm.html html/md.css html/md.js
 var htmlFS embed.FS
 
 type toolEntry struct {
@@ -58,8 +58,86 @@ func ParamDesc(tool, param string) string {
 	return ""
 }
 
-// ServerInstructions returns the server instructions text.
-func ServerInstructions() string { return serverInstructionsTxt }
+// ServerInstructions returns the full server instructions text (all groups).
+func ServerInstructions() string {
+	return stripGroupMarkers(serverInstructionsTxt)
+}
+
+// ServerInstructionsForGroups returns server instructions filtered to only
+// the specified groups. The "intro" section is always included.
+// Valid group names: "intro", "user", "file", "dir", "search", "exec", "system".
+// Passing no groups returns the full instructions.
+func ServerInstructionsForGroups(groups ...string) string {
+	if len(groups) == 0 {
+		return stripGroupMarkers(serverInstructionsTxt)
+	}
+	want := make(map[string]bool, len(groups)+1)
+	want["intro"] = true
+	for _, g := range groups {
+		want[g] = true
+	}
+
+	sections := parseGroupSections(serverInstructionsTxt)
+	var b strings.Builder
+	for _, sec := range sections {
+		if want[sec.group] {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(sec.content)
+		}
+	}
+	return b.String()
+}
+
+type groupSection struct {
+	group   string
+	content string
+}
+
+// parseGroupSections splits the instruction text by <!-- group:xxx --> markers.
+func parseGroupSections(text string) []groupSection {
+	const prefix = "<!-- group:"
+	const suffix = " -->"
+	lines := strings.Split(text, "\n")
+
+	var sections []groupSection
+	cur := groupSection{group: "intro"}
+	var buf strings.Builder
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, prefix) && strings.HasSuffix(trimmed, suffix) {
+			cur.content = buf.String()
+			sections = append(sections, cur)
+			name := trimmed[len(prefix) : len(trimmed)-len(suffix)]
+			cur = groupSection{group: name}
+			buf.Reset()
+			continue
+		}
+		if buf.Len() > 0 {
+			buf.WriteByte('\n')
+		}
+		buf.WriteString(line)
+	}
+	cur.content = buf.String()
+	sections = append(sections, cur)
+	return sections
+}
+
+// stripGroupMarkers removes <!-- group:xxx --> lines from the text.
+func stripGroupMarkers(text string) string {
+	const prefix = "<!-- group:"
+	lines := strings.Split(text, "\n")
+	var out []string
+	for _, line := range lines {
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, prefix) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
 
 // HTML returns the contents of html/<name>.html from the embedded FS.
 func HTML(name string) string {

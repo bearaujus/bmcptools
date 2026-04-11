@@ -13,11 +13,13 @@ import (
 var serverVersion = "dev"
 
 func main() {
+	bmcptools.Version = serverVersion
+
 	s := server.NewMCPServer(
 		bmcptools.ServerName,
-		serverVersion,
+		bmcptools.Version,
 		server.WithToolCapabilities(false),
-		server.WithInstructions(bmcptools.ServerInstructions),
+		server.WithInstructions(bmcptools.ServerInstructions()),
 	)
 
 	bmcptools.Register(s)

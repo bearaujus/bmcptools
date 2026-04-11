@@ -14,8 +14,6 @@
 //
 //	DialogTemplate — HTML must POST JSON to /answer
 //	                  {"choice": string, "notes": string, "dismissed": bool}
-//	ChatTemplate   — HTML must reference /events (SSE) and POST to /message
-//	                  {"text": string}
 //	RestTemplate   — HTML must POST JSON to /answer
 //	                  {"notes": string}
 package dialog
@@ -40,22 +38,6 @@ func NewDialogTemplate(html string) (DialogTemplate, error) {
 
 // HTML returns the validated HTML content.
 func (t DialogTemplate) HTML() string { return t.html }
-
-// ChatTemplate is a validated HTML template for open_chat dialogs.
-// The HTML must reference the /events SSE stream and POST to /message.
-type ChatTemplate struct{ html string }
-
-// NewChatTemplate validates html and returns a ChatTemplate.
-// Returns an error if the HTML does not reference /events and /message.
-func NewChatTemplate(html string) (ChatTemplate, error) {
-	if err := requireEndpoints(html, "/events", "/message"); err != nil {
-		return ChatTemplate{}, fmt.Errorf("chat template: %w", err)
-	}
-	return ChatTemplate{html: html}, nil
-}
-
-// HTML returns the validated HTML content.
-func (t ChatTemplate) HTML() string { return t.html }
 
 // RestTemplate is a validated HTML template for the rest/AFK page.
 // The HTML must POST JSON to the /answer endpoint.

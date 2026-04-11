@@ -791,3 +791,145 @@ func TestReadMultipleFilesPartialFailure(t *testing.T) {
 		t.Errorf("expected error indication for missing file: %q", text)
 	}
 }
+
+// ── path_exists_batch ─────────────────────────────────────────────────────────
+
+func TestPathExistsBatchHandler(t *testing.T) {
+	dir := t.TempDir()
+	fa := filepath.Join(dir, "exists.txt")
+	if err := os.WriteFile(fa, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subDir := filepath.Join(dir, "subdir")
+	if err := os.Mkdir(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "nope.txt")
+
+	req := newTestRequest(map[string]any{"paths": []any{fa, subDir, missing}})
+	result, err := pathExistsBatchHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "file") {
+		t.Errorf("expected 'file' for existing file: %q", text)
+	}
+	if !strings.Contains(text, "directory") {
+		t.Errorf("expected 'directory' for subdir: %q", text)
+	}
+	if !strings.Contains(text, "false") {
+		t.Errorf("expected 'false' for missing path: %q", text)
+	}
+}
+
+func TestPathExistsBatchHandlerEmptyPaths(t *testing.T) {
+	req := newTestRequest(map[string]any{"paths": []any{}})
+	result, err := pathExistsBatchHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for empty paths array")
+	}
+}
+
+// ── get_multiple_file_info ────────────────────────────────────────────────────
+
+func TestGetMultipleFileInfoHandler(t *testing.T) {
+	dir := t.TempDir()
+	fa := filepath.Join(dir, "info.txt")
+	if err := os.WriteFile(fa, []byte("line one\nline two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{"paths": []any{fa}})
+	result, err := getMultipleFileInfoHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Path:") {
+		t.Errorf("expected 'Path:' header: %q", text)
+	}
+	if !strings.Contains(text, "Type:        file") {
+		t.Errorf("expected 'Type: file': %q", text)
+	}
+	if !strings.Contains(text, "Modified:") {
+		t.Errorf("expected 'Modified:' field: %q", text)
+	}
+	if !strings.Contains(text, "2 lines") {
+		t.Errorf("expected '2 lines' for text file: %q", text)
+	}
+}
+
+func TestGetMultipleFileInfoHandlerDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	req := newTestRequest(map[string]any{"paths": []any{dir}})
+	result, err := getMultipleFileInfoHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Type:        directory") {
+		t.Errorf("expected 'Type: directory': %q", text)
+	}
+}
+
+func TestGetMultipleFileInfoHandlerMissing(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "ghost.txt")
+
+	req := newTestRequest(map[string]any{"paths": []any{missing}})
+	result, err := getMultipleFileInfoHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error result: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "[ERROR]") {
+		t.Errorf("expected inline [ERROR] for missing path: %q", text)
+	}
+}
+
+func TestGetMultipleFileInfoHandlerEmptyPaths(t *testing.T) {
+	req := newTestRequest(map[string]any{"paths": []any{}})
+	result, err := getMultipleFileInfoHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for empty paths array")
+	}
+}
+
+func TestGetMultipleFileInfoHandlerMultiple(t *testing.T) {
+	dir := t.TempDir()
+	fa := filepath.Join(dir, "a.txt")
+	fb := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(fa, []byte("aaa\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fb, []byte("bbb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{"paths": []any{fa, fb}})
+	result, err := getMultipleFileInfoHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	// Should contain two Path entries separated by a blank line
+	if strings.Count(text, "Path:") != 2 {
+		t.Errorf("expected 2 Path: headers, got %d in: %q", strings.Count(text, "Path:"), text)
+	}
+}
