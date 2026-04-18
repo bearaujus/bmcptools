@@ -1,146 +1,305 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚠️ Confirm: [[TITLE]]</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>⚠ Confirm: [[TITLE]]</title>
+<link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23ff3b30'/><path d='M16 9v9' stroke='white' stroke-width='3' stroke-linecap='round'/><circle cx='16' cy='23' r='2' fill='white'/></svg>">
+[[MD_CSS]]
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #0f0f0f;
-    color: #e0e0e0;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
-  .card {
-    background: #1a1a1a;
-    border: 1px solid #333;
-    border-radius: 12px;
-    max-width: 720px;
-    width: 100%;
-    overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-  }
-  .header {
-    background: linear-gradient(135deg, #c0392b, #8e1a13);
-    padding: 20px 24px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .header-icon { font-size: 28px; }
-  .header-text h1 { font-size: 20px; font-weight: 700; color: #fff; }
-  .header-text p  { font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 2px; }
-  .body { padding: 24px; }
-  .warning-box {
-    background: rgba(192,57,43,0.15);
-    border: 1px solid rgba(192,57,43,0.4);
-    border-radius: 8px;
-    padding: 12px 16px;
-    margin-bottom: 20px;
-    font-size: 13px;
-    color: #e74c3c;
-  }
-  .details-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #888;
-    margin-bottom: 8px;
-  }
-  .details-box {
-    background: #111;
-    border: 1px solid #2a2a2a;
-    border-radius: 8px;
-    padding: 16px;
-    font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
-    font-size: 13px;
-    line-height: 1.7;
-    color: #ccc;
-    max-height: 400px;
-    overflow-y: auto;
-    margin-bottom: 24px;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .timer {
-    font-size: 12px;
-    color: #666;
-    text-align: center;
-    margin-bottom: 20px;
-  }
-  .timer span { color: #e74c3c; font-weight: 600; }
-  .buttons { display: flex; gap: 12px; justify-content: flex-end; }
-  button {
-    padding: 10px 28px;
-    border-radius: 8px;
-    font-size: 15px;
-    font-weight: 600;
-    border: none;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-cancel  { background: #2a2a2a; color: #aaa; border: 1px solid #3a3a3a; }
-  .btn-cancel:hover:not(:disabled) { background: #333; color: #fff; }
-  .btn-confirm { background: #c0392b; color: #fff; }
-  .btn-confirm:hover:not(:disabled) { background: #e74c3c; }
-  .status { text-align: center; font-size: 16px; padding: 16px; display: none; }
+:root{
+  --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#c7c7cc;
+  --border:#e5e5ea;--chip-bg:#f0f0f5;
+  --bubble-bg:#fff5f4;
+  --danger:#ff3b30;--danger-2:#c0392b;--ok:#34c759;
+  --warn-bg:rgba(255,59,48,.08);--warn-border:rgba(255,59,48,.30);
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#000;--card:#1c1c1e;--text:#fff;--text2:#8e8e93;--text3:#48484a;
+  --border:#38383a;--chip-bg:#2c2c2e;
+  --bubble-bg:#2a1411;
+  --warn-bg:rgba(255,59,48,.14);--warn-border:rgba(255,59,48,.40);
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+  background:var(--bg);min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;
+  padding:32px 16px;gap:10px;
+}
+
+/* ── Top card: header + warning bubble ── */
+.warn-card{
+  background:var(--card);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);overflow:hidden;
+}
+.header{display:flex;align-items:center;padding:16px 18px;gap:12px}
+.avatar{
+  width:38px;height:38px;border-radius:12px;
+  background:linear-gradient(135deg,#ff453a 0%,#c0392b 100%);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(255,59,48,.30);
+}
+.avatar svg{width:20px;height:20px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.header-info{flex:1;min-width:0}
+.header-name{font-size:14px;font-weight:700;color:var(--text);letter-spacing:-0.01em}
+.header-sub{font-size:11.5px;color:var(--text2);margin-top:1px}
+.timer-area{display:flex;align-items:center;gap:8px;position:relative}
+.timer-badge{
+  font-size:12px;font-weight:600;color:var(--text2);
+  font-variant-numeric:tabular-nums;white-space:nowrap;cursor:default;
+}
+.timer-badge::after{
+  content:'Auto-cancels when time runs out';
+  position:absolute;right:0;top:calc(100% + 5px);
+  background:var(--text);color:var(--card);
+  font-size:11px;font-weight:400;
+  padding:4px 8px;border-radius:6px;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity .15s;
+}
+.timer-badge:hover::after{opacity:1}
+.timer-badge.urgent{color:var(--danger)}
+.msg-area{padding:0 18px 14px}
+.bubble{
+  background:var(--bubble-bg);border-radius:4px 14px 14px 14px;
+  padding:12px 14px;font-size:13.5px;color:var(--text);line-height:1.55;
+  border:1px solid var(--warn-border);
+}
+.bubble strong{color:var(--danger)}
+
+/* ── Details card ── */
+.details-card{
+  background:var(--card);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);overflow:hidden;
+}
+.details-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 18px;border-bottom:1px solid var(--border);
+}
+.details-label{
+  font-size:10px;font-weight:700;color:var(--text2);
+  text-transform:uppercase;letter-spacing:.6px;
+}
+.details-tag{
+  font-size:10px;font-weight:600;color:var(--danger);
+  background:var(--warn-bg);border:1px solid var(--warn-border);
+  padding:2px 8px;border-radius:999px;letter-spacing:.3px;
+}
+.details-body{padding:14px 18px;font-size:14px;color:var(--text);line-height:1.6;word-break:break-word}
+
+/* ── Action card ── */
+.action-card{
+  background:var(--card);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);
+  padding:14px 18px;display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;
+}
+.kb-hint{font-size:11px;color:var(--text3)}
+.actions{display:flex;gap:8px;align-items:center}
+.btn{
+  padding:9px 18px;border-radius:12px;border:none;cursor:pointer;
+  font-size:13.5px;font-weight:600;font-family:inherit;line-height:1;
+  transition:all .15s;white-space:nowrap;
+}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-cancel{
+  background:var(--chip-bg);color:var(--text);
+  border:1px solid var(--border);min-width:96px;
+}
+.btn-cancel:hover:not(:disabled){background:var(--border)}
+.btn-confirm{
+  background:linear-gradient(135deg,#ff453a,#c0392b);color:#fff;
+  min-width:200px;box-shadow:0 2px 8px rgba(255,59,48,.30);
+}
+.btn-confirm:hover:not(:disabled){filter:brightness(1.05)}
+.btn-confirm:active:not(:disabled){transform:scale(.98)}
+
+/* Double-tap confirm pulse — same pattern as dialog.html */
+@keyframes confirm-pulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,149,0,.55)}
+  50%{box-shadow:0 0 0 8px rgba(255,149,0,0)}
+}
+.btn.confirming{
+  background:linear-gradient(135deg,#ff9500,#ff6b00) !important;
+  animation:confirm-pulse 1.1s ease-in-out infinite;
+}
+
+/* ── Status footer (after action) ── */
+.status-card{
+  display:none;background:var(--card);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);
+  padding:14px 18px;font-size:13.5px;text-align:center;
+  animation:fade-in .25s ease;
+}
+@keyframes fade-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.status-card.ok{color:var(--ok)}
+.status-card.cancel{color:var(--text2)}
 </style>
 </head>
 <body>
-<div class="card">
+
+<div class="warn-card">
   <div class="header">
-    <div class="header-icon">⚠️</div>
-    <div class="header-text">
-      <h1>[[TITLE]]</h1>
-      <p>This is a destructive operation. Please review carefully before confirming.</p>
+    <div class="avatar">
+      <svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3z"/><path d="M12 10v5"/><circle cx="12" cy="18" r="0.5" fill="#fff"/></svg>
+    </div>
+    <div class="header-info">
+      <div class="header-name">Confirm: [[TITLE]]</div>
+      <div class="header-sub">Destructive operation — review before confirming</div>
+    </div>
+    <div class="timer-area">
+      <div class="timer-badge" id="tbadge"></div>
     </div>
   </div>
-  <div class="body">
-    <div class="warning-box">
-      🔴 <strong>This action cannot be undone automatically.</strong>
-      Review the operation details below, then click <strong>Confirm</strong> to proceed
-      or <strong>Cancel</strong> to abort.
+  <div class="msg-area">
+    <div class="bubble">
+      <strong>This action cannot be undone automatically.</strong><br>
+      Review the operation details below, then press <strong>Confirm &amp; Execute</strong>
+      twice to proceed, or <strong>Cancel</strong> to abort.
     </div>
-    <div class="details-label">Operation Details</div>
-    <div class="details-box">[[DETAILS_HTML]]</div>
-    <div class="timer">Auto-cancels in <span id="countdown">[[TIMEOUT_SEC]]</span>s if no action is taken.</div>
-    <div class="buttons">
-      <button class="btn-cancel"  id="cancelBtn"  onclick="answer(false)">✕ Cancel</button>
-      <button class="btn-confirm" id="confirmBtn" onclick="answer(true)">✓ Confirm &amp; Execute</button>
-    </div>
-    <div class="status" id="status"></div>
   </div>
 </div>
-<script>
-  var remaining = [[TIMEOUT_SEC]];
-  var timer = setInterval(function() {
-    remaining--;
-    document.getElementById('countdown').textContent = remaining;
-    if (remaining <= 0) { clearInterval(timer); answer(false); }
-  }, 1000);
 
-  function answer(confirmed) {
-    clearInterval(timer);
-    document.getElementById('cancelBtn').disabled  = true;
-    document.getElementById('confirmBtn').disabled = true;
-    var s = document.getElementById('status');
-    s.style.display = 'block';
-    s.textContent   = confirmed ? '\u2713 Confirmed. Executing\u2026' : '\u2715 Cancelled. Closing\u2026';
-    s.style.color   = confirmed ? '#2ecc71' : '#e74c3c';
-    fetch('/answer', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({confirmed: confirmed})
-    }).catch(function(){});
-    setTimeout(function() { window.close(); }, 1500);
+<div class="details-card">
+  <div class="details-head">
+    <div class="details-label">Operation details</div>
+    <div class="details-tag">danger</div>
+  </div>
+  <div class="details-body md-body" id="detailsBody"></div>
+</div>
+
+<div class="action-card" id="actionCard">
+  <div class="kb-hint" id="kbHint">↩ tap Confirm twice · esc to cancel</div>
+  <div class="actions">
+    <button class="btn btn-cancel"  id="cancelBtn"  onclick="confirmCancel()">Cancel</button>
+    <button class="btn btn-confirm" id="confirmBtn" onclick="confirmExecute()">Confirm &amp; Execute</button>
+  </div>
+</div>
+
+<div class="status-card" id="statusCard"></div>
+
+[[MD_JS]]
+<script>
+// ── Config ────────────────────────────────────────────────────────────────
+var TIMEOUT_SEC = [[TIMEOUT_SEC]];
+var DETAILS_RAW = [[DETAILS_JSON]]; // JSON-encoded markdown string
+
+// ── Render details as markdown ────────────────────────────────────────────
+(function(){
+  var body = document.getElementById('detailsBody');
+  if(DETAILS_RAW && DETAILS_RAW.trim()){
+    body.innerHTML = mdRender(DETAILS_RAW);
+  } else {
+    body.innerHTML = '<em style="color:var(--text3)">No details provided</em>';
   }
+})();
+
+// ── Countdown badge ───────────────────────────────────────────────────────
+var remaining = TIMEOUT_SEC;
+function fmtTime(s){
+  s = Math.max(0, Math.round(s));
+  if(s < 60) return s + 's';
+  var m = Math.floor(s/60), sec = s%60;
+  return m + ':' + (sec<10?'0':'') + sec;
+}
+var tbadge = document.getElementById('tbadge');
+tbadge.textContent = 'Auto-cancels in ' + fmtTime(remaining);
+var iv = setInterval(function(){
+  remaining--;
+  if(remaining <= 0){ clearInterval(iv); answer(false); return; }
+  tbadge.textContent = 'Auto-cancels in ' + fmtTime(remaining);
+  if(remaining <= 10) tbadge.classList.add('urgent');
+}, 1000);
+
+// ── Submit answer ─────────────────────────────────────────────────────────
+var submitted = false;
+function answer(confirmed){
+  if(submitted) return;
+  submitted = true;
+  clearInterval(iv);
+  document.getElementById('cancelBtn').disabled = true;
+  document.getElementById('confirmBtn').disabled = true;
+  var card = document.getElementById('statusCard');
+  card.style.display = 'block';
+  card.className = 'status-card ' + (confirmed ? 'ok' : 'cancel');
+  card.textContent = confirmed
+    ? '\u2713 Confirmed — executing\u2026'
+    : '\u2715 Cancelled — closing\u2026';
+  fetch('/answer',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({confirmed: confirmed})
+  }).catch(function(){});
+  setTimeout(function(){ try{window.close();}catch(e){} }, 1500);
+}
+
+// ── Double-tap confirm on the destructive button ──────────────────────────
+// Same mechanic as dialog.html: first click arms (orange pulse, "Press again"),
+// second click within 3s commits. Cancel is single-click since cancelling
+// is itself the safe path.
+var _pendingConfirm = null; // {btnId, original, timer}
+
+function _resetConfirm(){
+  if(!_pendingConfirm) return;
+  var p = _pendingConfirm;
+  _pendingConfirm = null;
+  clearTimeout(p.timer);
+  var btn = document.getElementById(p.btnId);
+  if(btn){ btn.innerHTML = p.original; btn.classList.remove('confirming'); }
+}
+
+function _armConfirm(btnId, action, label){
+  _resetConfirm();
+  var btn = document.getElementById(btnId);
+  if(!btn) return;
+  var original = btn.innerHTML;
+  btn.innerHTML = label;
+  btn.classList.add('confirming');
+  _pendingConfirm = {
+    btnId: btnId,
+    original: original,
+    timer: setTimeout(function(){ _resetConfirm(); }, 3000),
+    action: action
+  };
+}
+
+function confirmExecute(){
+  if(_pendingConfirm && _pendingConfirm.btnId === 'confirmBtn'){
+    var act = _pendingConfirm.action;
+    _resetConfirm();
+    act();
+    return;
+  }
+  _armConfirm('confirmBtn', function(){ answer(true); }, 'Press again to execute');
+}
+function confirmCancel(){
+  // Cancel doesn't need double-tap — it's the safe direction.
+  _resetConfirm();
+  answer(false);
+}
+
+// Cancel any pending confirm when the user clicks elsewhere or presses Esc.
+document.addEventListener('mousedown', function(e){
+  if(!_pendingConfirm) return;
+  var t = e.target;
+  while(t){
+    if(t.id === 'confirmBtn') return;
+    t = t.parentNode;
+  }
+  _resetConfirm();
+}, true);
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    if(_pendingConfirm){ _resetConfirm(); return; }
+    confirmCancel();
+    return;
+  }
+  if(e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey){
+    e.preventDefault();
+    confirmExecute();
+  }
+});
+window.addEventListener('blur', function(){ _resetConfirm(); });
 </script>
 </body>
 </html>

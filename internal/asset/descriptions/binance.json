@@ -1,0 +1,243 @@
+{
+  "binance_futures_ping": {
+    "desc": "Test connectivity to Binance USDT-M Futures REST API and measure server-time skew. No auth required. Call this first if signed requests fail with -1021 (timestamp outside recvWindow).",
+    "params": {}
+  },
+  "binance_futures_exchange_info": {
+    "desc": "Get current exchange trading rules and ALL symbol information. No auth required. Large response \u2014 use binance_futures_symbol_specs for a compact per-symbol view when you only need filters for one symbol.",
+    "params": {
+      "symbol": "Optional single symbol (e.g. BTCUSDT) to return only that symbol's info. Omit to return all symbols."
+    }
+  },
+  "binance_futures_symbol_specs": {
+    "desc": "Compact per-symbol trading specs \u2014 minNotional (minimum order size in USDT), minQty, stepSize, tickSize, pricePrecision, quantityPrecision, maxLeverage, allowed orderTypes, and contractType. No auth required. Call this before placing an order to size correctly and avoid -1111 / -4164 errors.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required."
+    }
+  },
+  "binance_futures_klines": {
+    "desc": "Get OHLCV candlestick data for technical analysis. No auth required. Results returned in ASCENDING order (oldest first, newest last). Each candle is [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, takerBuyBase, takerBuyQuote, ignore].",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "interval": "Candle interval. Required. One of: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M.",
+      "limit": "Number of candles to return. Default 500, max 1500.",
+      "start_time_ms": "Optional start time in milliseconds since epoch.",
+      "end_time_ms": "Optional end time in milliseconds since epoch."
+    }
+  },
+  "binance_futures_ticker_price": {
+    "desc": "Get latest mark/last price for one symbol, or ALL symbols if omitted. No auth required. Use all-symbols mode to scan the market for momentum.",
+    "params": {
+      "symbol": "Optional symbol (e.g. BTCUSDT). Omit to return all symbols."
+    }
+  },
+  "binance_futures_ticker_24hr": {
+    "desc": "24-hour rolling price change statistics \u2014 priceChange, priceChangePercent, high, low, volume, quoteVolume, weightedAvgPrice. No auth required. Omit symbol to scan all symbols (heavy response).",
+    "params": {
+      "symbol": "Optional symbol (e.g. BTCUSDT). Omit to return all symbols."
+    }
+  },
+  "binance_futures_order_book": {
+    "desc": "Order book depth (bids and asks) for slippage estimation before placing a market order. No auth required.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "limit": "Depth levels. One of 5, 10, 20, 50, 100, 500, 1000. Default 100."
+    }
+  },
+  "binance_futures_mark_price": {
+    "desc": "Current mark price, index price, next funding rate and next funding time. No auth required. Omit symbol to return all symbols. Funding rate drives holding cost on perpetual futures \u2014 consult before long-duration positions.",
+    "params": {
+      "symbol": "Optional symbol (e.g. BTCUSDT). Omit to return all symbols."
+    }
+  },
+  "binance_futures_open_interest": {
+    "desc": "Open interest (total outstanding contracts) for a symbol. Set history=true to return the open-interest timeseries via /futures/data/openInterestHist \u2014 useful for detecting trend acceleration or exhaustion. No auth required. Note: the history endpoint returns empty on testnet.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "history": "If true, return historical open interest instead of the current value. Default false.",
+      "period": "History interval when history=true. One of: 5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h, 1d. Default 1h.",
+      "limit": "Number of history data points when history=true. Default 30, max 500."
+    }
+  },
+  "binance_futures_long_short_ratio": {
+    "desc": "Long/short account ratio \u2014 market sentiment signal. No auth required. Returns timeseries of longAccount, shortAccount, longShortRatio from /futures/data/topLongShortAccountRatio (top traders) or /futures/data/globalLongShortAccountRatio (global). Note: returns empty on testnet.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "period": "Interval. One of: 5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h, 1d. Default 1h.",
+      "mode": "Data source. One of: top (top traders, default) or global.",
+      "limit": "Number of data points. Default 30, max 500."
+    }
+  },
+  "binance_futures_account_info": {
+    "desc": "Authenticated account snapshot: wallet balance, unrealized PnL, available margin, total initial/maintenance margin, and position-mode (hedge vs one-way). Requires BINANCE_API_KEY/SECRET.",
+    "params": {}
+  },
+  "binance_futures_position_risk": {
+    "desc": "Authenticated open-positions view: for each position returns entryPrice, markPrice, positionAmt, unrealizedProfit, leverage, marginType, liquidationPrice, notional. Requires BINANCE_API_KEY/SECRET.",
+    "params": {
+      "symbol": "Optional symbol to filter. Omit to return all positions."
+    }
+  },
+  "binance_futures_open_orders": {
+    "desc": "Authenticated list of all currently working (unfilled) orders. Requires BINANCE_API_KEY/SECRET.",
+    "params": {
+      "symbol": "Optional symbol to filter."
+    }
+  },
+  "binance_futures_order_history": {
+    "desc": "Authenticated historical orders (filled, canceled, expired, rejected) for a symbol. Requires BINANCE_API_KEY/SECRET.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "limit": "Max orders to return. Default 50, max 1000.",
+      "start_time_ms": "Optional start time in milliseconds since epoch.",
+      "end_time_ms": "Optional end time in milliseconds since epoch."
+    }
+  },
+  "binance_futures_income_history": {
+    "desc": "Authenticated realized PnL, commissions, funding fees, referral kickbacks. Use this to evaluate trading performance. Requires BINANCE_API_KEY/SECRET.",
+    "params": {
+      "symbol": "Optional symbol to filter.",
+      "income_type": "Optional income type: REALIZED_PNL, COMMISSION, FUNDING_FEE, REFERRAL_KICKBACK, etc.",
+      "limit": "Max rows. Default 100, max 1000.",
+      "start_time_ms": "Optional start time in milliseconds since epoch.",
+      "end_time_ms": "Optional end time in milliseconds since epoch."
+    }
+  },
+  "binance_futures_change_leverage": {
+    "desc": "MUTATING. Change initial leverage for a symbol (1 to symbol maxLeverage). Requires BINANCE_API_KEY/SECRET. Prompts user confirmation unless BINANCE_SKIP_ASK_USER=true. Affects new positions; existing position margin stays.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "leverage": "Target leverage 1\u2013125 (symbol-dependent; check binance_futures_symbol_specs.maxLeverage). Required.",
+      "reasoning": "Why this leverage is appropriate \u2014 shown to the user in the confirmation dialog. Required so the user can audit the AI's choice."
+    }
+  },
+  "binance_futures_change_margin_type": {
+    "desc": "MUTATING. Switch margin mode for a symbol between ISOLATED (position-scoped loss) and CROSSED (account-wide margin). Requires BINANCE_API_KEY/SECRET. Prompts user confirmation unless BINANCE_SKIP_ASK_USER=true. ISOLATED is safer for discrete AI-driven trades \u2014 loss is capped to the position's margin.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "margin_type": "ISOLATED or CROSSED. Required.",
+      "reasoning": "Why this margin type is appropriate. Required for user audit."
+    }
+  },
+  "binance_futures_change_position_mode": {
+    "desc": "MUTATING. Account-wide switch: hedge mode (dual LONG+SHORT positions per symbol) or one-way (single position, side determined by net). Requires BINANCE_API_KEY/SECRET. Prompts user confirmation unless BINANCE_SKIP_ASK_USER=true. Must have no open positions or orders when switching.",
+    "params": {
+      "dual_side_position": "true = hedge mode, false = one-way mode. Required.",
+      "reasoning": "Why this mode is appropriate. Required for user audit."
+    }
+  },
+  "binance_futures_place_order": {
+    "desc": "MUTATING. Place a single USDT-M Futures order (MARKET, LIMIT, STOP, STOP_MARKET, TAKE_PROFIT, TAKE_PROFIT_MARKET, TRAILING_STOP_MARKET). Requires BINANCE_API_KEY/SECRET. Prompts user confirmation unless BINANCE_SKIP_ASK_USER=true. Auto-generates an idempotent newClientOrderId if omitted. On HTTP 503 'Unknown error' the call reconciles via order lookup before returning \u2014 do not retry without checking. For entry + SL + TP atomically, prefer binance_futures_place_bracket_order.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "side": "BUY or SELL. Required.",
+      "type": "Order type: MARKET, LIMIT, STOP, STOP_MARKET, TAKE_PROFIT, TAKE_PROFIT_MARKET, TRAILING_STOP_MARKET. Required.",
+      "quantity": "Base-asset quantity. Required unless close_position=true. Rounded to stepSize.",
+      "price": "Limit price \u2014 required for LIMIT, STOP, TAKE_PROFIT.",
+      "stop_price": "Trigger price \u2014 required for STOP, STOP_MARKET, TAKE_PROFIT, TAKE_PROFIT_MARKET.",
+      "time_in_force": "GTC (default for LIMIT), IOC, FOK, GTX (post-only), GTD.",
+      "good_till_date_ms": "Required when time_in_force=GTD. Auto-cancel timestamp in ms.",
+      "reduce_only": "If true, order can only reduce an existing position. Ignored in hedge mode \u2014 use position_side there.",
+      "close_position": "If true (STOP_MARKET/TAKE_PROFIT_MARKET only), closes the entire position. quantity is ignored.",
+      "position_side": "Hedge mode only: LONG, SHORT, or BOTH (default one-way).",
+      "working_type": "MARK_PRICE or CONTRACT_PRICE (default). Which price triggers conditional orders.",
+      "activation_price": "Only for TRAILING_STOP_MARKET.",
+      "callback_rate": "Only for TRAILING_STOP_MARKET. 0.1\u20135 (%).",
+      "self_trade_prevention_mode": "NONE (default), EXPIRE_TAKER, EXPIRE_MAKER, EXPIRE_BOTH.",
+      "price_match": "NONE (default), OPPONENT, OPPONENT_5/10/20, QUEUE, QUEUE_5/10/20. When set, price is auto-chosen and the price param is ignored.",
+      "price_protect": "If true, conditional orders reject when trigger is too far from mark price.",
+      "new_client_order_id": "Optional custom client order ID (\u226436 chars, [0-9A-Za-z_.-]). Auto-generated if omitted.",
+      "dry_run": "If true, validates via POST /fapi/v1/order/test and does NOT place the order. Skips the confirmation dialog.",
+      "reasoning": "Mandatory when dry_run=false: strategy, signals, and risk rationale. Shown to the user in the confirmation dialog."
+    }
+  },
+  "binance_futures_place_bracket_order": {
+    "desc": "MUTATING. Recommended primary trade entry: places entry + stop-loss + take-profit atomically via /fapi/v1/batchOrders. Requires BINANCE_API_KEY/SECRET. Prompts user confirmation unless BINANCE_SKIP_ASK_USER=true. Client-side validates stop_loss_price is on the loss side and take_profit_price on the profit side relative to side. On partial failure, default rolls back by cancelling any legs that succeeded.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "side": "BUY (long) or SELL (short) for the entry. Required.",
+      "type": "Entry order type \u2014 MARKET or LIMIT. Required.",
+      "quantity": "Base-asset quantity for the entry. Required.",
+      "entry_price": "Required when type=LIMIT.",
+      "stop_loss_price": "Trigger price for the STOP_MARKET exit leg. Required.",
+      "take_profit_price": "Trigger price for the TAKE_PROFIT_MARKET exit leg. Required.",
+      "leverage": "Optional \u2014 if set, calls change_leverage first.",
+      "margin_type": "Optional ISOLATED or CROSSED \u2014 if set, calls change_margin_type first. Recommend ISOLATED for discrete AI trades.",
+      "working_type": "MARK_PRICE or CONTRACT_PRICE (default) for SL/TP triggers.",
+      "time_in_force": "Only for LIMIT entry. Default GTC.",
+      "on_partial_failure": "rollback (default) \u2014 cancel successful legs on any failure; or warn \u2014 return a warning and leave partial state for the caller to resolve.",
+      "dry_run": "If true, validates each leg via /fapi/v1/order/test and does NOT place any orders. Skips the confirmation dialog.",
+      "reasoning": "Mandatory when dry_run=false: full strategy, entry thesis, SL/TP logic, R:R, and sizing rationale. Shown to the user."
+    }
+  },
+  "binance_futures_cancel_order": {
+    "desc": "MUTATING. Cancel a single order by orderId or origClientOrderId. Requires BINANCE_API_KEY/SECRET. Prompts user confirmation unless BINANCE_SKIP_ASK_USER=true.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "order_id": "Order ID. Provide either this or orig_client_order_id.",
+      "orig_client_order_id": "Client order ID. Provide either this or order_id.",
+      "reasoning": "Why the order is being cancelled. Required for user audit."
+    }
+  },
+  "binance_futures_cancel_all_open_orders": {
+    "desc": "MUTATING. Cancel ALL working orders for a symbol. Requires BINANCE_API_KEY/SECRET. Prompts user confirmation unless BINANCE_SKIP_ASK_USER=true. Does not close positions \u2014 only removes pending orders.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "reasoning": "Why all orders are being cancelled. Required for user audit."
+    }
+  },
+  "binance_futures_close_position": {
+    "desc": "MUTATING. Close an open position immediately via reduceOnly MARKET order (or LIMIT if price is provided). Auto-detects position size and side from /fapi/v2/positionRisk \u2014 no need to compute opposite side yourself. Requires BINANCE_API_KEY/SECRET. Prompts user confirmation unless BINANCE_SKIP_ASK_USER=true. If the position is zero, returns an error.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "quantity": "Optional quantity to close. Omit to close the entire position.",
+      "price": "Optional LIMIT price. If provided, places a reduceOnly LIMIT order instead of MARKET.",
+      "time_in_force": "Only applies if price is set. GTC (default), IOC, FOK.",
+      "position_side": "For hedge-mode accounts: LONG or SHORT. Omit for one-way mode (default).",
+      "dry_run": "If true, validates via /fapi/v1/order/test without execution.",
+      "reasoning": "Why the position is being closed. Required unless BINANCE_SKIP_ASK_USER=true or dry_run=true."
+    }
+  },
+  "binance_futures_commission_rate": {
+    "desc": "Get maker and taker commission (fee) rates for a symbol. Requires BINANCE_API_KEY/SECRET. Call this when sizing an order to account for fees \u2014 typical fees are 0.02% maker / 0.04% taker on USDT-M Futures but may be lower with BNB discount or VIP tier.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required."
+    }
+  },
+  "binance_futures_modify_order": {
+    "desc": "MUTATING. Modify an existing LIMIT order's price and/or quantity via PUT /fapi/v1/order. Requires BINANCE_API_KEY/SECRET. Prompts user confirmation unless BINANCE_SKIP_ASK_USER=true. Use this to tighten SL, widen TP, or re-price a stale LIMIT without the cancel-and-replace race window. Only works for LIMIT orders \u2014 STOP / TAKE_PROFIT orders cannot be modified (cancel and replace instead).",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "side": "BUY or SELL. Required by Binance (must match the original order's side).",
+      "order_id": "Order ID to modify. Provide either this or orig_client_order_id.",
+      "orig_client_order_id": "Client order ID to modify. Provide either this or order_id.",
+      "quantity": "New quantity. Omit to keep current.",
+      "price": "New price. Omit to keep current.",
+      "reasoning": "Why the order is being modified. Required unless BINANCE_SKIP_ASK_USER=true."
+    }
+  },
+  "binance_futures_funding_rate_history": {
+    "desc": "Get historical funding rate data for a symbol. No auth required. USDT-M Futures fund every 8 hours (00:00, 08:00, 16:00 UTC); negative rates mean shorts pay longs (bullish-leaning), positive means longs pay shorts (bearish-leaning). Use this to time entries around funding events or gauge directional bias.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "limit": "Number of funding events to return. Default 100, max 1000.",
+      "start_time_ms": "Optional start time in milliseconds since epoch.",
+      "end_time_ms": "Optional end time in milliseconds since epoch."
+    }
+  },
+  "binance_futures_position_overview": {
+    "desc": "Aggregated pre-trade snapshot combining account balance, margin usage, open positions (with uPnL), and per-symbol maker/taker fees \u2014 in a single call. Requires BINANCE_API_KEY/SECRET. Ideal as the first call before sizing a new trade: gives you total free margin, current risk exposure, and fee costs in one shot. If symbol is provided, fee rate for that symbol is included.",
+    "params": {
+      "symbol": "Optional symbol (e.g. BTCUSDT) to include commission rate and focused position data."
+    }
+  },
+  "binance_futures_ta_snapshot": {
+    "desc": "Technical analysis snapshot: fetches klines and computes ATR(14), EMA(9/21/50), RSI(14), and Bollinger Bands(20, 2\u03c3) server-side. No auth required. Returns last N candles plus the indicator values for the most recent close. Saves tokens vs the LLM computing indicators from raw klines. Use ATR for SL/TP sizing (1.5\u20133\u00d7 ATR typical), EMA for trend, RSI for overbought/oversold, Bollinger for volatility envelope.",
+    "params": {
+      "symbol": "Symbol (e.g. BTCUSDT). Required.",
+      "interval": "Candle interval (e.g. 1h, 4h, 1d). Required.",
+      "limit": "Number of candles to fetch for the computation. Default 100, max 500. EMA(50) requires \u226550 candles; below 21 the snapshot returns an error.",
+      "include_candles": "If true, include the underlying klines in the response. Default false \u2014 only indicators."
+    }
+  }
+}

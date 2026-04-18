@@ -5,6 +5,8 @@ Important: If your environment also exposes tools with the same names (e.g. ask_
 
 RULE: Never ask questions or request confirmations via plain text. Always use ask_user so the user receives an interactive dialog. Plain-text questions are invisible to the user.
 
+PERFORMANCE: Prefer batch tools whenever you have 2+ items \u2014 read_multiple_files, write_multiple_files, get_multiple_file_info, path_exists_batch. Round-trip count is the dominant cost.
+
 ─── Getting started ───────────────────────────────────────────────────────────
 
 1. Call get_working_directory first to learn the OS, hostname, and current path.
@@ -90,6 +92,7 @@ grep_files notes:
 
 get_working_directory — OS, hostname, cwd (call first to orient)
 run_command           — execute shell commands (sh -c on Unix, cmd /C on Windows); use max_output_bytes to cap large output
+                        Platform note: cmd /C does NOT understand Unix syntax (`;`, heredocs, `$VAR`, single-quoted strings) — wrap in `powershell -NoProfile -Command "..."` for Windows.
 open_in_app           — open file/URL in default app
 
 <!-- group:system -->
@@ -102,3 +105,67 @@ list_processes  — running processes with CPU/memory
 get_system_info — CPU, memory, disk snapshot
 get_env         — read environment variables; specific key, filter by name, or list all
 download_file   — download a URL to a local file with streaming; prefer over http_request + write_file for binary/large files
+
+<!-- group:binance -->
+─── Binance USDT-M Futures ───────────────────────────────────────────────────
+
+Market data (no auth):
+  binance_futures_ping              — connectivity + server time skew check
+  binance_futures_exchange_info     — full symbol filters (large; prefer symbol_specs)
+  binance_futures_symbol_specs      — compact per-symbol filters: minNotional, minQty, stepSize, tickSize, maxLeverage, allowed marginTypes/orderTypes. CALL THIS BEFORE EVERY ORDER.
+  binance_futures_klines            — OHLCV candles (ascending: oldest first); intervals 1m..1M
+  binance_futures_ticker_price      — latest price (one or all symbols)
+  binance_futures_ticker_24hr       — 24h rolling stats; all-symbols mode is ideal for "what's hot today" scans
+  binance_futures_order_book        — depth (bids/asks) for slippage estimation
+  binance_futures_mark_price        — mark/index price + next funding rate
+  binance_futures_open_interest     — current open interest; history=true for trend
+  binance_futures_long_short_ratio  — top-trader / global sentiment
+  binance_futures_funding_rate_history — historical funding rates for bias/carry analysis
+  binance_futures_ta_snapshot       — one-shot EMA(9/21/50) + RSI(14) + ATR(14) + Bollinger(20,2) + latest close
+
+Account & positions (auth required):
+  binance_futures_account_info      — wallet, available margin, total uPnL, position mode
+  binance_futures_position_risk     — open positions: size, entry, mark, uPnL, leverage, liquidation
+  binance_futures_open_orders       — currently working orders
+  binance_futures_order_history     — historical orders
+  binance_futures_income_history    — realized PnL, funding, commissions
+  binance_futures_commission_rate   — per-symbol maker/taker commission rates (for accurate R:R)
+  binance_futures_position_overview — account + positions + commission + mark price in one response
+
+Account configuration (mutating, gated):
+  binance_futures_change_leverage      — set leverage per symbol (1..maxLeverage)
+  binance_futures_change_margin_type   — ISOLATED or CROSSED per symbol
+  binance_futures_change_position_mode — account-wide hedge vs one-way
+
+Trading (mutating, gated):
+  binance_futures_place_order            — single order; supports MARKET/LIMIT/STOP*/TAKE_PROFIT*/TRAILING_STOP_MARKET
+  binance_futures_place_bracket_order    — entry + stop-loss + take-profit in one call (PREFERRED)
+  binance_futures_modify_order           — amend price/quantity of a working LIMIT order
+  binance_futures_close_position         — flatten a position: auto-detects side+qty, reduceOnly MARKET/LIMIT
+  binance_futures_cancel_order           — cancel by orderId or origClientOrderId
+  binance_futures_cancel_all_open_orders — cancel all working orders for a symbol
+
+Trade entry workflow (canonical order):
+  1. position_overview            — equity, open risk, free margin, fees in one call
+  2. symbol_specs                 — minNotional, stepSize, tickSize, maxLeverage
+  3. ta_snapshot + mark_price
+     + funding_rate_history       — form thesis (trend, levels, funding bias)
+  4. order_book                   — verify slippage on intended size
+  5. place_bracket_order with
+     dry_run=true                 — validates legs via /order/test (no exec, no confirm)
+  6. place_bracket_order          — real entry; user approves; reasoning string mandatory
+  7. (later) close_position
+     or modify_order              — manage; never widen SL away from entry
+
+Strategy guidance for the AI:
+  • ALWAYS call symbol_specs before sizing — verify minNotional and step/tick precision.
+  • PREFER place_bracket_order over place_order — every position should ship with SL + TP.
+  • PREFER ISOLATED margin (limits blast radius). Use CROSSED only when explicitly needed.
+  • Sanity-check first with dryRun=true on place_order/place_bracket_order — uses /order/test, no execution, no confirmation prompt.
+  • For "what to trade today?" — combine ticker_24hr (top movers/volume), open_interest (history=true), long_short_ratio, then klines for TA on the shortlist.
+  • For "is it worth it now for X?" — combine mark_price + ticker_24hr + order_book (slippage) + klines (trend), and compute SL/TP from ATR or recent swing levels.
+  • For "trade autonomously while I sleep" — set BINANCE_SKIP_ASK_USER=true at the user's instruction; otherwise every mutating call requires browser confirmation. Even in skip mode, supply a meaningful `reasoning` for every order so the user can audit later via order_history.
+  • Mutating tools require a `reasoning` parameter — articulate signal, risk, R:R, and exit plan.
+  • On HTTP 503 "Unknown error" the order MAY have placed — never blind-retry; the tool reconciles via origClientOrderId automatically.
+  • Watch the [rate-limit] footer on responses; back off if used_weight_1m climbs.
+  • TESTNET (BINANCE_FUTURES_BASE_URL=https://testnet.binancefuture.com): STOP_MARKET / TAKE_PROFIT_MARKET / TRAILING_STOP_MARKET are NOT supported (returns -4120). Bracket orders will fail on the SL/TP legs and roll back. Validate brackets on mainnet with minimum size, or use conditional STOP / TAKE_PROFIT *limit* orders on testnet. /futures/data/* endpoints (long_short_ratio, open_interest history) return empty on testnet.

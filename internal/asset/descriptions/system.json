@@ -17,7 +17,7 @@
       "headers": "Request headers as a JSON object, e.g. {\"Authorization\": \"Bearer token\"}.",
       "body": "Request body. For JSON APIs, pass a JSON string.",
       "basic_auth": "Basic auth in \"username:password\" format.",
-      "timeout_seconds": "Request timeout in seconds. Default: 30.",
+      "timeout_seconds": "Request timeout in seconds. Default: 30. Max: 300.",
       "follow_redirects": "Follow HTTP redirects. Default: true.",
       "include_response_headers": "Include response headers in output. Default: false."
     }

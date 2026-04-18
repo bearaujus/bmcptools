@@ -164,6 +164,24 @@ function assertNotContains(name, html, substr) {
 })();
 
 (function() {
+  // Tables must be wrapped so wide content is horizontally scrollable.
+  var html = mdRender('| a | b |\n| --- | --- |\n| 1 | 2 |');
+  assertContains('table wrapped in scroll container', html, '<div class="md-table-wrap"');
+  assertContains('table copy button present', html, 'class="table-copy-btn"');
+  assertContains('table wrapper closed', html, '</table></div>');
+})();
+
+(function() {
+  // Ordered lists not starting at 1 must emit `start=` so the marker is correct
+  // even if the list gets split into multiple <ol> blocks (the "1 1 1" bug).
+  var html = mdRender('3. third\n4. fourth');
+  assertContains('ol start preserved', html, '<ol start="3">');
+  // Lists starting at 1 should NOT have a redundant start attribute.
+  var html2 = mdRender('1. one\n2. two');
+  assertNotContains('ol start=1 omitted', html2, 'start="1"');
+})();
+
+(function() {
   var html = mdRender('> quoted text');
   assertContains('blockquote', html, '<blockquote>');
   assertContains('blockquote content', html, 'quoted text');

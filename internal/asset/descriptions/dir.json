@@ -29,7 +29,7 @@
       "path": "Root directory to display",
       "max_depth": "Maximum recursion depth. Default: 3",
       "show_hidden": "Include hidden files/directories. Default: false",
-      "exclude_patterns": "Glob patterns to exclude (e.g. [\"*.log\", \"node_modules\"])",
+      "exclude_patterns": "Glob patterns to exclude. Matched against each entry's basename only (not full path), so \"node_modules\" excludes any directory named node_modules at any depth, and \"*.log\" excludes files like error.log.",
       "glob": "Only show files matching this glob pattern (e.g. *.go). Default: all files"
     }
   }

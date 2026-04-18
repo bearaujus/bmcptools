@@ -1,6 +1,6 @@
 {
   "read_file": {
-    "desc": "Read file contents. Auto-detects encoding; returns binary as base64. Supports line ranges, head/tail shortcuts, byte limits, and line numbers.",
+    "desc": "Read file contents. Text files are returned as-is (UTF-8); files containing NUL bytes or invalid UTF-8 are returned base64-encoded with a header indicating so. Supports line ranges, head/tail shortcuts, byte limits, and line numbers. Precedence when multiple narrowing params are set: ranges > head/tail > start_line/end_line.",
     "params": {
       "path": "Path to the file",
       "start_line": "First line to read (1-indexed).",
@@ -48,7 +48,7 @@
     }
   },
   "copy_file": {
-    "desc": "Copy a file. Creates parent dirs of the destination automatically.",
+    "desc": "Copy a single file (not directories). Creates parent dirs of the destination automatically. To duplicate a directory tree, use compress_files + extract_archive, or invoke this per-file.",
     "params": {
       "source": "Source file path",
       "destination": "Destination file path",
@@ -98,7 +98,7 @@
     }
   },
   "compress_files": {
-    "desc": "Compress files or directories into an archive. Supports zip and tar.gz formats. Auto-detects format from output file extension.",
+    "desc": "Compress files or directories into an archive. Supports zip and tar.gz formats. Auto-detects format from output file extension. Each input path is stored using its basename plus any subpaths (e.g. compressing /foo/bar/baz creates entries baz/..., not foo/bar/baz/...). Empty directories are skipped.",
     "params": {
       "paths": "Array of file/directory paths to include in the archive",
       "output": "Output archive path (e.g. backup.zip, archive.tar.gz)",
@@ -106,7 +106,7 @@
     }
   },
   "extract_archive": {
-    "desc": "Extract a zip or tar.gz archive to a directory. Auto-detects format from file extension.",
+    "desc": "Extract a zip or tar.gz archive to a directory. Auto-detects format from file extension. Path-traversal protected (entries that resolve outside the output dir are rejected).",
     "params": {
       "archive": "Path to the archive file (zip or tar.gz)",
       "output": "Directory to extract into. Default: current working directory.",

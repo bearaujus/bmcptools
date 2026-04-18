@@ -44,7 +44,19 @@ body{
 .header-name{font-size:14px;font-weight:700;color:var(--text);letter-spacing:-0.01em}
 .header-sub{font-size:11.5px;color:var(--text2);margin-top:1px}
 .header-sub:empty{display:none}
-.timer-area{display:flex;align-items:center;gap:6px;position:relative}
+.timer-area{display:flex;align-items:center;gap:8px;position:relative}
+.copy-msg-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;padding:0;border-radius:6px;
+  background:transparent;border:1px solid var(--border);
+  color:var(--text2);cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s,transform .08s;
+  font-family:inherit;opacity:.75;
+}
+.copy-msg-btn:hover{background:var(--chip-bg);border-color:var(--text2);color:var(--text);opacity:1}
+.copy-msg-btn:active{transform:scale(.92)}
+.copy-msg-btn.copied{background:#34c759;border-color:#34c759;color:#fff;opacity:1}
+.copy-msg-btn svg{display:block}
 .timer-badge{
   font-size:12px;font-weight:600;color:var(--text2);
   font-variant-numeric:tabular-nums;white-space:nowrap;cursor:default;
@@ -57,7 +69,7 @@ body{
   padding:4px 8px;border-radius:6px;white-space:nowrap;
   opacity:0;pointer-events:none;transition:opacity .15s;
 }
-.timer-area:hover .timer-badge::after{opacity:1}
+.timer-badge:hover::after{opacity:1}
 .timer-badge.urgent{color:#ff3b30}
 .timer-badge.paused{color:#34c759}
 .msg-area{padding:0 18px 14px}
@@ -83,13 +95,25 @@ body{
   font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;
   letter-spacing:.5px;padding:12px 18px 8px;
 }
-.chips-row{display:flex;flex-wrap:wrap;gap:7px;padding:0 18px 14px}
+.chips-row{display:flex;flex-wrap:wrap;gap:7px;padding:0 18px 14px;align-items:flex-start}
 .chip{
-  display:inline-flex;align-items:center;text-align:center;
+  display:inline-block;vertical-align:middle;
   padding:6px 13px;border-radius:14px;border:1.5px solid var(--border);
   background:var(--chip-bg);color:var(--text);cursor:pointer;font-size:13px;
   font-family:inherit;line-height:1.4;user-select:none;transition:all .15s;
+  text-align:left;max-width:100%;word-break:break-word;
 }
+/* Inline markdown inside chips renders as plain text — strip block margins
+   and keep code/strong/em rendering visually consistent with chip body. */
+.chip>*{margin:0}
+.chip code{
+  background:rgba(0,122,255,.10);color:inherit;
+  padding:1px 5px;border-radius:4px;font-size:.92em;
+}
+.chip:hover code{background:rgba(0,122,255,.18)}
+.chip.sel code{background:rgba(255,255,255,.22);color:#fff}
+.chip a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+.chip strong{font-weight:600}
 .chip:hover{border-color:#007aff;background:var(--chip-hover);color:#007aff}
 .chip.sel{background:#007aff;border-color:#007aff;color:#fff;font-weight:500}
 /* ── Reply card ── */
@@ -109,10 +133,10 @@ body{
 .reply-tab.active{color:var(--text);border-bottom-color:#007aff;}
 .reply-tab:hover:not(.active){color:var(--text);}
 textarea{
-  width:100%;min-height:90px;height:auto;
+  width:100%;min-height:90px;max-height:40vh;height:auto;
   border:none;padding:10px 16px 12px;
   font:14px/1.55 -apple-system,sans-serif;color:var(--text);
-  resize:none;outline:none;background:transparent;overflow:hidden;
+  resize:none;outline:none;background:transparent;overflow-y:auto;
 }
 textarea::placeholder{color:var(--text3)}
 .md-preview{
@@ -133,11 +157,25 @@ textarea::placeholder{color:var(--text3)}
   padding:8px 16px;border-radius:9px;border:none;cursor:pointer;
   font-size:13px;font-weight:500;font-family:inherit;line-height:1;transition:all .15s;
 }
-.btn-dismiss{background:var(--dismiss-bg);color:var(--dismiss-fg)}
+.btn-dismiss{background:var(--dismiss-bg);color:var(--dismiss-fg);min-width:104px;white-space:nowrap}
 .btn-dismiss:hover{opacity:.7}
-.btn-send{background:#007aff;color:#fff;padding:8px 20px}
+.btn-send{background:#007aff;color:#fff;padding:8px 20px;min-width:170px;white-space:nowrap}
 .btn-send:not(:disabled):hover{background:#0066d6}
 .btn-send:disabled{opacity:.35;cursor:not-allowed}
+/* Double-tap confirm state — both Send and No-Reply require two activations
+ * within ~3 s (mouse clicks or keyboard Enter on a focused button) so the
+ * user can never fire either action by a single accidental press. */
+.btn.confirming{
+  background:#ff9500;border-color:#ff9500;color:#fff;
+  animation:confirm-pulse 1s ease-in-out infinite;
+}
+.btn-dismiss.confirming{background:#ff9500;border-color:#ff9500;color:#fff}
+.btn-send.confirming{background:#ff9500}
+.btn-send.confirming:not(:disabled):hover{background:#e68600}
+@keyframes confirm-pulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,149,0,.45)}
+  50%{box-shadow:0 0 0 6px rgba(255,149,0,0)}
+}
 /* ── Progress bar ── */
 .progress{height:3px;background:var(--border);overflow:hidden}
 .progress-fill{
@@ -166,7 +204,15 @@ textarea::placeholder{color:var(--text3)}
   display:inline-block;background:#007aff;color:#fff;
   padding:4px 12px;border-radius:12px;
   font-size:13px;font-weight:500;margin-bottom:8px;
+  max-width:100%;word-break:break-word;
 }
+.ur-chip-badge>*{margin:0}
+.ur-chip-badge code{
+  background:rgba(255,255,255,.22);color:#fff;
+  padding:1px 5px;border-radius:4px;font-size:.92em;
+}
+.ur-chip-badge a{color:#fff;text-decoration:underline}
+.ur-chip-badge strong{font-weight:700}
 .ur-notes{font-size:14px;line-height:1.6;color:var(--text);word-break:break-word}
 .ur-dismissed{font-size:14px;color:var(--text3);font-style:italic}
 .ur-footer{
@@ -217,6 +263,9 @@ textarea::placeholder{color:var(--text3)}
       <div class="header-sub">[[SUBTITLE]]</div>
     </div>
     <div class="timer-area">
+      <button class="copy-msg-btn" id="copyMsgBtn" onclick="copyResponse(this)" title="Copy entire AI message as markdown">
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M5.75 1A1.75 1.75 0 0 0 4 2.75v9.5C4 13.216 4.784 14 5.75 14h7.5A1.75 1.75 0 0 0 15 12.25v-9.5A1.75 1.75 0 0 0 13.25 1h-7.5zm-.25 1.75a.25.25 0 0 1 .25-.25h7.5a.25.25 0 0 1 .25.25v9.5a.25.25 0 0 1-.25.25h-7.5a.25.25 0 0 1-.25-.25v-9.5z"/><path fill="currentColor" d="M2.5 5.5A.75.75 0 0 0 1.75 6.25v7A1.75 1.75 0 0 0 3.5 15h7a.75.75 0 0 0 0-1.5h-7a.25.25 0 0 1-.25-.25v-7a.75.75 0 0 0-.75-.75z"/></svg>
+      </button>
       <div class="timer-badge" id="tbadge"></div>
     </div>
   </div>
@@ -243,8 +292,8 @@ textarea::placeholder{color:var(--text3)}
       <div class="char-count" id="charCount"></div>
     </div>
     <div class="actions">
-      <button class="btn btn-dismiss" onclick="done(null)" title="Close without sending a reply">No Reply</button>
-      <button class="btn btn-send" id="sendBtn" onclick="sendAnswer()" disabled>Send Reply &#x2192;</button>
+      <button class="btn btn-dismiss" id="dismissBtn" onclick="confirmDismiss()" title="Close without sending a reply">No Reply</button>
+      <button class="btn btn-send" id="sendBtn" onclick="confirmSend()" disabled>Send Reply &#x2192;</button>
     </div>
   </div>
   <div class="progress"><div class="progress-fill" id="pfill" style="width:100%"></div></div>
@@ -255,6 +304,17 @@ textarea::placeholder{color:var(--text3)}
 <script>
 var QUESTION_RAW = [[QUESTION_JSON]];
 var DETAILS_RAW = [[DETAILS_JSON]];
+
+// mdInline renders short inline-flavoured markdown (bold/italic/code/links)
+// without wrapping in a paragraph. Used for chips and chip badges where
+// the surrounding element supplies its own block-level layout.
+function mdInline(raw){
+  if(!raw) return '';
+  var html = mdRender(raw).trim();
+  var m = html.match(/^<p>([\s\S]*)<\/p>$/);
+  return m ? m[1] : html;
+}
+
 // Render the AI question bubble and details as markdown.
 (function(){
   var b=document.getElementById('questionBubble');
@@ -263,6 +323,15 @@ var DETAILS_RAW = [[DETAILS_JSON]];
     var d=document.getElementById('detailsBody');
     if(d){d.innerHTML=mdRender(DETAILS_RAW);}
   }
+  // Render inline markdown inside chip buttons. Server stamps raw markdown
+  // into data-md (URI-encoded); we decode and pass through mdInline so chip
+  // labels can show **bold**, `code`, [links](...), etc.
+  document.querySelectorAll('.chip[data-md]').forEach(function(c){
+    try{
+      var raw = decodeURIComponent(c.getAttribute('data-md'));
+      c.innerHTML = mdInline(raw);
+    }catch(e){}
+  });
 })();
 
 var total=[[TIMEOUT_SEC]],rem=total,selIdx=-1,selVal='',allowFreeform=[[ALLOW_FREEFORM]],dialogDone=false;
@@ -326,7 +395,94 @@ function sendAnswer(){
   done({choice:selVal,notes:notes});
 }
 
+// Two-step confirmation guards both Send and No-Reply so a stray click or
+// Enter press can never fire the action. The button enters a pulsing orange
+// "Press again to confirm" state for 3 s; second activation fires; otherwise
+// it auto-reverts. Edge cases handled:
+//   - Activating a different confirm button cancels the previous one.
+//   - Any click / keydown / focus outside the confirming button cancels it.
+//   - Window blur (tab switch) cancels all pending confirms.
+var _pendingConfirm = {};
+function _resetConfirm(btnId){
+  var p = _pendingConfirm[btnId];
+  if(!p) return;
+  clearTimeout(p.timer);
+  var btn = document.getElementById(btnId);
+  if(btn){ btn.innerHTML = p.original; btn.classList.remove('confirming'); }
+  delete _pendingConfirm[btnId];
+}
+function _resetAllConfirms(){
+  for(var k in _pendingConfirm){ if(_pendingConfirm.hasOwnProperty(k)) _resetConfirm(k); }
+}
+function requireDoubleConfirm(btnId, action, confirmLabel){
+  var btn = document.getElementById(btnId);
+  if(!btn || btn.disabled) return;
+  if(_pendingConfirm[btnId]){
+    _resetConfirm(btnId);
+    action();
+    return;
+  }
+  // Cancel any other button mid-confirm so only one is ever pulsing.
+  _resetAllConfirms();
+  var original = btn.innerHTML;
+  btn.innerHTML = confirmLabel;
+  btn.classList.add('confirming');
+  _pendingConfirm[btnId] = {
+    original: original,
+    timer: setTimeout(function(){ _resetConfirm(btnId); }, 3000)
+  };
+}
+function confirmSend(){
+  requireDoubleConfirm('sendBtn', sendAnswer, 'Press again to send');
+}
+function confirmDismiss(){
+  requireDoubleConfirm('dismissBtn', function(){ done(null); }, 'Press again to dismiss');
+}
+// Cancel a pending confirm whenever the user interacts elsewhere — clicking
+// outside the buttons, typing in the textarea, switching tabs, etc.
+document.addEventListener('mousedown', function(e){
+  var t = e.target;
+  while(t && t !== document){
+    if(t.id === 'sendBtn' || t.id === 'dismissBtn') return;
+    t = t.parentNode;
+  }
+  _resetAllConfirms();
+}, true);
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){ _resetAllConfirms(); return; }
+  var a = document.activeElement;
+  if(a && (a.id === 'sendBtn' || a.id === 'dismissBtn')) return;
+  if(e.key === 'Enter' && a && a.id === 'ans') return; // textarea Enter handler reroutes
+  // Any other key on a non-button focus → cancel pending confirms.
+  if(Object.keys(_pendingConfirm).length){
+    if(a && a.tagName !== 'BUTTON') _resetAllConfirms();
+  }
+}, true);
+window.addEventListener('blur', _resetAllConfirms);
+
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// Copy the entire AI message (question + details) as raw markdown.
+function copyResponse(btn){
+  var parts=[];
+  if(typeof QUESTION_RAW==='string'&&QUESTION_RAW.trim())parts.push(QUESTION_RAW.trim());
+  if(typeof DETAILS_RAW==='string'&&DETAILS_RAW.trim())parts.push(DETAILS_RAW.trim());
+  var text=parts.join('\n\n---\n\n');
+  function flash(){
+    btn.classList.add('copied');
+    setTimeout(function(){btn.classList.remove('copied');},1500);
+  }
+  function fallback(){
+    var ta=document.createElement('textarea');
+    ta.value=text;ta.style.cssText='position:fixed;opacity:0';
+    document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');flash();}catch(e){}
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard&&window.isSecureContext){
+    navigator.clipboard.writeText(text).then(flash).catch(fallback);
+  } else { fallback(); }
+}
 
 function done(payload){
   dialogDone=true;
@@ -373,7 +529,7 @@ function done(payload){
   rc.style.display='block';
 
   var chipHtml='';
-  if(payload&&payload.choice){chipHtml='<div><span class="ur-chip-badge">'+escHtml(payload.choice)+'</span></div>';}
+  if(payload&&payload.choice){chipHtml='<div><span class="ur-chip-badge">'+mdInline(payload.choice)+'</span></div>';}
   var notesHtml='';
   if(payload&&payload.notes&&payload.notes.trim()){notesHtml='<div class="ur-notes md-body">'+mdRender(payload.notes.trim())+'</div>';}
   var bodyContent=isDismissed?'<div class="ur-dismissed">No reply was sent</div>':chipHtml+notesHtml;
@@ -385,16 +541,49 @@ function done(payload){
       '<span>Sending reply\u2026</span>'+
     '</div>';
 
+  // Stash the raw reply so the copy button can grab it (chip badge + notes
+  // joined as markdown). Skipped when dismissed — nothing meaningful to copy.
+  var copyBtnHtml='';
+  if(!isDismissed){
+    var replyParts=[];
+    if(payload&&payload.choice)replyParts.push(payload.choice);
+    if(payload&&payload.notes&&payload.notes.trim())replyParts.push(payload.notes.trim());
+    window.__USER_REPLY_RAW__=replyParts.join('\n\n');
+    copyBtnHtml='<button class="copy-msg-btn" id="copyReplyBtn" onclick="copyReply(this)" title="Copy your reply as markdown">'+
+      '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M5.75 1A1.75 1.75 0 0 0 4 2.75v9.5C4 13.216 4.784 14 5.75 14h7.5A1.75 1.75 0 0 0 15 12.25v-9.5A1.75 1.75 0 0 0 13.25 1h-7.5zm-.25 1.75a.25.25 0 0 1 .25-.25h7.5a.25.25 0 0 1 .25.25v9.5a.25.25 0 0 1-.25.25h-7.5a.25.25 0 0 1-.25-.25v-9.5z"/><path fill="currentColor" d="M2.5 5.5A.75.75 0 0 0 1.75 6.25v7A1.75 1.75 0 0 0 3.5 15h7a.75.75 0 0 0 0-1.5h-7a.25.25 0 0 1-.25-.25v-7a.75.75 0 0 0-.75-.75z"/></svg>'+
+      '</button>';
+  }
+
   rc.innerHTML=
     '<div class="ur-header">'+
       '<div class="ur-avatar"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>'+
       '<div class="ur-info"><div class="ur-name">You</div><div class="ur-sublabel">'+sublabel+'</div></div>'+
+      copyBtnHtml+
     '</div>'+
     '<div class="ur-body">'+bodyContent+'</div>'+
     '<div class="ur-footer">'+
       processingHtml+
       '<button class="btn-close-tab" onclick="window.close()">Close tab <kbd>'+escHtml(closeKey)+'</kbd></button>'+
     '</div>';
+}
+
+// Copy the user's submitted reply (chip + notes) as markdown.
+function copyReply(btn){
+  var text=window.__USER_REPLY_RAW__||'';
+  function flash(){
+    btn.classList.add('copied');
+    setTimeout(function(){btn.classList.remove('copied');},1500);
+  }
+  function fallback(){
+    var ta=document.createElement('textarea');
+    ta.value=text;ta.style.cssText='position:fixed;opacity:0';
+    document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');flash();}catch(e){}
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard&&window.isSecureContext){
+    navigator.clipboard.writeText(text).then(flash).catch(fallback);
+  } else { fallback(); }
 }
 
 // Write / Preview tab toggle for the freeform reply textarea.
@@ -419,9 +608,24 @@ function switchTab(tab){
 
 var ta=document.getElementById('ans');
 var charCountEl=document.getElementById('charCount');
+// Cap auto-grow at 40% of viewport so the page doesn't scroll on every
+// keystroke once the reply gets long. Beyond the cap, the textarea scrolls
+// internally — the cursor stays put and the page layout doesn't shift.
+var TA_MAX_PX = function(){return Math.floor(window.innerHeight * 0.40);};
+var taOverflowed=false;
 ta.addEventListener('input',function(){
   this.style.height='auto';
-  this.style.height=this.scrollHeight+'px';
+  var maxPx=TA_MAX_PX();
+  var target=Math.min(this.scrollHeight, maxPx);
+  this.style.height=target+'px';
+  // First time we hit the cap, scroll the reply card into view so the user
+  // can see what they're typing. After that, leave the page scroll alone.
+  if(this.scrollHeight>maxPx && !taOverflowed){
+    taOverflowed=true;
+    document.getElementById('replyCard').scrollIntoView({block:'end',behavior:'smooth'});
+  } else if(this.scrollHeight<=maxPx){
+    taOverflowed=false;
+  }
   updateSend();
   // Update character counter
   var len=this.value.length;
@@ -448,7 +652,7 @@ ta.addEventListener('input',function(){
 ta.addEventListener('keydown',function(e){
   if(e.key==='Enter'&&!e.shiftKey&&!e.metaKey&&!e.ctrlKey&&!document.getElementById('sendBtn').disabled){
     e.preventDefault();
-    sendAnswer();
+    confirmSend();
   }
 });
 ta.focus();
@@ -457,7 +661,7 @@ ta.focus();
 (function(){
   var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
   var el=document.getElementById('kbHint');
-  if(el)el.textContent='↩ send  ·  ⇧↩ new line';
+  if(el)el.textContent='↩ tap twice to send  ·  ⇧↩ new line';
 })();
 
 // When freeform is disabled, hide the reply card — chips submit directly.

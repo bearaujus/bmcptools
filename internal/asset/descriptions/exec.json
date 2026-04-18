@@ -4,9 +4,9 @@
     "params": {}
   },
   "run_command": {
-    "desc": "Execute a shell command and return combined stdout+stderr. Runs via sh -c on Unix, cmd /C on Windows. Timeout default: 60 s, max: 600 s. Use max_output_bytes to cap large output and avoid flooding the context.",
+    "desc": "Execute a shell command and return combined stdout+stderr. Runs via sh -c on Unix, cmd /C on Windows. IMPORTANT: cmd /C does NOT understand Unix syntax — `||` works but `;`, heredocs, single-quote strings, and `$VAR` expansion do not; for Unix-style scripting on Windows invoke `powershell -NoProfile -Command \"...\"` or `bash -c \"...\"` (if available). Timeout default: 60 s, max: 600 s. Use max_output_bytes to cap large output and avoid flooding the context.",
     "params": {
-      "command": "Command to run (via sh -c on Unix, cmd /C on Windows)",
+      "command": "Command string to execute. Chain with && / ; / | as needed. Quote arguments containing spaces.",
       "cwd": "Working directory. Defaults to server's working directory.",
       "timeout_seconds": "Seconds before killing the command. Default: 60, max: 600.",
       "env": "Extra environment variables as [\"KEY=value\", ...]. Merged with current env.",
@@ -25,7 +25,7 @@
     }
   },
   "get_env": {
-    "desc": "Read environment variables. Without arguments, returns all environment variables. With a key, returns that specific variable's value. With a filter, returns all variables whose names contain the filter string (case-insensitive).",
+    "desc": "Read environment variables. With a key, returns that specific variable's value. With a filter, returns all variables whose names contain the filter string (case-insensitive). Without arguments, returns ALL environment variables — avoid this unless necessary, as it can leak secrets into the conversation and floods context (typically 100+ vars). Prefer key or filter.",
     "params": {
       "key": "Exact environment variable name to read. Returns just its value.",
       "filter": "Case-insensitive substring to filter variable names. Returns all matching KEY=value pairs."

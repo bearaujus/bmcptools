@@ -1,6 +1,6 @@
 # bmcptools
 
-> An MCP server that exposes **41 developer tools** to any MCP-compatible LLM client — file I/O, shell execution, search, system info, and interactive user dialogs.
+> An MCP server that exposes **69 developer tools** to any MCP-compatible LLM client — file I/O, shell execution, search, system info, and interactive user dialogs.
 
 [![Go](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/bearaujus/bmcptools)](https://github.com/bearaujus/bmcptools/releases)
@@ -9,7 +9,9 @@ Communication happens over **stdio** using the [`mark3labs/mcp-go`](https://gith
 
 ### Why bmcptools?
 
-- **41 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, and user interaction
+- **69 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, user interaction, and Binance USDT-M Futures trading
+  Disable any tool group you don't need with `--disable=binance,user,...` (see [Disabling tool groups](#disabling-tool-groups)).
+- **Binance USDT-M Futures** — market data, account/position queries, leverage/margin config, and gated trading (single + bracket orders) with browser-confirm dialogs and AI-supplied `reasoning`
 - **Built-in server instructions** — the AI receives a categorized guide on when and how to use each tool
 - **Interactive dialogs** — `ask_user` opens a browser dialog with choices, markdown, live updates, and typing indicators
 - **Cross-platform** — macOS, Windows, and Linux (user dialogs require macOS/Windows; `notify_user` works everywhere)
@@ -39,6 +41,36 @@ Grab a pre-built binary from the [Releases](https://github.com/bearaujus/bmcptoo
 ```
 
 **Cursor / Copilot / other clients** — point the `command` field at the same binary path.
+
+### Disabling tool groups
+
+Don't need every group? Pass `--disable=GROUPS` (CSV) when launching the binary, or set the `BMCPTOOLS_DISABLE` env var. The flag wins when both are set.
+
+```bash
+# Drop Binance and the interactive user prompts
+bmcptools --disable=binance,user
+
+# Same via env (handy in MCP client configs)
+BMCPTOOLS_DISABLE=binance bmcptools
+
+# List valid group names
+bmcptools --list-groups
+```
+
+Available groups: `user, file, multi, dir, search, exec, system, binance`. The server instructions sent to the LLM are auto-trimmed to match — disabled sections are removed so the model isn't told about tools it can't see.
+
+For Claude Desktop / Cursor configs:
+
+```json
+{
+  "mcpServers": {
+    "bmcptools": {
+      "command": "/absolute/path/to/bmcptools",
+      "args": ["--disable=binance"]
+    }
+  }
+}
+```
 
 ---
 
@@ -115,6 +147,81 @@ Grab a pre-built binary from the [Releases](https://github.com/bearaujus/bmcptoo
 | `clipboard_write` | Write to system clipboard. |
 | `download_file` | Download a file from a URL to a local path. Streaming (no memory buffering). Auto-creates parent dirs. |
 
+### Binance USDT-M Futures tools (28)
+
+Lets an MCP-connected LLM analyze the market and execute leveraged trades on Binance USDT-M Futures (`fapi.binance.com`). Read-only market-data tools work without credentials; account/config/trading tools require API key + secret. Mutating tools open a browser confirm dialog (via `pkg/confirm`) and require the AI to pass a `reasoning` string. Set `BINANCE_SKIP_ASK_USER=true` for full autonomy.
+
+**Environment variables**
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `BINANCE_API_KEY` | for auth tools | — | API key |
+| `BINANCE_API_SECRET` | for auth tools | — | API secret (HMAC-SHA256 signing) |
+| `BINANCE_FUTURES_BASE_URL` | no | `https://fapi.binance.com` | Override base URL (e.g. `https://testnet.binancefuture.com` for testnet) |
+| `BINANCE_SKIP_ASK_USER` | no | `false` | Skip the confirm dialog on every mutating call |
+| `BINANCE_RECV_WINDOW_MS` | no | `5000` | `recvWindow` for signed requests (max 60 000) |
+
+**Market data — no auth (12)**
+
+| Tool | Description |
+|------|-------------|
+| `binance_futures_ping` | Connectivity + server time skew check. |
+| `binance_futures_exchange_info` | Full exchange filters (large; prefer `symbol_specs`). |
+| `binance_futures_symbol_specs` | Compact per-symbol filters: `minNotional`, `minQty`, `stepSize`, `tickSize`, `maxLeverage`, allowed margin/order types. **Call before every order.** |
+| `binance_futures_klines` | OHLCV candles (ascending order). Intervals `1m`..`1M`. |
+| `binance_futures_ticker_price` | Latest price for one or all symbols. |
+| `binance_futures_ticker_24hr` | 24h rolling stats (volume, change %). |
+| `binance_futures_order_book` | Depth (bids/asks) for slippage estimation. |
+| `binance_futures_mark_price` | Mark/index price + next funding rate + funding time. |
+| `binance_futures_open_interest` | Current open interest; `history=true` for trend. |
+| `binance_futures_long_short_ratio` | Top-trader / global sentiment. |
+| `binance_futures_funding_rate_history` | Historical funding rate series for a symbol (bias / carry analysis). |
+| `binance_futures_ta_snapshot` | One-shot technical-analysis snapshot: EMA(9/21/50), RSI(14), ATR(14), Bollinger(20,2), latest close — ready for the AI to reason over. |
+
+**Account & positions — auth required (7)**
+
+| Tool | Description |
+|------|-------------|
+| `binance_futures_account_info` | Wallet, available margin, total uPnL, position mode. |
+| `binance_futures_position_risk` | Open positions: size, entry, mark, uPnL, leverage, liquidation. |
+| `binance_futures_open_orders` | Currently working orders. |
+| `binance_futures_order_history` | Historical orders (filled / canceled / expired). |
+| `binance_futures_income_history` | Realized PnL, funding fees, commissions. |
+| `binance_futures_commission_rate` | Per-symbol maker/taker commission rates (for accurate R:R math). |
+| `binance_futures_position_overview` | Account + positions + commission + mark price stitched into one response (ideal for "where do I stand right now?"). |
+
+**Account configuration — mutating, gated (3)**
+
+| Tool | Description |
+|------|-------------|
+| `binance_futures_change_leverage` | Set leverage per symbol (1..maxLeverage). |
+| `binance_futures_change_margin_type` | `ISOLATED` or `CROSSED` per symbol. |
+| `binance_futures_change_position_mode` | Account-wide hedge vs one-way. |
+
+**Trading — mutating, gated (6)**
+
+| Tool | Description |
+|------|-------------|
+| `binance_futures_place_order` | Single order (`MARKET` / `LIMIT` / `STOP*` / `TAKE_PROFIT*` / `TRAILING_STOP_MARKET`). Idempotent via auto-generated `newClientOrderId`. Supports `dryRun=true` (uses `/order/test`). |
+| `binance_futures_place_bracket_order` | **Preferred entry point** — entry + stop-loss + take-profit in one batch call. Validates SL/TP sides client-side. `onPartialFailure`: `rollback` (default) or `warn`. |
+| `binance_futures_modify_order` | Amend price/quantity of a working LIMIT order (`PUT /fapi/v1/order`). |
+| `binance_futures_close_position` | Flatten an open position by auto-detecting side + quantity from `position_risk`, then placing a reduceOnly MARKET (or LIMIT) order. |
+| `binance_futures_cancel_order` | Cancel by `orderId` or `origClientOrderId`. |
+| `binance_futures_cancel_all_open_orders` | Cancel all working orders for a symbol. |
+
+**Safety model**
+
+- Mutating tools build a markdown trade brief (mark price, free margin, current positions, est. notional, SL/TP %, R:R, AI `reasoning`) and require user **Approve** in a browser dialog.
+- Auto time-sync against `/fapi/v1/time` (`-1021` triggers re-sync + retry).
+- HTTP 503 *Unknown error* on order placement is **never blind-retried** — the tool reconciles via `origClientOrderId` before reporting success or asking the user to verify.
+- Every response includes a `[rate-limit] used_weight_1m=… order_count_1m=…` footer so the AI can self-throttle.
+
+**Testnet caveats**
+
+- Base URL: `https://testnet.binancefuture.com`.
+- `STOP_MARKET`, `TAKE_PROFIT_MARKET`, and `TRAILING_STOP_MARKET` are **not supported** on Futures testnet (returns `-4120`). As a result, `place_bracket_order` cannot fully execute on testnet — the entry leg places fine, but the SL / TP legs will fail and the tool will roll back. Use mainnet (with the smallest allowed notional) to validate brackets end-to-end, or simulate SL/TP with conditional `STOP` / `TAKE_PROFIT` *limit* orders on testnet.
+- `/futures/data/*` (long/short ratio, open-interest history) returns HTTP 202 with empty body on testnet — this is a testnet limitation, not a tool bug.
+
 ---
 
 ## Development
@@ -168,7 +275,8 @@ bmcptools/                     ← public API (server.go, registrar.go, toolname
         ├── multi/             ← multi-file tools
         ├── search/            ← search & grep tools
         ├── system/            ← system info, HTTP, clipboard, processes
-        └── user/              ← interactive UI tools (ask, notify, rest)
+        ├── user/              ← interactive UI tools (ask, notify, rest)
+        └── binance/           ← Binance USDT-M Futures (market data + signed trading)
 ```
 
 ### Embedding bmcptools in another MCP server
@@ -197,6 +305,23 @@ bmcptools.Register(s, bmcptools.WithExcludeTools(
     toolname.CompressFiles,
     toolname.ExtractArchive,
     toolname.CreateSymlink,
+))
+```
+
+#### Disable whole tool groups
+
+```go
+// Skip Binance + interactive user-dialog tools entirely.
+// ServerInstructionsExcludingGroups trims the AI prompt to match.
+s := server.NewMCPServer(bmcptools.ServerName, bmcptools.Version,
+    server.WithInstructions(bmcptools.ServerInstructionsExcludingGroups(
+        bmcptools.GroupBinance, bmcptools.GroupUser,
+    )),
+)
+
+bmcptools.Register(s, bmcptools.WithDisableGroups(
+    bmcptools.GroupBinance,
+    bmcptools.GroupUser,
 ))
 ```
 
@@ -241,7 +366,7 @@ Each `internal/tool/<name>/` package exports a single `Register(s toolreg.ToolRe
 
 ### Previewing browser UI templates (macOS/Windows)
 
-The browser-based tools (`ask_user`, `rest`) use embedded HTML templates under `internal/asset/html/`. To preview them locally without running the full MCP server:
+The browser-based tools (`ask_user`, `rest`) and the destructive-operation `confirm` dialog use embedded HTML templates under `internal/asset/html/`. To preview them locally without running the full MCP server:
 
 ```sh
 # Preview all pages (opens in your default browser)
@@ -250,6 +375,7 @@ go run ./scripts/preview
 # Preview a specific page
 go run ./scripts/preview dialog
 go run ./scripts/preview rest
+go run ./scripts/preview confirm
 ```
 
 ### CI/CD

@@ -127,8 +127,14 @@ function mdRender(raw) {
     var wrapClass = 'code-wrap' + (needsCollapse ? ' collapsed' : '');
     blocks.push(
       '<div class="' + wrapClass + '">' +
+      '<div class="code-head">' +
+        '<span class="code-lang">' + (lang ? lang : 'text') + '</span>' +
+        '<button class="copy-btn" onclick="copyCode(this)" title="Copy code">' +
+          '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M5.75 1A1.75 1.75 0 0 0 4 2.75v9.5C4 13.216 4.784 14 5.75 14h7.5A1.75 1.75 0 0 0 15 12.25v-9.5A1.75 1.75 0 0 0 13.25 1h-7.5zm-.25 1.75a.25.25 0 0 1 .25-.25h7.5a.25.25 0 0 1 .25.25v9.5a.25.25 0 0 1-.25.25h-7.5a.25.25 0 0 1-.25-.25v-9.5z"/><path fill="currentColor" d="M2.5 5.5A.75.75 0 0 0 1.75 6.25v7A1.75 1.75 0 0 0 3.5 15h7a.75.75 0 0 0 0-1.5h-7a.25.25 0 0 1-.25-.25v-7a.75.75 0 0 0-.75-.75z"/></svg>' +
+          '<span class="copy-label">Copy</span>' +
+        '</button>' +
+      '</div>' +
       '<pre>' +
-      '<button class="copy-btn" onclick="copyCode(this)">Copy</button>' +
       '<code>' + numbered + '</code>' +
       '</pre>' +
       (needsCollapse ? '<button class="expand-btn" onclick="toggleCode(this)" data-total="' + lines.length + '" data-hidden="' + (lines.length - COLLAPSE_LINES) + '">▶ Show ' + (lines.length - COLLAPSE_LINES) + ' more lines</button>' : '') +
@@ -136,6 +142,18 @@ function mdRender(raw) {
     );
     return pre + '\x00BLOCK' + idx + '\x00';
   });
+
+  // Pre-capture raw table source BEFORE any transforms so the copy button
+  // yields real markdown. Iterates the same regex used by the renderer below
+  // in the same order, so indices line up.
+  var rawTables = [];
+  (function() {
+    var re = /((?:^\|.+\|[ \t]*\n?)+)/gm;
+    var m;
+    while ((m = re.exec(s)) !== null) {
+      rawTables.push(m[1].trim());
+    }
+  })();
 
   // Now HTML-escape the rest
   s = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -163,10 +181,14 @@ function mdRender(raw) {
       return '<li>' + x.replace(/^[ \t]*[-*] /, '') + '</li>';
     }).join('') + '</ul>';
   });
-  // Ordered lists
+  // Ordered lists — capture the starting number so split lists keep counting
+  // correctly. (Without `start`, blank lines between items create separate
+  // <ol> blocks that all restart at 1, causing "1 1 1".)
   s = s.replace(/((?:^[ \t]*\d+\. .+\n?)+)/gm, function(b) {
     var items = b.match(/^[ \t]*\d+\. (.+)$/gm) || [];
-    return '<ol>' + items.map(function(x) {
+    var firstNum = (b.match(/^[ \t]*(\d+)\. /) || [0, '1'])[1];
+    var startAttr = firstNum === '1' ? '' : ' start="' + firstNum + '"';
+    return '<ol' + startAttr + '>' + items.map(function(x) {
       return '<li>' + x.replace(/^[ \t]*\d+\. /, '') + '</li>';
     }).join('') + '</ol>';
   });
@@ -185,7 +207,13 @@ function mdRender(raw) {
     if (parts.length && !parts[parts.length-1].trim()) parts.pop();
     return parts.map(function(c){return c.replace(/\x01/g, '|').trim();});
   }
+  // Pre-capture raw table source BEFORE inline transforms have rewritten cell
+  // contents into HTML — so the copy button can yield real markdown, not
+  // half-rendered HTML. Iterates the same regex over the same string in the
+  // same order as the renderer pass below, so indices line up.
+  var tableIdx = 0;
   s = s.replace(/((?:^\|.+\|[ \t]*\n?)+)/gm, function(block) {
+    var rawSource = rawTables[tableIdx++] || block.trim();
     var rows = block.trim().split('\n');
     if (rows.length < 2) return block;
     // Check if second row is a separator (e.g. |---|---|)
@@ -198,7 +226,15 @@ function mdRender(raw) {
       if (c[c.length-1]===':') return 'right';
       return 'left';
     });
-    var html = '<table>';
+    var html = '<div class="md-table-frame" data-md="'+encodeURIComponent(rawSource)+'">'+
+      '<div class="md-table-head">'+
+        '<span class="md-table-label">table</span>'+
+        '<button class="table-copy-btn" type="button" onclick="copyTable(this)" title="Copy table as markdown" aria-label="Copy table">'+
+          '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M5.75 1A1.75 1.75 0 0 0 4 2.75v9.5C4 13.216 4.784 14 5.75 14h7.5A1.75 1.75 0 0 0 15 12.25v-9.5A1.75 1.75 0 0 0 13.25 1h-7.5zm-.25 1.75a.25.25 0 0 1 .25-.25h7.5a.25.25 0 0 1 .25.25v9.5a.25.25 0 0 1-.25.25h-7.5a.25.25 0 0 1-.25-.25v-9.5z"/><path fill="currentColor" d="M2.5 5.5A.75.75 0 0 0 1.75 6.25v7A1.75 1.75 0 0 0 3.5 15h7a.75.75 0 0 0 0-1.5h-7a.25.25 0 0 1-.25-.25v-7a.75.75 0 0 0-.75-.75z"/></svg>'+
+          '<span class="copy-label">Copy</span>'+
+        '</button>'+
+      '</div>'+
+      '<div class="md-table-wrap"><table>';
     // Header
     var hCells = splitCells(rows[0]);
     html += '<thead><tr>';
@@ -218,7 +254,7 @@ function mdRender(raw) {
       }
       html += '</tr>';
     }
-    html += '</tbody></table>';
+    html += '</tbody></table></div></div>';
     return html;
   });
   // Paragraphs
@@ -235,8 +271,38 @@ function mdRender(raw) {
 
 // ── Copy button handler ──────────────────────────────────────────────────────
 
+// ── Copy button handler ──────────────────────────────────────────────────────
+
+function copyTable(btn) {
+  var frame = btn.closest('.md-table-frame') || btn.closest('.md-table-wrap');
+  var raw = frame ? frame.getAttribute('data-md') : '';
+  try { raw = decodeURIComponent(raw || ''); } catch(e) { raw = raw || ''; }
+  var text = raw;
+  function flash() {
+    var label = btn.querySelector('.copy-label');
+    if (label) { label.textContent = 'Copied!'; }
+    btn.classList.add('copied');
+    setTimeout(function(){
+      var l = btn.querySelector('.copy-label');
+      if (l) { l.textContent = 'Copy'; }
+      btn.classList.remove('copied');
+    }, 1500);
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(flash).catch(fallback);
+  } else { fallback(); }
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); flash(); } catch(e) {}
+    document.body.removeChild(ta);
+  }
+}
+
 function copyCode(btn) {
-  var codeEl = btn.nextElementSibling;
+  var wrap = btn.closest('.code-wrap');
+  var codeEl = wrap ? wrap.querySelector('pre code') : btn.nextElementSibling;
   // Extract text without line numbers
   var lines = codeEl ? codeEl.querySelectorAll('.code-line') : [];
   var text = '';
@@ -254,9 +320,19 @@ function copyCode(btn) {
     text = codeEl ? codeEl.textContent : '';
   }
   function flash() {
-    btn.textContent = 'Copied!';
+    var label = btn.querySelector('.copy-label');
+    if (label) {
+      label.textContent = 'Copied!';
+    } else {
+      btn.textContent = 'Copied!';
+    }
     btn.classList.add('copied');
-    setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    setTimeout(function() {
+      var l = btn.querySelector('.copy-label');
+      if (l) { l.textContent = 'Copy'; }
+      else { btn.textContent = 'Copy'; }
+      btn.classList.remove('copied');
+    }, 2000);
   }
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(text).then(flash).catch(fallback);
@@ -289,6 +365,7 @@ function toggleCode(btn) {
 
 global.mdRender = mdRender;
 global.copyCode = copyCode;
+global.copyTable = copyTable;
 global.toggleCode = toggleCode;
 
 })(window);

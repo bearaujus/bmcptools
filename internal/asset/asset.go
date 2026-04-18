@@ -65,7 +65,7 @@ func ServerInstructions() string {
 
 // ServerInstructionsForGroups returns server instructions filtered to only
 // the specified groups. The "intro" section is always included.
-// Valid group names: "intro", "user", "file", "dir", "search", "exec", "system".
+// Valid group names: "intro", "user", "file", "dir", "search", "exec", "system", "binance".
 // Passing no groups returns the full instructions.
 func ServerInstructionsForGroups(groups ...string) string {
 	if len(groups) == 0 {
@@ -86,6 +86,36 @@ func ServerInstructionsForGroups(groups ...string) string {
 			}
 			b.WriteString(sec.content)
 		}
+	}
+	return b.String()
+}
+
+// ServerInstructionsExcludingGroups returns server instructions with the
+// specified groups removed. The "intro" section is always kept.
+// Valid group names: "user", "file", "dir", "search", "exec", "system", "binance".
+// Passing no groups returns the full instructions.
+func ServerInstructionsExcludingGroups(groups ...string) string {
+	if len(groups) == 0 {
+		return stripGroupMarkers(serverInstructionsTxt)
+	}
+	skip := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		if g == "intro" {
+			continue
+		}
+		skip[g] = true
+	}
+
+	sections := parseGroupSections(serverInstructionsTxt)
+	var b strings.Builder
+	for _, sec := range sections {
+		if skip[sec.group] {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(sec.content)
 	}
 	return b.String()
 }

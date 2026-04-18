@@ -98,7 +98,13 @@
 }
 
 /* ── Code blocks ── */
-.md-body .code-wrap { position: relative; margin: 0 0 12px }
+.md-body .code-wrap {
+  position: relative;
+  margin: 0 0 12px;
+  background: var(--code-bg);
+  border-radius: 10px;
+  overflow: hidden;
+}
 .md-body .code-wrap.collapsed pre { max-height: 200px; overflow: hidden }
 .md-body .code-wrap.collapsed::after {
   content: '';
@@ -106,11 +112,29 @@
   bottom: 30px; left: 0; right: 0; height: 80px;
   background: linear-gradient(transparent, var(--code-bg, #f6f8fa));
   pointer-events: none;
-  border-radius: 0 0 10px 10px;
+}
+/* Header bar above the code: language label + copy button.
+ * Sits in its own row so the copy button never overlaps the code text. */
+.md-body .code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px 5px 14px;
+  border-bottom: 1px solid var(--border, #e5e5ea);
+  background: linear-gradient(180deg, rgba(0,0,0,.02), transparent);
+}
+.md-body .code-lang {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--code-cmt, #6e7781);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  user-select: none;
 }
 .md-body pre {
-  background: var(--code-bg);
-  border-radius: 10px;
+  background: transparent;
+  border-radius: 0;
   margin: 0;
   overflow: hidden;
   position: relative;
@@ -126,23 +150,35 @@
   border-radius: 0;
 }
 
-/* Copy button */
+/* Copy button — lives in the .code-head bar (no longer floats over code). */
 .md-body .copy-btn {
-  position: absolute;
-  top: 7px; right: 8px;
-  background: var(--code-copy-bg);
-  border: 1px solid var(--code-copy-bg);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--code-copy-fg);
   border-radius: 6px;
-  padding: 3px 9px;
+  padding: 3px 8px;
   font-size: 11px;
   font-family: inherit;
+  font-weight: 500;
   cursor: pointer;
   transition: all .15s;
-  line-height: 1.5;
+  line-height: 1.4;
 }
-.md-body .copy-btn:hover { background: var(--code-copy-hover) }
-.md-body .copy-btn.copied { background: #34c759; border-color: #34c759; color: #fff }
+.md-body .copy-btn:hover {
+  background: var(--code-copy-bg);
+  border-color: var(--code-copy-bg);
+  color: var(--text, #1c1c1e);
+}
+.md-body .copy-btn:active { transform: scale(0.96) }
+.md-body .copy-btn.copied {
+  background: #34c759;
+  border-color: #34c759;
+  color: #fff;
+}
+.md-body .copy-btn svg { flex-shrink: 0 }
 
 /* Line numbers */
 .md-body .code-line { display: block; margin: 0; padding: 0 }
@@ -186,6 +222,86 @@
 .hl-fn   { color: var(--code-fn) }
 
 /* ── Tables — clean, compact, research-backed UX ── */
+/* Wrapper handles horizontal scroll for wide tables — table itself stays
+ * borderless so the wrapper's border + radius are the visual frame. */
+/* Outer frame is a card: header bar (with copy button) + scrolling table body.
+ * Same visual language as code blocks so users learn the pattern once. */
+.md-body .md-table-frame {
+  position: relative;
+  margin: 12px 0;
+  border: 1px solid var(--border, #e5e5ea);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--card, #fff);
+}
+.md-body .md-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px 5px 14px;
+  border-bottom: 1px solid var(--border, #e5e5ea);
+  background: linear-gradient(180deg, rgba(0,0,0,.02), transparent);
+}
+.md-body .md-table-label {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--code-cmt, #6e7781);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.md-body .md-table-frame .md-table-wrap {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+.md-body .md-table-wrap {
+  position: relative;
+  margin: 12px 0;
+  border: 1px solid var(--border, #e5e5ea);
+  border-radius: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* Copy button — lives in the table head bar (no longer floats over content). */
+.md-body .table-copy-btn{
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--code-copy-fg, #6e7781);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s, transform .08s;
+  line-height: 1.4;
+}
+.md-body .table-copy-btn:hover{
+  background: var(--code-copy-bg, #f0f0f3);
+  border-color: var(--code-copy-bg, #f0f0f3);
+  color: var(--text, #1c1c1e);
+}
+.md-body .table-copy-btn:active{ transform: scale(.96); }
+.md-body .table-copy-btn.copied{ background: #34c759; border-color: #34c759; color: #fff; }
+.md-body .table-copy-btn svg{ flex-shrink: 0; }
+.md-body .md-table-wrap table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  border: none;
+  border-radius: 0;
+}
+/* Legacy: bare <table> not wrapped (e.g. raw HTML in markdown) still gets the
+ * old framed look so nothing visually regresses. */
 .md-body table {
   border-collapse: separate;
   border-spacing: 0;

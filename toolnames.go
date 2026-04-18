@@ -74,3 +74,35 @@ const (
 	ToolCancelAskUser   = toolname.CancelAskUser
 	ToolRest            = toolname.Rest
 )
+
+// Binance USDT-M Futures tools.
+const (
+	ToolBinanceFuturesPing               = toolname.BinanceFuturesPing
+	ToolBinanceFuturesExchangeInfo       = toolname.BinanceFuturesExchangeInfo
+	ToolBinanceFuturesSymbolSpecs        = toolname.BinanceFuturesSymbolSpecs
+	ToolBinanceFuturesKlines             = toolname.BinanceFuturesKlines
+	ToolBinanceFuturesTickerPrice        = toolname.BinanceFuturesTickerPrice
+	ToolBinanceFuturesTicker24hr         = toolname.BinanceFuturesTicker24hr
+	ToolBinanceFuturesOrderBook          = toolname.BinanceFuturesOrderBook
+	ToolBinanceFuturesMarkPrice          = toolname.BinanceFuturesMarkPrice
+	ToolBinanceFuturesOpenInterest       = toolname.BinanceFuturesOpenInterest
+	ToolBinanceFuturesLongShortRatio     = toolname.BinanceFuturesLongShortRatio
+	ToolBinanceFuturesAccountInfo        = toolname.BinanceFuturesAccountInfo
+	ToolBinanceFuturesPositionRisk       = toolname.BinanceFuturesPositionRisk
+	ToolBinanceFuturesOpenOrders         = toolname.BinanceFuturesOpenOrders
+	ToolBinanceFuturesOrderHistory       = toolname.BinanceFuturesOrderHistory
+	ToolBinanceFuturesIncomeHistory      = toolname.BinanceFuturesIncomeHistory
+	ToolBinanceFuturesChangeLeverage     = toolname.BinanceFuturesChangeLeverage
+	ToolBinanceFuturesChangeMarginType   = toolname.BinanceFuturesChangeMarginType
+	ToolBinanceFuturesChangePositionMode = toolname.BinanceFuturesChangePositionMode
+	ToolBinanceFuturesPlaceOrder         = toolname.BinanceFuturesPlaceOrder
+	ToolBinanceFuturesPlaceBracketOrder  = toolname.BinanceFuturesPlaceBracketOrder
+	ToolBinanceFuturesCancelOrder        = toolname.BinanceFuturesCancelOrder
+	ToolBinanceFuturesCancelAllOrders    = toolname.BinanceFuturesCancelAllOrders
+	ToolBinanceFuturesClosePosition      = toolname.BinanceFuturesClosePosition
+	ToolBinanceFuturesCommissionRate     = toolname.BinanceFuturesCommissionRate
+	ToolBinanceFuturesModifyOrder        = toolname.BinanceFuturesModifyOrder
+	ToolBinanceFuturesFundingRateHistory = toolname.BinanceFuturesFundingRateHistory
+	ToolBinanceFuturesPositionOverview   = toolname.BinanceFuturesPositionOverview
+	ToolBinanceFuturesTASnapshot         = toolname.BinanceFuturesTASnapshot
+)

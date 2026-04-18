@@ -49,7 +49,8 @@ func WithTimeout(d time.Duration) Option {
 // Ask opens a browser confirmation dialog and blocks until the user responds.
 //
 //   - title:   short operation name shown in the dialog header
-//   - details: plain-text description of what will happen
+//   - details: markdown-formatted description of what will happen (rendered
+//     client-side with the same renderer used by the ask_user dialog)
 //
 // Returns:
 //   - (true,  nil)  — user clicked Confirm
@@ -203,14 +204,17 @@ func ask(ctx context.Context, title, details string, cfg *confirmConfig) (bool, 
 }
 
 // buildConfirmHTML renders the default confirm dialog HTML from the embedded asset.
+// `details` is treated as **markdown** and rendered client-side via the shared
+// markdown renderer (md.js / md.css), matching the look of the ask_user dialog.
 func buildConfirmHTML(title, details string, timeoutSec int) string {
 	escapedTitle := html.EscapeString(title)
-	escapedDetails := html.EscapeString(details)
-	detailsHTML := strings.ReplaceAll(escapedDetails, "\n", "<br>")
+	detailsJSON, _ := json.Marshal(details)
 
 	page := asset.HTML("confirm")
+	page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+asset.CSS("md")+"\n</style>")
+	page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+asset.JS("md")+"\n</script>")
 	page = strings.ReplaceAll(page, "[[TITLE]]", escapedTitle)
-	page = strings.ReplaceAll(page, "[[DETAILS_HTML]]", detailsHTML)
+	page = strings.ReplaceAll(page, "[[DETAILS_JSON]]", string(detailsJSON))
 	page = strings.ReplaceAll(page, "[[TIMEOUT_SEC]]", fmt.Sprintf("%d", timeoutSec))
 	return page
 }

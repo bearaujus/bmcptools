@@ -7,6 +7,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"time"
@@ -173,6 +174,14 @@ func chipHTML(c string) string {
 	return strings.ReplaceAll(html.EscapeString(c), "\n", "<br>")
 }
 
+// encodeURIComponentJS mirrors JavaScript's encodeURIComponent so the client
+// can decode it with decodeURIComponent. Go's url.QueryEscape uses '+' for
+// spaces (form encoding), which decodeURIComponent leaves untouched — so we
+// post-process to swap '+' back to '%20'.
+func encodeURIComponentJS(s string) string {
+	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
+}
+
 
 // buildDialogHTML renders the ask_user dialog HTML template.
 // htmlSource is the base template (default or custom override).
@@ -183,9 +192,13 @@ func buildDialogHTML(htmlSource, question, details, title, subtitle string, allo
 		sb.WriteString(`<div class="chips-card"><div class="suggested-label">Suggested replies</div><div class="chips-row">`)
 		for i, c := range choices {
 			jC, _ := json.Marshal(c)
+			// data-md carries the encodeURIComponent-equivalent of the raw
+			// markdown so the client can render inline markdown (bold/code/
+			// links) inside the chip body. chipHTML provides a no-JS fallback
+			// that simply escapes + <br>s.
 			sb.WriteString(fmt.Sprintf(
-				`<button class="chip" id="chip%d" onclick="pickChip(%s,%d)">%s</button>`,
-				i, html.EscapeString(string(jC)), i, chipHTML(c),
+				`<button class="chip" id="chip%d" data-md="%s" onclick="pickChip(%s,%d)">%s</button>`,
+				i, encodeURIComponentJS(c), html.EscapeString(string(jC)), i, chipHTML(c),
 			))
 		}
 		sb.WriteString(`</div></div>`)
