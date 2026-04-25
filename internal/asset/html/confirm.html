@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>⚠ Confirm: [[TITLE]]</title>
-<link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23ff3b30'/><path d='M16 9v9' stroke='white' stroke-width='3' stroke-linecap='round'/><circle cx='16' cy='23' r='2' fill='white'/></svg>">
+<link id="favicon" rel="icon" type="image/svg+xml" href="[[FAVICON_HREF]]">
 [[MD_CSS]]
 <style>
 :root{
@@ -134,18 +134,40 @@ body{
 @keyframes fade-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .status-card.ok{color:var(--ok)}
 .status-card.cancel{color:var(--text2)}
-</style>
+
+/* ── Editable params card ── */
+.edit-card{
+  background:var(--card);border-radius:20px;width:100%;max-width:560px;
+  box-shadow:0 6px 32px rgba(0,0,0,.10),0 1px 3px rgba(0,0,0,.05);overflow:hidden;
+}
+.edit-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 18px;border-bottom:1px solid var(--border);
+}
+.edit-label{font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px}
+.edit-hint{font-size:10px;color:var(--text3)}
+.edit-fields{padding:12px 18px;display:flex;flex-direction:column;gap:8px}
+.edit-field{display:flex;align-items:center;gap:10px}
+.edit-field label{font-size:12px;font-weight:600;color:var(--text2);min-width:130px;flex-shrink:0}
+.edit-input{
+  flex:1;padding:7px 10px;border-radius:8px;
+  border:1px solid var(--border);background:var(--bg);
+  color:var(--text);font-size:13px;font-family:inherit;
+  transition:border-color .15s;
+}
+.edit-input:focus{outline:none;border-color:var(--ok)}
+[[EXTRA_CSS]]</style>
 </head>
 <body>
 
 <div class="warn-card">
   <div class="header">
     <div class="avatar">
-      <svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3z"/><path d="M12 10v5"/><circle cx="12" cy="18" r="0.5" fill="#fff"/></svg>
+      [[AVATAR_SVG]]
     </div>
     <div class="header-info">
       <div class="header-name">Confirm: [[TITLE]]</div>
-      <div class="header-sub">Destructive operation — review before confirming</div>
+      <div class="header-sub">[[SUBTITLE]]</div>
     </div>
     <div class="timer-area">
       <div class="timer-badge" id="tbadge"></div>
@@ -168,6 +190,14 @@ body{
   <div class="details-body md-body" id="detailsBody"></div>
 </div>
 
+<div class="edit-card" id="editCard" style="display:none">
+  <div class="edit-head">
+    <div class="edit-label">Edit parameters</div>
+    <div class="edit-hint">Pre-filled with AI&rsquo;s proposal &mdash; modify if needed</div>
+  </div>
+  <div class="edit-fields" id="editFields"></div>
+</div>
+
 <div class="action-card" id="actionCard">
   <div class="kb-hint" id="kbHint">↩ tap Confirm twice · esc to cancel</div>
   <div class="actions">
@@ -183,31 +213,55 @@ body{
 // ── Config ────────────────────────────────────────────────────────────────
 var TIMEOUT_SEC = [[TIMEOUT_SEC]];
 var DETAILS_RAW = [[DETAILS_JSON]]; // JSON-encoded markdown string
+var EDITABLE_PARAMS = [[EDITABLE_PARAMS_JSON]]; // array of {key,label,value,type,step?,min?}
 
 // ── Render details as markdown ────────────────────────────────────────────
 (function(){
   var body = document.getElementById('detailsBody');
-  if(DETAILS_RAW && DETAILS_RAW.trim()){
-    body.innerHTML = mdRender(DETAILS_RAW);
-  } else {
-    body.innerHTML = '<em style="color:var(--text3)">No details provided</em>';
+  try {
+    if(DETAILS_RAW && DETAILS_RAW.trim()){
+      body.innerHTML = mdRender(DETAILS_RAW);
+    } else {
+      body.innerHTML = '<em style="color:var(--text3)">No details provided</em>';
+    }
+  } catch(e) {
+    body.textContent = DETAILS_RAW || '';
   }
+})();
+
+// ── Render editable params ────────────────────────────────────────────────
+(function(){
+  if(!EDITABLE_PARAMS || EDITABLE_PARAMS.length === 0) return;
+  document.getElementById('editCard').style.display = 'block';
+  var fields = document.getElementById('editFields');
+  EDITABLE_PARAMS.forEach(function(p){
+    var row = document.createElement('div');
+    row.className = 'edit-field';
+    var lbl = document.createElement('label');
+    lbl.textContent = p.label;
+    lbl.setAttribute('for', 'ep_' + p.key);
+    var inp = document.createElement('input');
+    inp.className = 'edit-input';
+    inp.type = p.type || 'text';
+    inp.value = p.value || '';
+    inp.id = 'ep_' + p.key;
+    inp.dataset.key = p.key;
+    if(p.step) inp.step = p.step;
+    if(p.min) inp.min = p.min;
+    row.appendChild(lbl);
+    row.appendChild(inp);
+    fields.appendChild(row);
+  });
 })();
 
 // ── Countdown badge ───────────────────────────────────────────────────────
 var remaining = TIMEOUT_SEC;
-function fmtTime(s){
-  s = Math.max(0, Math.round(s));
-  if(s < 60) return s + 's';
-  var m = Math.floor(s/60), sec = s%60;
-  return m + ':' + (sec<10?'0':'') + sec;
-}
 var tbadge = document.getElementById('tbadge');
-tbadge.textContent = 'Auto-cancels in ' + fmtTime(remaining);
+tbadge.textContent = 'Auto-cancels in ' + fmtSec(remaining);
 var iv = setInterval(function(){
   remaining--;
   if(remaining <= 0){ clearInterval(iv); answer(false); return; }
-  tbadge.textContent = 'Auto-cancels in ' + fmtTime(remaining);
+  tbadge.textContent = 'Auto-cancels in ' + fmtSec(remaining);
   if(remaining <= 10) tbadge.classList.add('urgent');
 }, 1000);
 
@@ -225,11 +279,20 @@ function answer(confirmed){
   card.textContent = confirmed
     ? '\u2713 Confirmed — executing\u2026'
     : '\u2715 Cancelled — closing\u2026';
+  var params = {};
+  if(confirmed){
+    document.querySelectorAll('.edit-input').forEach(function(inp){
+      params[inp.dataset.key] = inp.value;
+    });
+  }
   fetch('/answer',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({confirmed: confirmed})
-  }).catch(function(){});
+    body: JSON.stringify({confirmed: confirmed, params: params})
+  }).catch(function(){
+    var c = document.getElementById('statusCard');
+    if(c){ c.className = 'status-card cancel'; c.textContent = '⚠ Network error — response may not have been delivered.'; }
+  });
   setTimeout(function(){ try{window.close();}catch(e){} }, 1500);
 }
 
@@ -237,69 +300,27 @@ function answer(confirmed){
 // Same mechanic as dialog.html: first click arms (orange pulse, "Press again"),
 // second click within 3s commits. Cancel is single-click since cancelling
 // is itself the safe path.
-var _pendingConfirm = null; // {btnId, original, timer}
+var dc = DoubleConfirm();
+function confirmExecute(){ dc.arm('confirmBtn', function(){ answer(true); }, 'Press again to execute'); }
+function confirmCancel(){ dc.reset(); answer(false); }
 
-function _resetConfirm(){
-  if(!_pendingConfirm) return;
-  var p = _pendingConfirm;
-  _pendingConfirm = null;
-  clearTimeout(p.timer);
-  var btn = document.getElementById(p.btnId);
-  if(btn){ btn.innerHTML = p.original; btn.classList.remove('confirming'); }
-}
-
-function _armConfirm(btnId, action, label){
-  _resetConfirm();
-  var btn = document.getElementById(btnId);
-  if(!btn) return;
-  var original = btn.innerHTML;
-  btn.innerHTML = label;
-  btn.classList.add('confirming');
-  _pendingConfirm = {
-    btnId: btnId,
-    original: original,
-    timer: setTimeout(function(){ _resetConfirm(); }, 3000),
-    action: action
-  };
-}
-
-function confirmExecute(){
-  if(_pendingConfirm && _pendingConfirm.btnId === 'confirmBtn'){
-    var act = _pendingConfirm.action;
-    _resetConfirm();
-    act();
-    return;
-  }
-  _armConfirm('confirmBtn', function(){ answer(true); }, 'Press again to execute');
-}
-function confirmCancel(){
-  // Cancel doesn't need double-tap — it's the safe direction.
-  _resetConfirm();
-  answer(false);
-}
-
-// Cancel any pending confirm when the user clicks elsewhere or presses Esc.
 document.addEventListener('mousedown', function(e){
-  if(!_pendingConfirm) return;
+  if(!dc.active()) return;
   var t = e.target;
-  while(t){
-    if(t.id === 'confirmBtn') return;
-    t = t.parentNode;
-  }
-  _resetConfirm();
+  while(t && t !== document){ if(t.id === 'confirmBtn') return; t = t.parentNode; }
+  dc.reset();
 }, true);
 document.addEventListener('keydown', function(e){
   if(e.key === 'Escape'){
-    if(_pendingConfirm){ _resetConfirm(); return; }
-    confirmCancel();
-    return;
+    if(dc.active()){ dc.reset(); return; }
+    confirmCancel(); return;
   }
   if(e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey){
-    e.preventDefault();
-    confirmExecute();
+    e.preventDefault(); confirmExecute();
   }
 });
-window.addEventListener('blur', function(){ _resetConfirm(); });
+window.addEventListener('blur', function(){ dc.reset(); });
+[[EXTRA_JS]]
 </script>
 </body>
 </html>

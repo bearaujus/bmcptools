@@ -22,25 +22,16 @@ import (
 // to suppress real browser windows.
 var openBrowserFn = browser.Open
 
-func promptUser(ctx context.Context, htmlSource, question, details, title, subtitle string, timeout time.Duration, activity *dialogActivity) (string, error) {
+func promptUser(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		return promptBrowser(ctx, htmlSource, question, details, title, subtitle, true, nil, timeout, activity)
+		return promptBrowser(ctx, htmlSource, question, details, title, subtitle, choices, timeout, activity)
 	default:
 		return "", fmt.Errorf("ask_user is not supported on Linux")
 	}
 }
 
-func promptUserChoice(ctx context.Context, htmlSource, question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
-	switch runtime.GOOS {
-	case "darwin", "windows":
-		return promptBrowser(ctx, htmlSource, question, details, title, subtitle, allowFreeform, choices, timeout, activity)
-	default:
-		return "", fmt.Errorf("ask_user is not supported on Linux")
-	}
-}
-
-func promptBrowser(ctx context.Context, htmlSource, question, details, title, subtitle string, allowFreeform bool, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
+func promptBrowser(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	timeoutSec := int(timeout.Seconds())
 	if timeoutSec <= 0 {
 		timeoutSec = 600
@@ -49,7 +40,7 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 	resultCh := make(chan string, 1)
 	mux := http.NewServeMux()
 
-	page := buildDialogHTML(htmlSource, question, details, title, subtitle, allowFreeform, choices, timeoutSec)
+	page := buildDialogHTML(htmlSource, question, details, title, subtitle, choices, timeoutSec)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, page)
@@ -185,7 +176,7 @@ func encodeURIComponentJS(s string) string {
 
 // buildDialogHTML renders the ask_user dialog HTML template.
 // htmlSource is the base template (default or custom override).
-func buildDialogHTML(htmlSource, question, details, title, subtitle string, allowFreeform bool, choices []string, timeoutSec int) string {
+func buildDialogHTML(htmlSource, question, details, title, subtitle string, choices []string, timeoutSec int) string {
 	chipsSection := ""
 	if len(choices) > 0 {
 		var sb strings.Builder
@@ -204,12 +195,6 @@ func buildDialogHTML(htmlSource, question, details, title, subtitle string, allo
 		sb.WriteString(`</div></div>`)
 		chipsSection = sb.String()
 	}
-
-	allowFreeformVal := "true"
-	if !allowFreeform {
-		allowFreeformVal = "false"
-	}
-
 
 	detailsSection := ""
 	detailsJSON := "null"
@@ -233,7 +218,6 @@ func buildDialogHTML(htmlSource, question, details, title, subtitle string, allo
 	page = strings.ReplaceAll(page, "[[DETAILS_JSON]]", detailsJSON)
 	page = strings.ReplaceAll(page, "[[CHIPS_SECTION]]", chipsSection)
 	page = strings.ReplaceAll(page, "[[TIMEOUT_SEC]]", fmt.Sprintf("%d", timeoutSec))
-	page = strings.ReplaceAll(page, "[[ALLOW_FREEFORM]]", allowFreeformVal)
 	page = strings.ReplaceAll(page, "[[MD_CSS]]", "<style>\n"+mdCSS+"\n</style>")
 	page = strings.ReplaceAll(page, "[[MD_JS]]", "<script>\n"+mdJS+"\n</script>")
 	return page

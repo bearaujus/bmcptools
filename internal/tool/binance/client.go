@@ -5,8 +5,8 @@
 // (change leverage/margin/mode, place/cancel orders) prompt the user for
 // confirmation via pkg/confirm unless BINANCE_SKIP_ASK_USER=true.
 //
-// Base URL defaults to https://fapi.binance.com; set BINANCE_FUTURES_BASE_URL
-// to switch to testnet (https://testnet.binancefuture.com) or another endpoint.
+// Base URL is https://fapi.binance.com by default; set BINANCE_TESTNET=true to
+// switch to the testnet at https://testnet.binancefuture.com.
 package binance
 
 import (
@@ -34,13 +34,14 @@ import (
 const (
 	envAPIKey       = "BINANCE_API_KEY"
 	envAPISecret    = "BINANCE_API_SECRET"
-	envBaseURL      = "BINANCE_FUTURES_BASE_URL"
+	envTestnet      = "BINANCE_TESTNET"
 	envSkipAskUser  = "BINANCE_SKIP_ASK_USER"
 	envRecvWindowMs = "BINANCE_RECV_WINDOW_MS"
 )
 
 const (
-	defaultBaseURL  = "https://fapi.binance.com"
+	mainnetBaseURL  = "https://fapi.binance.com"
+	testnetBaseURL  = "https://demo-fapi.binance.com"
 	defaultRecvWin  = 5000
 	maxRecvWindowMs = 60000
 	clientIDPrefix  = "bmt-"
@@ -58,11 +59,16 @@ var defaultClient = &bclient{
 	http: &http.Client{Timeout: 30 * time.Second},
 }
 
+func isTestnetEnv() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(envTestnet)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
 func baseURL() string {
-	if v := strings.TrimRight(os.Getenv(envBaseURL), "/"); v != "" {
-		return v
+	if isTestnetEnv() {
+		return testnetBaseURL
 	}
-	return defaultBaseURL
+	return mainnetBaseURL
 }
 
 func recvWindowMs() int64 {
@@ -160,18 +166,30 @@ func (e *binanceError) Error() string {
 
 // errorGuidance maps known codes to short hints appended to the error message.
 var errorGuidance = map[int]string{
+	-1003: "too many requests — IP rate-limited; back off before retrying",
+	-1006: "unexpected response from exchange — retry",
+	-1007: "exchange timeout — retry with exponential backoff",
 	-1008: "system throttled — back off; reduce-only / close-position are exempt",
+	-1015: "too many open orders — cancel existing orders before placing more",
 	-1021: "timestamp outside recvWindow — clock skew auto-resync attempted",
+	-1100: "illegal characters in a parameter — check field values for special chars",
 	-1111: "precision over maximum — check stepSize / tickSize via binance_futures_symbol_specs",
 	-1121: "invalid symbol — verify via binance_futures_exchange_info",
 	-2010: "order rejected — filter violation or would have triggered immediately",
+	-2011: "cancel rejected — order not found or already filled/cancelled",
+	-2013: "order not found — check order_id or orig_client_order_id",
 	-2019: "insufficient margin — reduce quantity or leverage",
+	-2021: "order would immediately trigger — adjust price/stopPrice away from current mark",
 	-2022: "reduce-only rejected — no matching position to reduce",
+	-4028: "invalid leverage — exceeds maximum allowed for this symbol",
 	-4046: "no need to change margin type — already set",
-	-4067: "cannot change while open orders exist — cancel via binance_futures_cancel_all_open_orders first",
-	-4120: "order type not supported by this endpoint. Note: Binance Futures TESTNET does not support STOP_MARKET / TAKE_PROFIT_MARKET / TRAILING_STOP_MARKET via /fapi/v1/order or /fapi/v1/batchOrders — those are only available on mainnet (or via the Algo Order API). On testnet, simulate SL/TP with conditional STOP / TAKE_PROFIT limit orders instead, or validate bracket orders on mainnet with minimum size.",
+	-4058: "invalid position mode — account may already be in target mode",
+	-4067: "cannot change while open orders exist — cancel via binance_futures_cancel_all_orders first",
+	-4114: "client order ID too long — max 36 characters",
+	-4120: "STOP_ORDER_SWITCH_ALGO — order auto-retried via /fapi/v1/algoOrder (algoType=CONDITIONAL); if you see this it means the retry also failed",
 	-4131: "PERCENT_PRICE filter failed — price too far from mark",
 	-4164: "notional below MIN_NOTIONAL — increase quantity (check binance_futures_symbol_specs)",
+	-4400: "invalid order status for this operation",
 }
 
 // humanizeError returns a user-friendly string for an error.
@@ -181,6 +199,16 @@ func humanizeError(err error) string {
 	}
 	var be *binanceError
 	if errors.As(err, &be) {
+		switch be.HTTPStatus {
+		case 429:
+			return "binance HTTP 429: rate limit exceeded — back off before retrying; " + be.Raw
+		case 418:
+			return "binance HTTP 418: IP auto-banned — stop all requests immediately; " + be.Raw
+		case 503:
+			if strings.Contains(strings.ToLower(be.Raw), "service unavailable") {
+				return "binance HTTP 503: Service Unavailable — retry with exponential backoff (200ms → 400ms → 800ms)"
+			}
+		}
 		if g, ok := errorGuidance[be.Code]; ok {
 			return fmt.Sprintf("binance error %d: %s (%s)", be.Code, be.Msg, g)
 		}
@@ -254,14 +282,29 @@ func requestWithRetry(ctx context.Context, o requestOpts, allowResync bool) ([]b
 		params = signParams(secret, params)
 	}
 
-	u := baseURL() + o.path
-	if len(params) > 0 {
-		u += "?" + params.Encode()
-	}
 	method := strings.ToUpper(o.method)
-	req, err := http.NewRequestWithContext(ctx, method, u, nil)
+	u := baseURL() + o.path
+
+	// Per Binance best-practice: GET uses query string; POST/PUT/DELETE send params
+	// as an application/x-www-form-urlencoded request body so credentials and
+	// signatures are not exposed in server access logs or URL length limits.
+	var reqBody io.Reader
+	if method == http.MethodGet {
+		if len(params) > 0 {
+			u += "?" + params.Encode()
+		}
+	} else {
+		if len(params) > 0 {
+			reqBody = strings.NewReader(params.Encode())
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u, reqBody)
 	if err != nil {
 		return nil, nil, err
+	}
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	if o.signed || o.apiKey {
 		req.Header.Set("X-MBX-APIKEY", apiKey)
@@ -275,6 +318,13 @@ func requestWithRetry(ctx context.Context, o requestOpts, allowResync bool) ([]b
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
 	if err != nil {
 		return nil, resp.Header, err
+	}
+
+	// 429 and 418 are rate-limit / ban responses — surface them distinctly.
+	if resp.StatusCode == 429 || resp.StatusCode == 418 {
+		retryAfter := resp.Header.Get("Retry-After")
+		be := &binanceError{HTTPStatus: resp.StatusCode, Raw: retryAfter}
+		return body, resp.Header, be
 	}
 
 	if resp.StatusCode >= 400 {
@@ -332,6 +382,7 @@ func fetchSymbolInfo(ctx context.Context, symbol string) (*symbolInfo, error) {
 	body, _, err := request(ctx, requestOpts{
 		method: http.MethodGet,
 		path:   "/fapi/v1/exchangeInfo",
+		params: url.Values{"symbol": []string{strings.ToUpper(symbol)}},
 	})
 	if err != nil {
 		return nil, err
@@ -385,4 +436,68 @@ func sortedKeys(m map[string]interface{}) []string {
 	}
 	sort.Strings(ks)
 	return ks
+}
+
+// fetchMarkPriceF returns the current mark price for a symbol as a float64.
+// Used by checkMinNotional for MARKET-type order sizing.
+func fetchMarkPriceF(ctx context.Context, symbol string) (float64, error) {
+	body, _, err := request(ctx, requestOpts{
+		method: http.MethodGet,
+		path:   "/fapi/v1/premiumIndex",
+		params: url.Values{"symbol": []string{strings.ToUpper(symbol)}},
+	})
+	if err != nil {
+		return 0, err
+	}
+	var payload struct {
+		MarkPrice string `json:"markPrice"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return 0, err
+	}
+	return strconv.ParseFloat(payload.MarkPrice, 64)
+}
+
+// checkMinNotional validates that an order's notional value meets the symbol's
+// MIN_NOTIONAL requirement. Returns a descriptive error when it fails.
+// On transient network errors, silently returns nil (best-effort check).
+// Skips the check for reduce-only orders and trailing-stop-market orders.
+func checkMinNotional(ctx context.Context, symbol string, qty float64, orderType, price string, isReduceOnly bool) error {
+	if isReduceOnly || orderType == "TRAILING_STOP_MARKET" || qty <= 0 {
+		return nil
+	}
+	info, err := fetchSymbolInfo(ctx, symbol)
+	if err != nil {
+		return nil // transient failure: skip check
+	}
+	filters := reduceSymbolFilters(info)
+	minNotionalStr, _ := filters["minNotional"].(string)
+	if minNotionalStr == "" {
+		return nil
+	}
+	minNotional, err := strconv.ParseFloat(minNotionalStr, 64)
+	if err != nil || minNotional <= 0 {
+		return nil
+	}
+
+	var notional float64
+	switch orderType {
+	case "MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET":
+		markPrice, err := fetchMarkPriceF(ctx, symbol)
+		if err != nil {
+			return nil // transient failure: skip check
+		}
+		notional = qty * markPrice
+	default: // LIMIT, STOP, TAKE_PROFIT
+		priceF, err := strconv.ParseFloat(price, 64)
+		if err != nil || priceF <= 0 {
+			return nil // can't compute: skip
+		}
+		notional = qty * priceF
+	}
+
+	if notional < minNotional {
+		return fmt.Errorf("order notional %.4f USDT is below symbol minimum %.4f USDT — increase quantity or use a higher price (Binance error -4164)", notional, minNotional)
+	}
+	return nil
 }

@@ -33,11 +33,6 @@ func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolReq
 		}
 	}
 	choices = filtered
-	allowFreeform := req.GetBool("allow_freeform", true)
-	if !allowFreeform && len(choices) == 0 {
-		return mcp.NewToolResultError("allow_freeform=false requires at least one choice"), nil
-	}
-
 	timeoutSec := req.GetFloat("timeout_seconds", 600)
 	if timeoutSec <= 0 {
 		timeoutSec = 600
@@ -60,7 +55,7 @@ func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolReq
 	storePendingDialog(token, state)
 
 	go func() {
-			answer := runDialogBlocking(ctx, htmlSource, question, details, title, subtitle, choices, allowFreeform, notify, timeout, act)
+			answer := runDialogBlocking(ctx, htmlSource, question, details, title, subtitle, choices, notify, timeout, act)
 		cancel() // release context resources
 		select {
 		case state.responseCh <- answer:
@@ -80,7 +75,7 @@ func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolReq
 	}
 }
 
-func runDialogBlocking(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, allowFreeform, notify bool, timeout time.Duration, activity *dialogActivity) string {
+func runDialogBlocking(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, notify bool, timeout time.Duration, activity *dialogActivity) string {
 	if notify {
 		msg := question
 		if len(msg) > 120 {
@@ -98,13 +93,7 @@ func runDialogBlocking(ctx context.Context, htmlSource, question, details, title
 			return "[User did not respond within the allotted time]"
 		}
 
-		var answer string
-		var err error
-		if len(choices) > 0 {
-			answer, err = promptUserChoice(ctx, htmlSource, question, details, title, subtitle, allowFreeform, choices, remaining, activity)
-		} else {
-			answer, err = promptUser(ctx, htmlSource, question, details, title, subtitle, remaining, activity)
-		}
+		answer, err := promptUser(ctx, htmlSource, question, details, title, subtitle, choices, remaining, activity)
 		if err != nil {
 			return fmt.Sprintf("[Failed to get user input: %v]", err)
 		}

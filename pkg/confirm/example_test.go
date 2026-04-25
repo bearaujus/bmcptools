@@ -14,7 +14,7 @@ func Example_usage() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	confirmed, err := confirm.Ask(ctx, "Delete files?", "This will remove all .tmp files from the project.")
+	confirmed, _, err := confirm.Ask(ctx, "Delete files?", "This will remove all .tmp files from the project.")
 	if err != nil {
 		fmt.Printf("dialog error: %v\n", err)
 		return

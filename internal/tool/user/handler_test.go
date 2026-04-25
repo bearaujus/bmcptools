@@ -117,20 +117,6 @@ func TestAskUserHandlerWhitespaceQuestion(t *testing.T) {
 	}
 }
 
-// Reason: allow_freeform=false with no choices should be rejected — an LLM
-// sending this would create an un-answerable dialog.
-func TestAskUserHandlerNoChoicesAllowFreeformFalse(t *testing.T) {
-	result, err := makeAskUserHandler("")(nil, newTestRequest(map[string]any{
-		"question":      "pick one",
-		"allow_freeform": false,
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !isResultError(result) {
-		t.Error("expected error when allow_freeform=false and no choices given")
-	}
-}
 
 // Reason: Choices containing only whitespace should be stripped silently.
 // If they're kept, they create invisible buttons that a user can never click.

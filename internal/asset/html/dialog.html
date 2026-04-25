@@ -127,7 +127,8 @@ body{
 }
 .reply-tab{
   font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;
-  padding:4px 10px 8px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;
+  padding:4px 10px 8px;cursor:pointer;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;
+  background:transparent;font-family:inherit;
   user-select:none;transition:color .15s,border-color .15s;
 }
 .reply-tab.active{color:var(--text);border-bottom-color:#007aff;}
@@ -281,8 +282,8 @@ textarea::placeholder{color:var(--text3)}
 
 <div class="reply-card" id="replyCard">
   <div class="reply-tabs">
-    <div class="reply-tab active" id="tabWrite" onclick="switchTab('write')">Write</div>
-    <div class="reply-tab" id="tabPreview" onclick="switchTab('preview')">Preview</div>
+    <button class="reply-tab active" id="tabWrite" onclick="switchTab('write')">Write</button>
+    <button class="reply-tab" id="tabPreview" onclick="switchTab('preview')">Preview</button>
   </div>
   <textarea id="ans" placeholder="Type your reply&#x2026; (or tap a suggestion above)"></textarea>
   <div class="md-preview md-body" id="mdPreview"></div>
@@ -334,18 +335,17 @@ function mdInline(raw){
   });
 })();
 
-var total=[[TIMEOUT_SEC]],rem=total,selIdx=-1,selVal='',allowFreeform=[[ALLOW_FREEFORM]],dialogDone=false;
+var total=[[TIMEOUT_SEC]],rem=total,selIdx=-1,selVal='',dialogDone=false;
 var timerPaused=false, resumeTimer=null;
 
-function fmt(s){var m=Math.floor(s/60),sec=s%60;return m+':'+(sec<10?'0':'')+sec;}
 var badge=document.getElementById('tbadge');
-badge.textContent=fmt(rem);
+badge.textContent=fmtSec(rem);
 
 var iv=setInterval(function(){
   if(timerPaused)return;
   rem--;
   document.getElementById('pfill').style.width=(rem/total*100)+'%';
-  badge.textContent=fmt(rem);
+  badge.textContent=fmtSec(rem);
   if(rem<=60){badge.classList.add('urgent');badge.classList.remove('paused');}
   else{badge.classList.remove('urgent');}
   if(rem<=0){clearInterval(iv);done(null);}
@@ -355,12 +355,12 @@ function pauseTimer(){
   timerPaused=true;
   badge.classList.remove('urgent');
   badge.classList.add('paused');
-  badge.textContent='⏸ '+fmt(rem);
+  badge.textContent='⏸ '+fmtSec(rem);
   if(resumeTimer){clearTimeout(resumeTimer);}
   resumeTimer=setTimeout(function(){
     timerPaused=false;
     badge.classList.remove('paused');
-    badge.textContent=fmt(rem);
+    badge.textContent=fmtSec(rem);
     if(rem<=60)badge.classList.add('urgent');
   },3000);
 }
@@ -374,13 +374,8 @@ function updateSend(){
 
 function pickChip(val,idx){
   document.querySelectorAll('.chip').forEach(function(s){s.classList.remove('sel');});
-  if(!allowFreeform){
-    // In choices-only mode: tap = immediate submit.
-    done({choice:val,notes:''});
-    return;
-  }
   rem=total;document.getElementById('pfill').style.width='100%';
-  badge.textContent=fmt(rem);badge.classList.remove('urgent');
+  badge.textContent=fmtSec(rem); badge.classList.remove('urgent');
   pauseTimer();
   if(selIdx===idx){selIdx=-1;selVal='';}
   else{
@@ -402,63 +397,25 @@ function sendAnswer(){
 //   - Activating a different confirm button cancels the previous one.
 //   - Any click / keydown / focus outside the confirming button cancels it.
 //   - Window blur (tab switch) cancels all pending confirms.
-var _pendingConfirm = {};
-function _resetConfirm(btnId){
-  var p = _pendingConfirm[btnId];
-  if(!p) return;
-  clearTimeout(p.timer);
-  var btn = document.getElementById(btnId);
-  if(btn){ btn.innerHTML = p.original; btn.classList.remove('confirming'); }
-  delete _pendingConfirm[btnId];
-}
-function _resetAllConfirms(){
-  for(var k in _pendingConfirm){ if(_pendingConfirm.hasOwnProperty(k)) _resetConfirm(k); }
-}
-function requireDoubleConfirm(btnId, action, confirmLabel){
-  var btn = document.getElementById(btnId);
-  if(!btn || btn.disabled) return;
-  if(_pendingConfirm[btnId]){
-    _resetConfirm(btnId);
-    action();
-    return;
-  }
-  // Cancel any other button mid-confirm so only one is ever pulsing.
-  _resetAllConfirms();
-  var original = btn.innerHTML;
-  btn.innerHTML = confirmLabel;
-  btn.classList.add('confirming');
-  _pendingConfirm[btnId] = {
-    original: original,
-    timer: setTimeout(function(){ _resetConfirm(btnId); }, 3000)
-  };
-}
-function confirmSend(){
-  requireDoubleConfirm('sendBtn', sendAnswer, 'Press again to send');
-}
-function confirmDismiss(){
-  requireDoubleConfirm('dismissBtn', function(){ done(null); }, 'Press again to dismiss');
-}
-// Cancel a pending confirm whenever the user interacts elsewhere — clicking
-// outside the buttons, typing in the textarea, switching tabs, etc.
+var dc = DoubleConfirm();
+function confirmSend(){ dc.arm('sendBtn', sendAnswer, 'Press again to send'); }
+function confirmDismiss(){ dc.arm('dismissBtn', function(){ done(null); }, 'Press again to dismiss'); }
 document.addEventListener('mousedown', function(e){
   var t = e.target;
   while(t && t !== document){
     if(t.id === 'sendBtn' || t.id === 'dismissBtn') return;
     t = t.parentNode;
   }
-  _resetAllConfirms();
+  dc.reset();
 }, true);
 document.addEventListener('keydown', function(e){
-  if(e.key === 'Escape'){ _resetAllConfirms(); return; }
+  if(e.key === 'Escape'){ dc.reset(); return; }
   var a = document.activeElement;
   if(a && (a.id === 'sendBtn' || a.id === 'dismissBtn')) return;
-  if(e.key === 'Enter' && a && a.id === 'ans') return; // textarea Enter handler reroutes
-  // Any other key on a non-button focus → cancel pending confirms.
-  if(Object.keys(_pendingConfirm).length){
-    if(a && a.tagName !== 'BUTTON') _resetAllConfirms();
-  }
+  if(e.key === 'Enter' && a && a.id === 'ans') return;
+  if(dc.active() && a && a.tagName !== 'BUTTON') dc.reset();
 }, true);
-window.addEventListener('blur', _resetAllConfirms);
+window.addEventListener('blur', function(){ dc.reset(); });
 
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -467,27 +424,17 @@ function copyResponse(btn){
   var parts=[];
   if(typeof QUESTION_RAW==='string'&&QUESTION_RAW.trim())parts.push(QUESTION_RAW.trim());
   if(typeof DETAILS_RAW==='string'&&DETAILS_RAW.trim())parts.push(DETAILS_RAW.trim());
-  var text=parts.join('\n\n---\n\n');
-  function flash(){
+  clipCopy(parts.join('\n\n---\n\n'),function(){
     btn.classList.add('copied');
     setTimeout(function(){btn.classList.remove('copied');},1500);
-  }
-  function fallback(){
-    var ta=document.createElement('textarea');
-    ta.value=text;ta.style.cssText='position:fixed;opacity:0';
-    document.body.appendChild(ta);ta.select();
-    try{document.execCommand('copy');flash();}catch(e){}
-    document.body.removeChild(ta);
-  }
-  if(navigator.clipboard&&window.isSecureContext){
-    navigator.clipboard.writeText(text).then(flash).catch(fallback);
-  } else { fallback(); }
+  });
 }
 
 function done(payload){
   dialogDone=true;
   clearInterval(iv);
   if(resumeTimer){clearTimeout(resumeTimer);}
+  if(_sse){_sse.close();_sse=null;}
   var combined=payload?(payload.choice?(payload.choice+(payload.notes?'\n\n'+payload.notes:'')):payload.notes):'';
   var isDismissed=!combined.trim();
   // Always include `dismissed` so the server can skip retrying on an explicit dismissal.
@@ -514,7 +461,7 @@ function done(payload){
   var now=new Date();
   var timeStr=(now.getHours()<10?'0':'')+now.getHours()+':'+(now.getMinutes()<10?'0':'')+now.getMinutes();
 
-  var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
+  var isMac=/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform||navigator.userAgent);
   var closeKey=isMac?'\u2318W':'Ctrl+W';
 
   // Card 1: Freeze AI card — replace countdown with 'Asked HH:MM', lock chips.
@@ -569,21 +516,10 @@ function done(payload){
 
 // Copy the user's submitted reply (chip + notes) as markdown.
 function copyReply(btn){
-  var text=window.__USER_REPLY_RAW__||'';
-  function flash(){
+  clipCopy(window.__USER_REPLY_RAW__||'',function(){
     btn.classList.add('copied');
     setTimeout(function(){btn.classList.remove('copied');},1500);
-  }
-  function fallback(){
-    var ta=document.createElement('textarea');
-    ta.value=text;ta.style.cssText='position:fixed;opacity:0';
-    document.body.appendChild(ta);ta.select();
-    try{document.execCommand('copy');flash();}catch(e){}
-    document.body.removeChild(ta);
-  }
-  if(navigator.clipboard&&window.isSecureContext){
-    navigator.clipboard.writeText(text).then(flash).catch(fallback);
-  } else { fallback(); }
+  });
 }
 
 // Write / Preview tab toggle for the freeform reply textarea.
@@ -631,7 +567,7 @@ ta.addEventListener('input',function(){
   var len=this.value.length;
   if(len>0){
     charCountEl.textContent=len+' char'+(len===1?'':'s');
-    charCountEl.className='char-count'+(len>800?' warn':len>1200?' limit':'');
+    charCountEl.className='char-count'+(len>1200?' limit':len>800?' warn':'');
   } else {
     charCountEl.textContent='';
   }
@@ -659,37 +595,31 @@ ta.focus();
 
 // Platform-adaptive keyboard shortcut hint
 (function(){
-  var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
+  var isMac=/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform||navigator.userAgent);
   var el=document.getElementById('kbHint');
   if(el)el.textContent='↩ tap twice to send  ·  ⇧↩ new line';
 })();
 
-// When freeform is disabled, hide the reply card — chips submit directly.
-if(!allowFreeform){
-  document.getElementById('replyCard').style.display='none';
-  document.getElementById('aiCard').style.borderBottomLeftRadius='20px';
-  document.getElementById('aiCard').style.borderBottomRightRadius='20px';
-}
-
 // AI → dialog live updates via Server-Sent Events.
 // Messages from update_dialog appear instantly in the updates panel.
+var _sse = null;
 (function(){
   if(!window.EventSource) return;
   var panel = document.getElementById('updatesPanel');
-  var es = new EventSource('/updates');
-  es.onmessage = function(e){
+  _sse = new EventSource('/updates');
+  _sse.onmessage = function(e){
     var msg;
-    try { msg = JSON.parse(e.data); } catch(ex) { msg = e.data; }
+    try { var p=JSON.parse(e.data); msg=typeof p==='string'?p:e.data; } catch(ex) { msg=e.data; }
     if(msg === '__DISMISS__'){
       done(null);
-      es.close();
+      _sse.close(); _sse = null;
       return;
     }
     var isReplace = msg.indexOf('__REPLACE__') === 0;
     if(isReplace) msg = msg.slice('__REPLACE__'.length);
     panel.style.display = 'block';
     var now = new Date();
-    var t = now.getHours() + ':' + (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
+    var t = (now.getHours()<10?'0':'')+now.getHours()+':'+(now.getMinutes()<10?'0':'')+now.getMinutes();
     if(isReplace && panel.lastChild){
       var last = panel.lastChild;
       last.querySelector('.upd-text').innerHTML = mdRender(msg);
@@ -704,8 +634,9 @@ if(!allowFreeform){
     panel.appendChild(item);
     panel.scrollTop = panel.scrollHeight;
   };
-  es.onerror = function(){ es.close(); };
+  _sse.onerror = function(){ _sse.close(); _sse = null; };
 })();
+window.addEventListener('beforeunload', function(){ if(_sse){ _sse.close(); _sse = null; } });
 
 // Heartbeat: report user activity to the server every 5 s so the AI can see
 // whether the user is typing, idle, or has left — used by get_user_response.

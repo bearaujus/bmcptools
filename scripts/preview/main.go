@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/bearaujus/bmcptools/internal/asset"
+	"github.com/bearaujus/bmcptools/pkg/confirm"
 )
 
 func main() {
@@ -142,7 +143,6 @@ func renderDialog() string {
 	tmpl = strings.ReplaceAll(tmpl, "[[DETAILS_JSON]]", string(detailsJSON))
 	tmpl = strings.ReplaceAll(tmpl, "[[CHIPS_SECTION]]", chips)
 	tmpl = strings.ReplaceAll(tmpl, "[[TIMEOUT_SEC]]", "600")
-	tmpl = strings.ReplaceAll(tmpl, "[[ALLOW_FREEFORM]]", "true")
 	return tmpl
 }
 
@@ -158,8 +158,6 @@ func renderRest() string {
 }
 
 func renderConfirm() string {
-	tmpl := inject(asset.HTML("confirm"))
-
 	details := "### Proposed action\n" +
 		"Open **LONG** position on **BTCUSDT** — `MARKET` order, quantity `0.025 BTC`\n" +
 		"Leverage: **10x ISOLATED**   ·   Notional: **1 696.25 USDT**\n\n" +
@@ -179,12 +177,16 @@ func renderConfirm() string {
 		"funding remains neutral. SL placed below the retest wick to allow normal " +
 		"intra-bar volatility while keeping the loss bounded to ~2.6% of notional.\n\n" +
 		"```sh\n# Equivalent CLI for audit:\nbinance futures order place \\\n  --symbol BTCUSDT --side BUY --type MARKET --quantity 0.025\n```"
-	detailsJSON, _ := json.Marshal(details)
 
-	tmpl = strings.ReplaceAll(tmpl, "[[TITLE]]", html.EscapeString("place_bracket_order"))
-	tmpl = strings.ReplaceAll(tmpl, "[[DETAILS_JSON]]", string(detailsJSON))
-	tmpl = strings.ReplaceAll(tmpl, "[[TIMEOUT_SEC]]", "300")
-	return tmpl
+	return confirm.BuildConfirmHTML("place_bracket_order", details, 300,
+		confirm.WithTheme(confirm.ThemeBinance),
+		confirm.WithEditableParams([]confirm.EditableParam{
+			{Key: "entry_price", Label: "Entry Price", Value: "67850", Type: "number", Step: "any"},
+			{Key: "quantity", Label: "Quantity", Value: "0.025", Type: "number", Step: "any"},
+			{Key: "stop_loss_price", Label: "Stop Loss Price", Value: "66100", Type: "number", Step: "any"},
+			{Key: "take_profit_price", Label: "Take Profit Price", Value: "71200", Type: "number", Step: "any"},
+		}),
+	)
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

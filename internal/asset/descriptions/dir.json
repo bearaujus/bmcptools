@@ -1,36 +1,36 @@
 {
   "list_directory": {
-    "desc": "List directory contents with sizes and modification times. Best for detailed file listings. Supports recursion and glob filtering. For a visual project structure overview, use directory_tree instead.",
+    "desc": "List directory contents with sizes and modification timestamps. Use for detailed file listings when you need timestamps, sizes, or glob-filtered results. For a visual overview of project structure, use directory_tree instead.",
     "params": {
       "path": "Directory to list. Defaults to the server's current working directory.",
-      "show_hidden": "Include hidden entries (names starting with '.'). Default: false",
-      "recursive": "List subdirectories recursively. Default: false",
-      "max_depth": "Max recursion depth when recursive=true. Default: 3",
+      "show_hidden": "Include hidden entries (names starting with '.'). Default: false.",
+      "recursive": "List subdirectories recursively. Default: false.",
+      "max_depth": "Max recursion depth when recursive=true. Default: 3.",
       "sort_by": "Sort by \"name\" (default) or \"size\" (largest first).",
-      "glob": "Only show files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Applies to files only — directories are always traversed and shown regardless of glob. Default: all files"
+      "glob": "Only show files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Applies to files only — directories are always traversed and shown regardless of glob. Default: all files."
     }
   },
   "create_directory": {
-    "desc": "Create a directory and all missing parents (mkdir -p). No-op if already exists.",
+    "desc": "Create a directory and all missing parents (equivalent to mkdir -p). No-op if the directory already exists.",
     "params": {
-      "path": "Directory path to create"
+      "path": "Directory path to create."
     }
   },
   "delete_directory": {
-    "desc": "Delete a directory. Must be empty unless force=true.",
+    "desc": "Delete a directory. IRREVERSIBLE. Must be empty unless force=true — which deletes the entire tree recursively. Confirm with the user before using force=true on directories that may contain important files.",
     "params": {
-      "path": "Directory path to delete",
-      "force": "Delete non-empty directories recursively. Default: false"
+      "path": "Directory path to delete.",
+      "force": "Delete non-empty directories recursively. IRREVERSIBLE. Default: false."
     }
   },
   "directory_tree": {
-    "desc": "Show a recursive visual tree of files and directories with sizes. Best for understanding project structure at a glance. For detailed file listings with timestamps, use list_directory instead.",
+    "desc": "Print a recursive visual tree of files and directories with sizes. Best for understanding project structure at a glance. For detailed listings with timestamps, use list_directory instead. Use exclude_patterns to skip large irrelevant subtrees (e.g. node_modules, .git, vendor).",
     "params": {
-      "path": "Root directory to display",
-      "max_depth": "Maximum recursion depth. Default: 3",
-      "show_hidden": "Include hidden files/directories. Default: false",
-      "exclude_patterns": "Glob patterns to exclude. Matched against each entry's basename only (not full path), so \"node_modules\" excludes any directory named node_modules at any depth, and \"*.log\" excludes files like error.log.",
-      "glob": "Only show files matching this glob pattern (e.g. *.go). Default: all files"
+      "path": "Root directory to display.",
+      "max_depth": "Maximum recursion depth. Default: 3.",
+      "show_hidden": "Include hidden files/directories. Default: false.",
+      "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). \"node_modules\" excludes any directory with that name at any depth; \"*.log\" excludes files like error.log.",
+      "glob": "Only show files matching this glob pattern (e.g. *.go). Default: all files."
     }
   }
 }

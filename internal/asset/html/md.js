@@ -159,7 +159,7 @@ function mdRender(raw) {
   s = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
   // Inline code — double-backtick first (allows single ` inside), then single
-  s = s.replace(/``([^`]+)``/g, '<code>$1</code>');
+  s = s.replace(/``([^`\n]+)``/g, '<code>$1</code>');
   s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
   // Headings
   s = s.replace(/^(#{1,6}) (.+)$/gm, function(_, h, t) {
@@ -194,7 +194,7 @@ function mdRender(raw) {
   });
   // Blockquotes — process BEFORE paragraphs, content inside is recursively rendered
   s = s.replace(/((?:^&gt; ?.+\n?)+)/gm, function(b) {
-    var inner = b.replace(/^&gt; ?/gm, '').trimRight();
+    var inner = b.replace(/^&gt; ?/gm, '').trimEnd();
     return '<blockquote>' + inner + '</blockquote>';
   });
   // Tables — detect header | separator | rows pattern
@@ -269,83 +269,53 @@ function mdRender(raw) {
   return s;
 }
 
-// ── Copy button handler ──────────────────────────────────────────────────────
-
-// ── Copy button handler ──────────────────────────────────────────────────────
+// ── Copy button handlers ─────────────────────────────────────────────────────
 
 function copyTable(btn) {
   var frame = btn.closest('.md-table-frame') || btn.closest('.md-table-wrap');
   var raw = frame ? frame.getAttribute('data-md') : '';
   try { raw = decodeURIComponent(raw || ''); } catch(e) { raw = raw || ''; }
-  var text = raw;
-  function flash() {
+  clipCopy(raw, function() {
     var label = btn.querySelector('.copy-label');
-    if (label) { label.textContent = 'Copied!'; }
+    if(label) { label.textContent = 'Copied!'; }
     btn.classList.add('copied');
     setTimeout(function(){
       var l = btn.querySelector('.copy-label');
-      if (l) { l.textContent = 'Copy'; }
+      if(l) { l.textContent = 'Copy'; }
       btn.classList.remove('copied');
     }, 1500);
-  }
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(flash).catch(fallback);
-  } else { fallback(); }
-  function fallback() {
-    var ta = document.createElement('textarea');
-    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); flash(); } catch(e) {}
-    document.body.removeChild(ta);
-  }
+  });
 }
 
 function copyCode(btn) {
   var wrap = btn.closest('.code-wrap');
   var codeEl = wrap ? wrap.querySelector('pre code') : btn.nextElementSibling;
-  // Extract text without line numbers
   var lines = codeEl ? codeEl.querySelectorAll('.code-line') : [];
   var text = '';
-  if (lines.length) {
+  if(lines.length) {
     var parts = [];
-    for (var i = 0; i < lines.length; i++) {
-      // Clone, remove line-no span, get remaining text
+    for(var i = 0; i < lines.length; i++) {
       var clone = lines[i].cloneNode(true);
       var noEl = clone.querySelector('.line-no');
-      if (noEl) noEl.remove();
+      if(noEl) noEl.remove();
       parts.push(clone.textContent);
     }
     text = parts.join('\n');
   } else {
     text = codeEl ? codeEl.textContent : '';
   }
-  function flash() {
+  clipCopy(text, function() {
     var label = btn.querySelector('.copy-label');
-    if (label) {
-      label.textContent = 'Copied!';
-    } else {
-      btn.textContent = 'Copied!';
-    }
+    if(label) { label.textContent = 'Copied!'; }
+    else { btn.textContent = 'Copied!'; }
     btn.classList.add('copied');
     setTimeout(function() {
       var l = btn.querySelector('.copy-label');
-      if (l) { l.textContent = 'Copy'; }
+      if(l) { l.textContent = 'Copy'; }
       else { btn.textContent = 'Copy'; }
       btn.classList.remove('copied');
     }, 2000);
-  }
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(flash).catch(fallback);
-  } else {
-    fallback();
-  }
-  function fallback() {
-    var ta = document.createElement('textarea');
-    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); flash(); } catch(e) {}
-    document.body.removeChild(ta);
-  }
+  });
 }
 
 // ── Expand/collapse handler ─────────────────────────────────────────────────
@@ -363,9 +333,63 @@ function toggleCode(btn) {
   }
 }
 
+// ── Shared utilities (used by all three HTML templates) ───────────────────────
+
+function fmtSec(s) {
+  s = Math.max(0, Math.round(s));
+  if(s < 60) return s + 's';
+  var m = Math.floor(s/60), sec = s%60;
+  if(m < 60) return m + 'm' + (sec > 0 ? ' ' + sec + 's' : '');
+  var h = Math.floor(m/60), min = m%60;
+  return h + 'h' + (min > 0 ? ' ' + min + 'm' : '');
+}
+
+function clipCopy(text, onSuccess) {
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); onSuccess(); } catch(e) {}
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(onSuccess).catch(fallback);
+  } else { fallback(); }
+}
+
+function DoubleConfirm() {
+  var pending = null;
+  var dc = {
+    arm: function(btnId, action, label) {
+      var btn = document.getElementById(btnId);
+      if(!btn || btn.disabled) return;
+      if(pending && pending.btnId === btnId) {
+        var act = pending.action; dc.reset(); act(); return;
+      }
+      dc.reset();
+      var original = btn.innerHTML;
+      btn.innerHTML = label; btn.classList.add('confirming');
+      pending = {btnId:btnId, action:action, original:original,
+        timer:setTimeout(function(){ dc.reset(); }, 3000)};
+    },
+    reset: function() {
+      if(!pending) return;
+      var p = pending; pending = null;
+      clearTimeout(p.timer);
+      var btn = document.getElementById(p.btnId);
+      if(btn){ btn.innerHTML = p.original; btn.classList.remove('confirming'); }
+    },
+    active: function() { return !!pending; }
+  };
+  return dc;
+}
+
 global.mdRender = mdRender;
 global.copyCode = copyCode;
 global.copyTable = copyTable;
 global.toggleCode = toggleCode;
+global.fmtSec = fmtSec;
+global.clipCopy = clipCopy;
+global.DoubleConfirm = DoubleConfirm;
 
 })(window);

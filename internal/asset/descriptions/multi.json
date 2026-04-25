@@ -1,43 +1,43 @@
 {
   "read_multiple_files": {
-    "desc": "Read multiple files at once in a single call — more efficient than calling read_file repeatedly. Each file's content is returned with its path as a header. Failed reads are reported inline.",
+    "desc": "Read multiple files in a single call — more efficient than calling read_file repeatedly. Each file's content is returned with its path as a header. Failed reads (not found, permission denied) are reported inline without aborting the rest of the batch.",
     "params": {
-      "paths": "Array of file paths to read",
+      "paths": "Array of file paths to read.",
       "max_bytes_per_file": "Max bytes per file. Default: 10485760 (10 MB)."
     }
   },
   "write_multiple_files": {
-    "desc": "Write content to multiple files in a single call — more efficient than calling write_file repeatedly. Creates or overwrites each file. Creates parent dirs automatically.",
+    "desc": "Write content to multiple files in a single call — more efficient than calling write_file repeatedly. Creates or overwrites each file. show_diff defaults to false here (unlike write_file) to avoid flooding the response when writing many files — set true if you need to review the diffs.",
     "params": {
-      "files": "Array of {\"path\": \"...\", \"content\": \"...\"} objects to write",
-      "create_dirs": "Create missing parent directories. Default: true",
-      "show_diff": "When true, include a per-file unified diff of what changed for files that were overwritten. Default: false (unlike write_file which defaults to true — disabled here to reduce output when writing many files)."
+      "files": "Array of {\"path\": \"...\", \"content\": \"...\"} objects to write.",
+      "create_dirs": "Create missing parent directories. Default: true.",
+      "show_diff": "Include per-file unified diffs for overwritten files. Default: false."
     }
   },
   "find_replace_in_files": {
-    "desc": "Find and replace text across multiple files. Supports literal strings and Go regex with $1,$2 back-references. Returns per-file diffs (show_diff defaults to true). Transparently handles CRLF (\\r\\n) files — patterns with LF-only (\\n) match correctly, and the original line endings are preserved after editing. In dry_run mode no files are written; the response previews matching files with diffs (or set show_diff=false to get just the file list).",
+    "desc": "Find and replace text across multiple files in one call. Returns per-file unified diffs. Always run with dry_run=true first to preview which files match and how — then run again without dry_run to apply. Supports Go regex with $1/$2 back-references. Handles CRLF transparently: LF-only patterns match CRLF files and original line endings are preserved after editing.",
     "params": {
-      "path": "Root file or directory to search",
-      "old_str": "Text (or regex) to find",
-      "new_str": "Replacement text",
-      "use_regex": "Treat old_str as a Go regular expression. Default: false",
-      "recursive": "Descend into subdirectories. Default: true",
-      "glob": "Only process files matching this glob pattern (e.g. *.go). Default: all files",
-      "dry_run": "Preview matches without writing. Default: false",
-      "show_diff": "Include a unified diff for each changed file. Default: true",
-      "show_hidden": "Include hidden files and directories. Default: false"
+      "path": "Root file or directory to search.",
+      "old_str": "Text (or regex pattern when use_regex=true) to find.",
+      "new_str": "Replacement text. Use $1/$2 back-references when use_regex=true.",
+      "use_regex": "Treat old_str as a Go regular expression. Default: false.",
+      "recursive": "Descend into subdirectories. Default: true.",
+      "glob": "Only process files matching this glob pattern (e.g. *.go). Default: all files.",
+      "dry_run": "Preview matches without writing. Default: false. Run this first before applying.",
+      "show_diff": "Include a unified diff for each changed file. Default: true.",
+      "show_hidden": "Include hidden files and directories. Default: false."
     }
   },
   "path_exists_batch": {
     "desc": "Check whether multiple paths exist in a single call. Returns each path's existence, type (file/directory/symlink), and size. More efficient than calling path_exists repeatedly.",
     "params": {
-      "paths": "Array of file/directory paths to check"
+      "paths": "Array of file/directory paths to check."
     }
   },
   "get_multiple_file_info": {
     "desc": "Return metadata for multiple files/directories in a single call. Each entry includes type, size, modification time, permissions, symlink target, and line count for text files. More efficient than calling get_file_info repeatedly.",
     "params": {
-      "paths": "Array of file/directory paths to inspect"
+      "paths": "Array of file/directory paths to inspect."
     }
   }
 }

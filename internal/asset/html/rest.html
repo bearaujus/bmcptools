@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>[[TITLE]] is Resting</title>
+<link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23ff9f0a'/><text x='16' y='22' font-family='system-ui' font-size='18' font-weight='bold' text-anchor='middle' fill='white'>z</text></svg>">
 [[MD_CSS]]
 <style>
 :root{
@@ -44,7 +45,7 @@ body{
 .ring-fill{
   fill:none;stroke:var(--accent);stroke-width:4;
   stroke-linecap:round;
-  stroke-dasharray:251.2;/* 2π × 40 */
+  stroke-dasharray:251.2;/* initial value; JS overrides from SVG r attribute */
   stroke-dashoffset:0;
   transition:stroke-dashoffset 1s linear, stroke .5s;
 }
@@ -231,21 +232,13 @@ var NOTES_RAW   = [[NOTES_ESCAPED]]; // JSON-encoded string
 })();
 
 // ── Timer ─────────────────────────────────────────────────────────────────
-var CIRCUMFERENCE = 2 * Math.PI * 40; // ~251.2
 var startMs = Date.now();
 var ringFill = document.getElementById('ringFill');
 var timerDot = document.getElementById('timerDot');
+var CIRCUMFERENCE = 2 * Math.PI * parseFloat(ringFill.getAttribute('r') || '40');
+ringFill.style.strokeDasharray = CIRCUMFERENCE;
 
-function fmtSec(s){
-  s = Math.max(0, Math.round(s));
-  if(s < 60) return s + 's';
-  var m = Math.floor(s/60), sec = s%60;
-  if(m < 60) return m + 'm ' + (sec > 0 ? sec + 's' : '');
-  var h = Math.floor(m/60), min = m%60;
-  return h + 'h ' + (min > 0 ? min + 'm' : '');
-}
-
-setInterval(function(){
+var restIv = setInterval(function(){
   var elapsed = (Date.now() - startMs) / 1000;
   var rem = TIMEOUT_SEC - elapsed;
   var frac = Math.max(0, Math.min(1, rem / TIMEOUT_SEC));
@@ -285,16 +278,26 @@ ta.addEventListener('input', function(){
 });
 
 // ── Wake up ───────────────────────────────────────────────────────────────
+var FAVICON_WOKEN = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%2334c759'/><path d='M8 16l5 6 11-11' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>";
+var FAVICON_ERR  = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23ff3b30'/><text x='16' y='22' font-family='system-ui' font-size='20' font-weight='bold' text-anchor='middle' fill='white'>!</text></svg>";
+function setFavicon(url){var f=document.getElementById('favicon');if(f)f.href=url;}
+
 var woken = false;
 function wakeUp(){
   if(woken) return;
   woken = true;
+  clearInterval(restIv);
   var note = ta.value.trim();
   fetch('/answer',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({notes:note})
-  }).catch(function(){});
+  }).then(function(){ setFavicon(FAVICON_WOKEN); })
+  .catch(function(){
+    setFavicon(FAVICON_ERR);
+    var sub = document.querySelector('.woken-sub');
+    if(sub){ sub.textContent = '⚠ Failed to deliver — close and retry.'; sub.style.color = '#ff3b30'; }
+  });
 
   // Transition
   document.getElementById('mainCard').style.display='none';
@@ -315,7 +318,7 @@ function wakeUp(){
   setTimeout(function(){
     try{window.close();}catch(e){}
     setTimeout(function(){
-      var isMac=/Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent);
+      var isMac=/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform||navigator.userAgent);
       document.getElementById('wokenCloseHint').textContent =
         'You can close this tab — ' + (isMac ? '⌘W' : 'Ctrl+W');
     },400);

@@ -8,7 +8,7 @@ package binance
 //   $env:BMCPTOOLS_BINANCE_LIVE="1"
 //   $env:BINANCE_API_KEY="..."
 //   $env:BINANCE_API_SECRET="..."
-//   $env:BINANCE_FUTURES_BASE_URL="https://testnet.binancefuture.com"
+//   $env:BINANCE_TESTNET="true"
 //   $env:BINANCE_SKIP_ASK_USER="true"
 //   go test -run TestLive ./internal/tool/binance/ -v -count=1 -timeout 120s
 
@@ -154,30 +154,6 @@ func TestLive_LongShortRatio_BTCUSDT(t *testing.T) {
 
 // --- Authenticated reads ---
 
-func TestLive_AccountInfo(t *testing.T) {
-	ctx := liveOrSkip(t)
-	r, err := accountInfoHandler(ctx, newTestRequest(nil))
-	if err != nil {
-		t.Fatalf("infra: %v", err)
-	}
-	if isResultError(r) {
-		t.Fatalf("account_info error: %s", resultText(r))
-	}
-	t.Logf("account_info (truncated):\n%s", truncForLog(resultText(r), 800))
-}
-
-func TestLive_PositionRisk(t *testing.T) {
-	ctx := liveOrSkip(t)
-	r, err := positionRiskHandler(ctx, newTestRequest(map[string]any{"symbol": "BTCUSDT"}))
-	if err != nil {
-		t.Fatalf("infra: %v", err)
-	}
-	if isResultError(r) {
-		t.Fatalf("position_risk error: %s", resultText(r))
-	}
-	t.Logf("position_risk:\n%s", resultText(r))
-}
-
 func TestLive_OpenOrders(t *testing.T) {
 	ctx := liveOrSkip(t)
 	r, err := openOrdersHandler(ctx, newTestRequest(nil))
@@ -238,12 +214,12 @@ func TestLive_A_CancelAllOpenOrders_BTCUSDT(t *testing.T) {
 	t.Logf("cancel_all_open_orders:\n%s", resultText(r))
 }
 
-func TestLive_B_ChangeLeverage_BTCUSDT_5x(t *testing.T) {
+func TestLive_B_ConfigureSymbol_BTCUSDT_Leverage(t *testing.T) {
 	ctx := liveOrSkip(t)
 	if os.Getenv("BINANCE_SKIP_ASK_USER") != "true" {
 		t.Skip("BINANCE_SKIP_ASK_USER must be true to run mutating tests headless")
 	}
-	r, err := changeLeverageHandler(ctx, newTestRequest(map[string]any{
+	r, err := configureSymbolHandler(ctx, newTestRequest(map[string]any{
 		"symbol":    "BTCUSDT",
 		"leverage":  float64(5),
 		"reasoning": "live integration test: setting modest leverage",
@@ -252,17 +228,17 @@ func TestLive_B_ChangeLeverage_BTCUSDT_5x(t *testing.T) {
 		t.Fatalf("infra: %v", err)
 	}
 	if isResultError(r) {
-		t.Fatalf("change_leverage error: %s", resultText(r))
+		t.Fatalf("configure_symbol error: %s", resultText(r))
 	}
-	t.Logf("change_leverage:\n%s", resultText(r))
+	t.Logf("configure_symbol (leverage):\n%s", resultText(r))
 }
 
-func TestLive_C_ChangeMarginType_BTCUSDT_ISOLATED(t *testing.T) {
+func TestLive_C_ConfigureSymbol_BTCUSDT_MarginType(t *testing.T) {
 	ctx := liveOrSkip(t)
 	if os.Getenv("BINANCE_SKIP_ASK_USER") != "true" {
 		t.Skip("BINANCE_SKIP_ASK_USER must be true")
 	}
-	r, err := changeMarginTypeHandler(ctx, newTestRequest(map[string]any{
+	r, err := configureSymbolHandler(ctx, newTestRequest(map[string]any{
 		"symbol":      "BTCUSDT",
 		"margin_type": "ISOLATED",
 		"reasoning":   "live integration test: prefer isolated to limit blast radius",
@@ -273,15 +249,13 @@ func TestLive_C_ChangeMarginType_BTCUSDT_ISOLATED(t *testing.T) {
 	if isResultError(r) {
 		body := resultText(r)
 		// -4046 = "no need to change margin type" — already set, harmless.
-		// -4067 = "Position side cannot be changed if there exists open orders" — pre-existing
-		// account state from earlier testing, not a code defect.
-		if strings.Contains(body, "-4046") || strings.Contains(body, "-4067") {
-			t.Logf("change_margin_type acceptable error (%s)", strings.SplitN(body, "\n", 2)[0])
+		if strings.Contains(body, "-4046") {
+			t.Logf("configure_symbol acceptable no-op (%s)", strings.SplitN(body, "\n", 2)[0])
 			return
 		}
-		t.Fatalf("change_margin_type error: %s", body)
+		t.Fatalf("configure_symbol error: %s", body)
 	}
-	t.Logf("change_margin_type:\n%s", resultText(r))
+	t.Logf("configure_symbol (margin_type):\n%s", resultText(r))
 }
 
 func TestLive_D_PlaceOrder_DryRun_LimitBuy(t *testing.T) {
@@ -395,7 +369,7 @@ func TestLive_G_RealBracketOrder(t *testing.T) {
 		t.Fatalf("infra: %v", err)
 	}
 
-	isTestnet := strings.Contains(os.Getenv("BINANCE_FUTURES_BASE_URL"), "testnet")
+	isTestnet := isTestnetEnv()
 	if isResultError(r) {
 		txt := resultText(r)
 		if isTestnet && strings.Contains(txt, "-4120") && strings.Contains(txt, "rolled back") {

@@ -31,3 +31,8 @@ coverage
 
 # golangci-lint cache
 .golangci-lint-cache/
+
+# etc
+.github\copilot-instructions.md
+.claude
+AGENT.md

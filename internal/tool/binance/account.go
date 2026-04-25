@@ -2,6 +2,7 @@ package binance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -19,24 +20,57 @@ func signedGetText(ctx context.Context, path string, params url.Values) (*mcp.Ca
 	return mcp.NewToolResultText(prettyJSON(body) + rateLimitFooter(hdr)), nil
 }
 
-func accountInfoHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return signedGetText(ctx, "/fapi/v2/account", nil)
-}
-
-func positionRiskHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	p := url.Values{}
-	if s := strings.TrimSpace(req.GetString("symbol", "")); s != "" {
-		p.Set("symbol", strings.ToUpper(s))
-	}
-	return signedGetText(ctx, "/fapi/v2/positionRisk", p)
-}
-
 func openOrdersHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	p := url.Values{}
-	if s := strings.TrimSpace(req.GetString("symbol", "")); s != "" {
-		p.Set("symbol", strings.ToUpper(s))
+	symbol := strings.TrimSpace(req.GetString("symbol", ""))
+	if symbol != "" {
+		p.Set("symbol", strings.ToUpper(symbol))
 	}
-	return signedGetText(ctx, "/fapi/v1/openOrders", p)
+	body, hdr, err := request(ctx, requestOpts{method: http.MethodGet, path: "/fapi/v1/openOrders", signed: true, params: p})
+	if err != nil {
+		return mcp.NewToolResultError(humanizeError(err)), nil
+	}
+
+	if !req.GetBool("include_algo_orders", true) {
+		return mcp.NewToolResultText(prettyJSON(body) + rateLimitFooter(hdr)), nil
+	}
+
+	// Parse regular orders preserving numeric precision.
+	dec := jsonDecoderUseNumber(body)
+	var regularOrders []interface{}
+	if err := dec.Decode(&regularOrders); err != nil {
+		return mcp.NewToolResultText(prettyJSON(body) + rateLimitFooter(hdr)), nil
+	}
+	if regularOrders == nil {
+		regularOrders = []interface{}{}
+	}
+
+	algoOrders, algoErr := fetchOpenAlgoOrders(ctx, strings.ToUpper(symbol))
+
+	type openOrdersResponse struct {
+		RegularOrders   []interface{}            `json:"regular_orders"`
+		AlgoOrders      []map[string]interface{} `json:"algo_orders,omitempty"`
+		AlgoOrdersError string                   `json:"algo_orders_error,omitempty"`
+		Total           int                      `json:"total"`
+	}
+	resp := openOrdersResponse{RegularOrders: regularOrders}
+	if algoErr != nil {
+		resp.AlgoOrdersError = humanizeError(algoErr)
+		resp.Total = len(regularOrders)
+	} else {
+		if algoOrders == nil {
+			algoOrders = []map[string]interface{}{}
+		}
+		slimmed := make([]map[string]interface{}, len(algoOrders))
+		for i, o := range algoOrders {
+			slimmed[i] = slimAlgoOrder(o)
+		}
+		resp.AlgoOrders = slimmed
+		resp.Total = len(regularOrders) + len(algoOrders)
+	}
+
+	out, _ := json.MarshalIndent(resp, "", "  ")
+	return mcp.NewToolResultText(string(out) + rateLimitFooter(hdr)), nil
 }
 
 func orderHistoryHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -80,9 +114,19 @@ func incomeHistoryHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Ca
 // freeUSDT returns the AvailableBalance of the USDT asset from /fapi/v2/account.
 // Used by the trade brief builder.
 func freeUSDT(ctx context.Context) string {
+	v, ok := freeUSDTFloat(ctx)
+	if !ok {
+		return ""
+	}
+	return strconv.FormatFloat(v, 'f', 4, 64)
+}
+
+// freeUSDTFloat returns the account's available USDT balance as a float.
+// Returns (0, false) on any error or missing credentials.
+func freeUSDTFloat(ctx context.Context) (float64, bool) {
 	body, _, err := request(ctx, requestOpts{method: http.MethodGet, path: "/fapi/v2/account", signed: true})
 	if err != nil {
-		return ""
+		return 0, false
 	}
 	var payload struct {
 		Assets []struct {
@@ -91,14 +135,18 @@ func freeUSDT(ctx context.Context) string {
 		} `json:"assets"`
 	}
 	if err := unmarshalIgnore(body, &payload); err != nil {
-		return ""
+		return 0, false
 	}
 	for _, a := range payload.Assets {
 		if a.Asset == "USDT" {
-			return a.AvailableBalance
+			v, err := strconv.ParseFloat(a.AvailableBalance, 64)
+			if err != nil {
+				return 0, false
+			}
+			return v, true
 		}
 	}
-	return ""
+	return 0, false
 }
 
 // openPositionsSummary returns a short human line about positions, filtered by symbol if non-empty.
@@ -144,4 +192,16 @@ func openPositionsSummary(ctx context.Context, symbol string) string {
 func unmarshalIgnore(data []byte, v interface{}) error {
 	dec := jsonDecoderStrict(data)
 	return dec.Decode(v)
+}
+
+// slimAlgoOrder trims noisy Binance algo order fields, keeping only what an AI trader needs.
+func slimAlgoOrder(o map[string]interface{}) map[string]interface{} {
+	keep := []string{"algoId", "symbol", "orderType", "side", "positionSide", "triggerPrice", "closePosition", "quantity", "algoStatus", "workingType", "bookTime"}
+	out := make(map[string]interface{}, len(keep))
+	for _, k := range keep {
+		if v, ok := o[k]; ok {
+			out[k] = v
+		}
+	}
+	return out
 }

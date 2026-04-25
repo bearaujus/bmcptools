@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -147,17 +149,183 @@ var ticker24hrHandler = simpleGetHandler("/fapi/v1/ticker/24hr", func(req mcp.Ca
 	return p, nil
 })
 
-var orderBookHandler = simpleGetHandler("/fapi/v1/depth", func(req mcp.CallToolRequest) (url.Values, error) {
+// marketScanHandler fetches all 24hr tickers, filters by min volume, and returns
+// the top N symbols sorted by quoteVolume or |priceChangePercent| — compact output
+// for fast symbol selection without flooding the AI context with 500+ symbols.
+func marketScanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	sortBy := strings.ToLower(strings.TrimSpace(req.GetString("sort_by", "volume")))
+	if sortBy != "volume" && sortBy != "change_pct" {
+		return mcp.NewToolResultError("sort_by must be \"volume\" or \"change_pct\""), nil
+	}
+	limit := int(req.GetFloat("limit", 20))
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	minVol := req.GetFloat("min_volume_usdt", 100_000_000)
+
+	type tickerResult struct {
+		body []byte
+		hdr  http.Header
+		err  error
+	}
+	type balResult struct {
+		v  float64
+		ok bool
+	}
+	tickerCh := make(chan tickerResult, 1)
+	balCh := make(chan balResult, 1)
+	go func() {
+		b, h, e := request(ctx, requestOpts{method: http.MethodGet, path: "/fapi/v1/ticker/24hr"})
+		tickerCh <- tickerResult{b, h, e}
+	}()
+	go func() {
+		v, ok := freeUSDTFloat(ctx)
+		balCh <- balResult{v, ok}
+	}()
+	tickerRes := <-tickerCh
+	balRes := <-balCh
+
+	if tickerRes.err != nil {
+		return mcp.NewToolResultError(humanizeError(tickerRes.err)), nil
+	}
+	body, hdr := tickerRes.body, tickerRes.hdr
+
+	type ticker struct {
+		Symbol             string `json:"symbol"`
+		LastPrice          string `json:"lastPrice"`
+		PriceChange        string `json:"priceChange"`
+		PriceChangePercent string `json:"priceChangePercent"`
+		HighPrice          string `json:"highPrice"`
+		LowPrice           string `json:"lowPrice"`
+		QuoteVolume        string `json:"quoteVolume"`
+	}
+	var tickers []ticker
+	if err := json.Unmarshal(body, &tickers); err != nil {
+		return mcp.NewToolResultError("failed to parse tickers: " + err.Error()), nil
+	}
+
+	type row struct {
+		Symbol     string  `json:"symbol"`
+		LastPrice  string  `json:"last_price"`
+		Change24h  string  `json:"change_24h_pct"`
+		High24h    string  `json:"high_24h"`
+		Low24h     string  `json:"low_24h"`
+		VolUSDT    float64 `json:"volume_usdt"`
+		ChangePct  float64 `json:"-"`
+	}
+
+	var rows []row
+	for _, t := range tickers {
+		vol, _ := strconv.ParseFloat(t.QuoteVolume, 64)
+		if vol < minVol {
+			continue
+		}
+		pct, _ := strconv.ParseFloat(t.PriceChangePercent, 64)
+		rows = append(rows, row{
+			Symbol:    t.Symbol,
+			LastPrice: t.LastPrice,
+			Change24h: t.PriceChangePercent + "%",
+			High24h:   t.HighPrice,
+			Low24h:    t.LowPrice,
+			VolUSDT:   math.Round(vol),
+			ChangePct: math.Abs(pct),
+		})
+	}
+
+	if sortBy == "change_pct" {
+		sort.Slice(rows, func(i, j int) bool { return rows[i].ChangePct > rows[j].ChangePct })
+	} else {
+		sort.Slice(rows, func(i, j int) bool { return rows[i].VolUSDT > rows[j].VolUSDT })
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+
+	result := map[string]interface{}{
+		"sort_by": sortBy,
+		"count":   len(rows),
+		"symbols": rows,
+	}
+	if balRes.ok {
+		result["free_margin_usdt"] = roundTo(balRes.v, 4)
+	}
+	out, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(out) + rateLimitFooter(hdr)), nil
+}
+
+func orderBookHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	symbol := strings.ToUpper(strings.TrimSpace(req.GetString("symbol", "")))
 	if symbol == "" {
-		return nil, fmt.Errorf("symbol is required")
+		return mcp.NewToolResultError("symbol is required"), nil
 	}
 	p := url.Values{"symbol": []string{symbol}}
 	if limit := req.GetFloat("limit", 0); limit > 0 {
 		p.Set("limit", strconv.FormatInt(int64(limit), 10))
 	}
-	return p, nil
-})
+	body, hdr, err := request(ctx, requestOpts{method: http.MethodGet, path: "/fapi/v1/depth", params: p})
+	if err != nil {
+		return mcp.NewToolResultError(humanizeError(err)), nil
+	}
+
+	// Parse bids/asks for summary computation.
+	var raw struct {
+		LastUpdateID int64           `json:"lastUpdateId"`
+		Bids         [][]interface{} `json:"bids"`
+		Asks         [][]interface{} `json:"asks"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return mcp.NewToolResultText(prettyJSON(body) + rateLimitFooter(hdr)), nil
+	}
+
+	parseLevel := func(entry []interface{}) (price, qty float64) {
+		if len(entry) < 2 {
+			return 0, 0
+		}
+		ps, _ := entry[0].(string)
+		qs, _ := entry[1].(string)
+		price, _ = strconv.ParseFloat(ps, 64)
+		qty, _ = strconv.ParseFloat(qs, 64)
+		return
+	}
+
+	depthUSDT := func(levels [][]interface{}, n int) float64 {
+		total := 0.0
+		for i := 0; i < n && i < len(levels); i++ {
+			p, q := parseLevel(levels[i])
+			total += p * q
+		}
+		return total
+	}
+
+	summary := map[string]interface{}{}
+	if len(raw.Bids) > 0 && len(raw.Asks) > 0 {
+		bestBid, _ := parseLevel(raw.Bids[0])
+		bestAsk, _ := parseLevel(raw.Asks[0])
+		spread := bestAsk - bestBid
+		mid := (bestBid + bestAsk) / 2
+		spreadPct := 0.0
+		if mid > 0 {
+			spreadPct = spread / mid * 100
+		}
+		summary["best_bid"] = bestBid
+		summary["best_ask"] = bestAsk
+		summary["spread"] = roundTo(spread, 8)
+		summary["spread_pct"] = roundTo(spreadPct, 6)
+		summary["bid_depth_usdt_top5"] = roundTo(depthUSDT(raw.Bids, 5), 2)
+		summary["ask_depth_usdt_top5"] = roundTo(depthUSDT(raw.Asks, 5), 2)
+	}
+
+	result := map[string]interface{}{
+		"summary": summary,
+		"bids":    raw.Bids,
+		"asks":    raw.Asks,
+	}
+	out, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(out) + rateLimitFooter(hdr)), nil
+}
 
 var markPriceHandler = simpleGetHandler("/fapi/v1/premiumIndex", func(req mcp.CallToolRequest) (url.Values, error) {
 	p := url.Values{}

@@ -44,6 +44,13 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithString("symbol", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesTicker24hr, "symbol"))),
 	), ticker24hrHandler)
 
+	s.AddTool(mcp.NewTool(toolname.BinanceFuturesMarketScan,
+		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesMarketScan)),
+		mcp.WithString("sort_by", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesMarketScan, "sort_by"))),
+		mcp.WithNumber("limit", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesMarketScan, "limit"))),
+		mcp.WithNumber("min_volume_usdt", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesMarketScan, "min_volume_usdt"))),
+	), marketScanHandler)
+
 	s.AddTool(mcp.NewTool(toolname.BinanceFuturesOrderBook,
 		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesOrderBook)),
 		mcp.WithString("symbol", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesOrderBook, "symbol"))),
@@ -72,18 +79,10 @@ func Register(s toolreg.ToolRegistrar) {
 	), longShortRatioHandler)
 
 	// --- Account read (auth) ---
-	s.AddTool(mcp.NewTool(toolname.BinanceFuturesAccountInfo,
-		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesAccountInfo)),
-	), accountInfoHandler)
-
-	s.AddTool(mcp.NewTool(toolname.BinanceFuturesPositionRisk,
-		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesPositionRisk)),
-		mcp.WithString("symbol", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesPositionRisk, "symbol"))),
-	), positionRiskHandler)
-
 	s.AddTool(mcp.NewTool(toolname.BinanceFuturesOpenOrders,
 		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesOpenOrders)),
 		mcp.WithString("symbol", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesOpenOrders, "symbol"))),
+		mcp.WithBoolean("include_algo_orders", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesOpenOrders, "include_algo_orders"))),
 	), openOrdersHandler)
 
 	s.AddTool(mcp.NewTool(toolname.BinanceFuturesOrderHistory,
@@ -104,19 +103,13 @@ func Register(s toolreg.ToolRegistrar) {
 	), incomeHistoryHandler)
 
 	// --- Config (gated) ---
-	s.AddTool(mcp.NewTool(toolname.BinanceFuturesChangeLeverage,
-		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesChangeLeverage)),
-		mcp.WithString("symbol", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesChangeLeverage, "symbol"))),
-		mcp.WithNumber("leverage", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesChangeLeverage, "leverage"))),
-		mcp.WithString("reasoning", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesChangeLeverage, "reasoning"))),
-	), changeLeverageHandler)
-
-	s.AddTool(mcp.NewTool(toolname.BinanceFuturesChangeMarginType,
-		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesChangeMarginType)),
-		mcp.WithString("symbol", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesChangeMarginType, "symbol"))),
-		mcp.WithString("margin_type", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesChangeMarginType, "margin_type"))),
-		mcp.WithString("reasoning", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesChangeMarginType, "reasoning"))),
-	), changeMarginTypeHandler)
+	s.AddTool(mcp.NewTool(toolname.BinanceFuturesConfigureSymbol,
+		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesConfigureSymbol)),
+		mcp.WithString("symbol", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesConfigureSymbol, "symbol"))),
+		mcp.WithNumber("leverage", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesConfigureSymbol, "leverage"))),
+		mcp.WithString("margin_type", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesConfigureSymbol, "margin_type"))),
+		mcp.WithString("reasoning", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesConfigureSymbol, "reasoning"))),
+	), configureSymbolHandler)
 
 	s.AddTool(mcp.NewTool(toolname.BinanceFuturesChangePositionMode,
 		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesChangePositionMode)),
@@ -181,6 +174,21 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithString("reasoning", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesCancelAllOrders, "reasoning"))),
 	), cancelAllOrdersHandler)
 
+	s.AddTool(mcp.NewTool(toolname.BinanceFuturesCancelAlgoOrder,
+		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesCancelAlgoOrder)),
+		mcp.WithString("algo_id", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesCancelAlgoOrder, "algo_id"))),
+		mcp.WithString("reasoning", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesCancelAlgoOrder, "reasoning"))),
+	), cancelAlgoOrderHandler)
+
+	s.AddTool(mcp.NewTool(toolname.BinanceFuturesUpdateSLTP,
+		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesUpdateSLTP)),
+		mcp.WithString("symbol", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesUpdateSLTP, "symbol"))),
+		mcp.WithNumber("stop_loss_price", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesUpdateSLTP, "stop_loss_price"))),
+		mcp.WithNumber("take_profit_price", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesUpdateSLTP, "take_profit_price"))),
+		mcp.WithString("working_type", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesUpdateSLTP, "working_type"))),
+		mcp.WithString("reasoning", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesUpdateSLTP, "reasoning"))),
+	), updateSLTPHandler)
+
 	s.AddTool(mcp.NewTool(toolname.BinanceFuturesClosePosition,
 		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesClosePosition)),
 		mcp.WithString("symbol", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesClosePosition, "symbol"))),
@@ -191,11 +199,6 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("dry_run", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesClosePosition, "dry_run"))),
 		mcp.WithString("reasoning", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesClosePosition, "reasoning"))),
 	), closePositionHandler)
-
-	s.AddTool(mcp.NewTool(toolname.BinanceFuturesCommissionRate,
-		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesCommissionRate)),
-		mcp.WithString("symbol", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesCommissionRate, "symbol"))),
-	), commissionRateHandler)
 
 	s.AddTool(mcp.NewTool(toolname.BinanceFuturesModifyOrder,
 		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesModifyOrder)),
@@ -228,4 +231,35 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithNumber("limit", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesTASnapshot, "limit"))),
 		mcp.WithBoolean("include_candles", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesTASnapshot, "include_candles"))),
 	), taSnapshotHandler)
+
+	s.AddTool(mcp.NewTool(toolname.BinanceFuturesTASnapshotMulti,
+		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesTASnapshotMulti)),
+		mcp.WithString("symbols", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesTASnapshotMulti, "symbols"))),
+		mcp.WithString("interval", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesTASnapshotMulti, "interval"))),
+		mcp.WithNumber("limit", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesTASnapshotMulti, "limit"))),
+		mcp.WithBoolean("include_candles", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesTASnapshotMulti, "include_candles"))),
+	), taSnapshotMultiHandler)
+
+	s.AddTool(mcp.NewTool(toolname.BinanceFuturesPositionHealth,
+		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesPositionHealth)),
+		mcp.WithString("symbol", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesPositionHealth, "symbol"))),
+	), positionHealthHandler)
+
+	s.AddTool(mcp.NewTool(toolname.BinanceFuturesCalcOrderSize,
+		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesCalcOrderSize)),
+		mcp.WithString("symbol", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesCalcOrderSize, "symbol"))),
+		mcp.WithNumber("desired_notional_usdt", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.BinanceFuturesCalcOrderSize, "desired_notional_usdt"))),
+		mcp.WithNumber("price", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesCalcOrderSize, "price"))),
+		mcp.WithString("order_type", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesCalcOrderSize, "order_type"))),
+	), calcOrderSizeHandler)
+
+	s.AddTool(mcp.NewTool(toolname.BinanceFuturesDailySummary,
+		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesDailySummary)),
+		mcp.WithString("date", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesDailySummary, "date"))),
+		mcp.WithString("symbol", mcp.Description(asset.ParamDesc(toolname.BinanceFuturesDailySummary, "symbol"))),
+	), dailySummaryHandler)
+
+	s.AddTool(mcp.NewTool(toolname.BinanceFuturesPositionBrief,
+		mcp.WithDescription(asset.ToolDesc(toolname.BinanceFuturesPositionBrief)),
+	), positionBriefHandler)
 }

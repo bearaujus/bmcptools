@@ -1,6 +1,6 @@
 # bmcptools
 
-> An MCP server that exposes **69 developer tools** to any MCP-compatible LLM client — file I/O, shell execution, search, system info, and interactive user dialogs.
+> An MCP server that exposes **73 developer tools** to any MCP-compatible LLM client — file I/O, shell execution, search, system info, and interactive user dialogs.
 
 [![Go](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/bearaujus/bmcptools)](https://github.com/bearaujus/bmcptools/releases)
@@ -9,7 +9,7 @@ Communication happens over **stdio** using the [`mark3labs/mcp-go`](https://gith
 
 ### Why bmcptools?
 
-- **69 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, user interaction, and Binance USDT-M Futures trading
+- **73 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, user interaction, and Binance USDT-M Futures trading
   Disable any tool group you don't need with `--disable=binance,user,...` (see [Disabling tool groups](#disabling-tool-groups)).
 - **Binance USDT-M Futures** — market data, account/position queries, leverage/margin config, and gated trading (single + bracket orders) with browser-confirm dialogs and AI-supplied `reasoning`
 - **Built-in server instructions** — the AI receives a categorized guide on when and how to use each tool
@@ -147,7 +147,7 @@ For Claude Desktop / Cursor configs:
 | `clipboard_write` | Write to system clipboard. |
 | `download_file` | Download a file from a URL to a local path. Streaming (no memory buffering). Auto-creates parent dirs. |
 
-### Binance USDT-M Futures tools (28)
+### Binance USDT-M Futures tools (32)
 
 Lets an MCP-connected LLM analyze the market and execute leveraged trades on Binance USDT-M Futures (`fapi.binance.com`). Read-only market-data tools work without credentials; account/config/trading tools require API key + secret. Mutating tools open a browser confirm dialog (via `pkg/confirm`) and require the AI to pass a `reasoning` string. Set `BINANCE_SKIP_ASK_USER=true` for full autonomy.
 
@@ -157,11 +157,11 @@ Lets an MCP-connected LLM analyze the market and execute leveraged trades on Bin
 |---|---|---|---|
 | `BINANCE_API_KEY` | for auth tools | — | API key |
 | `BINANCE_API_SECRET` | for auth tools | — | API secret (HMAC-SHA256 signing) |
-| `BINANCE_FUTURES_BASE_URL` | no | `https://fapi.binance.com` | Override base URL (e.g. `https://testnet.binancefuture.com` for testnet) |
+| `BINANCE_TESTNET` | no | `false` | Set to `true` to use `https://testnet.binancefuture.com` instead of mainnet |
 | `BINANCE_SKIP_ASK_USER` | no | `false` | Skip the confirm dialog on every mutating call |
 | `BINANCE_RECV_WINDOW_MS` | no | `5000` | `recvWindow` for signed requests (max 60 000) |
 
-**Market data — no auth (12)**
+**Market data — no auth (15)**
 
 | Tool | Description |
 |------|-------------|
@@ -170,48 +170,54 @@ Lets an MCP-connected LLM analyze the market and execute leveraged trades on Bin
 | `binance_futures_symbol_specs` | Compact per-symbol filters: `minNotional`, `minQty`, `stepSize`, `tickSize`, `maxLeverage`, allowed margin/order types. **Call before every order.** |
 | `binance_futures_klines` | OHLCV candles (ascending order). Intervals `1m`..`1M`. |
 | `binance_futures_ticker_price` | Latest price for one or all symbols. |
-| `binance_futures_ticker_24hr` | 24h rolling stats (volume, change %). |
+| `binance_futures_ticker_24hr` | 24h rolling stats (volume, change %). Use with a specific symbol; for scanning use `market_scan`. |
+| `binance_futures_market_scan` | **First call for "what to trade today"** — ranked top N symbols by volume or \|change%\|, server-side filtered. Replaces raw all-symbols ticker dump. |
 | `binance_futures_order_book` | Depth (bids/asks) for slippage estimation. |
 | `binance_futures_mark_price` | Mark/index price + next funding rate + funding time. |
 | `binance_futures_open_interest` | Current open interest; `history=true` for trend. |
 | `binance_futures_long_short_ratio` | Top-trader / global sentiment. |
 | `binance_futures_funding_rate_history` | Historical funding rate series for a symbol (bias / carry analysis). |
 | `binance_futures_ta_snapshot` | One-shot technical-analysis snapshot: EMA(9/21/50), RSI(14), ATR(14), Bollinger(20,2), latest close — ready for the AI to reason over. |
+| `binance_futures_ta_snapshot_multi` | Batch TA snapshot for multiple symbols in parallel. Same indicators as `ta_snapshot` — prefer this over multiple sequential `ta_snapshot` calls when scanning candidates. |
+| `binance_futures_calc_order_size` | Convert a desired USDT notional → properly rounded quantity for the symbol. Validates `minNotional`, `minQty`, `maxQty`. No auth required. |
 
 **Account & positions — auth required (7)**
 
 | Tool | Description |
 |------|-------------|
-| `binance_futures_account_info` | Wallet, available margin, total uPnL, position mode. |
-| `binance_futures_position_risk` | Open positions: size, entry, mark, uPnL, leverage, liquidation. |
-| `binance_futures_open_orders` | Currently working orders. |
+| `binance_futures_open_orders` | Working orders + algo/conditional orders (SL/TP) merged by default. Returns `{regular_orders, algo_orders, total}`. Set `include_algo_orders=false` for raw array. |
 | `binance_futures_order_history` | Historical orders (filled / canceled / expired). |
 | `binance_futures_income_history` | Realized PnL, funding fees, commissions. |
-| `binance_futures_commission_rate` | Per-symbol maker/taker commission rates (for accurate R:R math). |
-| `binance_futures_position_overview` | Account + positions + commission + mark price stitched into one response (ideal for "where do I stand right now?"). |
+| `binance_futures_position_overview` | Account + positions + commission + mark price stitched into one response (ideal for "where do I stand right now?"). Also covers what `account_info`, `position_risk`, and `commission_rate` used to provide. |
+| `binance_futures_position_health` | Open positions enriched with SL/TP distances from mark, P&L %, structural validity, R:R remaining — fetches positions and algo orders concurrently. Perfect for morning monitoring. |
+| `binance_futures_position_brief` | **Best morning check** — combines position health (SL/TP distances, R:R, structural validity) + today's P&L summary + free margin in one call. Surfaces `attention_needed` items. Replaces `position_health` + `daily_summary`. |
+| `binance_futures_daily_summary` | Aggregate realized PnL, commissions, funding fees, and net profit for a UTC day (default: today). |
 
-**Account configuration — mutating, gated (3)**
+**Account configuration — mutating, gated (2)**
 
 | Tool | Description |
 |------|-------------|
-| `binance_futures_change_leverage` | Set leverage per symbol (1..maxLeverage). |
-| `binance_futures_change_margin_type` | `ISOLATED` or `CROSSED` per symbol. |
+| `binance_futures_configure_symbol` | Set leverage and/or margin type for a symbol in one call with one confirmation dialog. Provide at least one of `leverage` or `margin_type`. ⚠️ Pass these to `place_bracket_order` instead to avoid extra confirmations. |
 | `binance_futures_change_position_mode` | Account-wide hedge vs one-way. |
 
-**Trading — mutating, gated (6)**
+**Trading — mutating, gated (8)**
 
 | Tool | Description |
 |------|-------------|
-| `binance_futures_place_order` | Single order (`MARKET` / `LIMIT` / `STOP*` / `TAKE_PROFIT*` / `TRAILING_STOP_MARKET`). Idempotent via auto-generated `newClientOrderId`. Supports `dryRun=true` (uses `/order/test`). |
-| `binance_futures_place_bracket_order` | **Preferred entry point** — entry + stop-loss + take-profit in one batch call. Validates SL/TP sides client-side. `onPartialFailure`: `rollback` (default) or `warn`. |
+| `binance_futures_place_order` | Single order (`MARKET` / `LIMIT` / `STOP*` / `TAKE_PROFIT*` / `TRAILING_STOP_MARKET`). Pre-validates minimum notional. Idempotent via auto-generated `newClientOrderId`. Supports `dryRun=true`. |
+| `binance_futures_place_bracket_order` | **Preferred entry point** — entry + stop-loss + take-profit in ONE call with ONE confirmation dialog. Pass `leverage` and `margin_type` here to avoid extra confirmation pop-ups. Pre-validates minimum notional. `dryRun=true` skips mutations. |
 | `binance_futures_modify_order` | Amend price/quantity of a working LIMIT order (`PUT /fapi/v1/order`). |
-| `binance_futures_close_position` | Flatten an open position by auto-detecting side + quantity from `position_risk`, then placing a reduceOnly MARKET (or LIMIT) order. |
+| `binance_futures_close_position` | Flatten an open position by auto-detecting side + quantity from `position_overview`, then placing a reduceOnly MARKET (or LIMIT) order. |
 | `binance_futures_cancel_order` | Cancel by `orderId` or `origClientOrderId`. |
 | `binance_futures_cancel_all_open_orders` | Cancel all working orders for a symbol. |
+| `binance_futures_cancel_algo_order` | Cancel a single algo/conditional (SL or TP) order by `algoId`. |
+| `binance_futures_update_sl_tp` | **Atomic SL/TP replacement** — cancels existing SL and/or TP algo orders and places new ones in a single flow. Validates that SL/TP are on the correct side of the entry price. Prompts confirmation. |
 
 **Safety model**
 
 - Mutating tools build a markdown trade brief (mark price, free margin, current positions, est. notional, SL/TP %, R:R, AI `reasoning`) and require user **Approve** in a browser dialog.
+- The confirm dialog includes an **editable parameters card** — the user can modify quantity, price, SL/TP, leverage, and other fields inline before clicking Confirm. Final edited values are applied to the actual order.
+- Every successful mutating tool result is prefixed with `Confirmed by user (human approval)` or `Auto-approved (BINANCE_SKIP_ASK_USER=true — no human confirmation was required)` so the AI always knows whether a human reviewed the action.
 - Auto time-sync against `/fapi/v1/time` (`-1021` triggers re-sync + retry).
 - HTTP 503 *Unknown error* on order placement is **never blind-retried** — the tool reconciles via `origClientOrderId` before reporting success or asking the user to verify.
 - Every response includes a `[rate-limit] used_weight_1m=… order_count_1m=…` footer so the AI can self-throttle.
@@ -428,7 +434,7 @@ All packages under `pkg/` are considered **stable public API**:
 | Package | Stability |
 |---------|----------|
 | `pkg/browser` | Stable — `Serve`, `Open`, `ServeAndOpen`, `OpenFn` |
-| `pkg/confirm` | Stable — `Ask`, `AskWithHTML`, `ShowHTML`, `WithHTML`, `WithTimeout` |
+| `pkg/confirm` | Stable — `Ask`, `AskWithHTML`, `ShowHTML`, `WithHTML`, `WithTimeout`, `WithEditableParams`, `EditableParam` |
 | `pkg/connector` | Stable — `Connector` interface |
 | `pkg/dialog` | Stable — `DialogTemplate`, `RestTemplate` and their constructors |
 | `pkg/toolname` | Stable — tool name constants |

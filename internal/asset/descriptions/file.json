@@ -1,114 +1,114 @@
 {
   "read_file": {
-    "desc": "Read file contents. Text files are returned as-is (UTF-8); files containing NUL bytes or invalid UTF-8 are returned base64-encoded with a header indicating so. Supports line ranges, head/tail shortcuts, byte limits, and line numbers. Precedence when multiple narrowing params are set: ranges > head/tail > start_line/end_line.",
+    "desc": "Read file contents. Text files returned as UTF-8; files with NUL bytes or invalid UTF-8 are returned base64-encoded with a header indicating so. For large files, use head/tail or start_line/end_line to read only what you need — call get_file_info first to learn the line count. Precedence when multiple narrowing params are set: ranges > head/tail > start_line/end_line.",
     "params": {
-      "path": "Path to the file",
+      "path": "Path to the file.",
       "start_line": "First line to read (1-indexed).",
       "end_line": "Last line to read (inclusive).",
-      "max_bytes": "Maximum bytes to return (default 10485760 = 10 MB).",
+      "max_bytes": "Maximum bytes to return. Default: 10485760 (10 MB).",
       "head": "Return only the first N lines.",
       "tail": "Return only the last N lines.",
-      "show_line_numbers": "Prefix every line with its line number. Default: false",
-      "ranges": "Array of [start_line, end_line] pairs to read multiple non-contiguous line ranges in one call (e.g. [[1,10],[50,60]]). Supersedes start_line/end_line. Ranges are read in a single pass for efficiency."
+      "show_line_numbers": "Prefix every line with its line number. Default: false.",
+      "ranges": "Array of [start_line, end_line] pairs for multiple non-contiguous ranges in one call (e.g. [[1,10],[50,60]]). Supersedes start_line/end_line."
     }
   },
   "write_file": {
-    "desc": "Write content to a file, creating or overwriting it. Creates parent dirs automatically. Returns a unified diff when overwriting (show_diff defaults to true for existing files, false for new files).",
+    "desc": "Write content to a file, creating or overwriting it. Creates parent directories automatically. Returns a unified diff when overwriting an existing file. For modifying specific sections, prefer edit_file — it is surgical and less error-prone than rewriting the entire file.",
     "params": {
-      "path": "Path to the file",
-      "content": "Content to write",
-      "create_dirs": "Create missing parent directories. Default: true",
-      "show_diff": "Return a unified diff of changes when overwriting. Default: true when overwriting an existing file, false when creating a new file (no existing content to diff)."
+      "path": "Path to the file.",
+      "content": "Content to write.",
+      "create_dirs": "Create missing parent directories. Default: true.",
+      "show_diff": "Return a unified diff of changes when overwriting. Default: true for existing files, false for new files."
     }
   },
   "append_to_file": {
-    "desc": "Append content to a file, creating it and any missing parent dirs if needed. Returns the new file size.",
+    "desc": "Append content to a file, creating the file and any missing parent directories if needed. Returns the new file size.",
     "params": {
-      "path": "Path to the file",
-      "content": "Content to append"
+      "path": "Path to the file.",
+      "content": "Content to append."
     }
   },
   "edit_file": {
-    "desc": "Surgical find-and-replace in a file. Two modes: single edit (old_str + new_str) or batch edits array — prefer batch for multiple changes to the same file. Returns a unified diff. Supports Go regex with $1,$2 back-references. Handles CRLF transparently — LF-only patterns match CRLF files and line endings are preserved. If old_str matches multiple locations, only the first is replaced (use replace_all=true or add more context). If pattern is not found, a near-miss probe shows surrounding context to help refine.",
+    "desc": "Surgical find-and-replace in a file. Prefer this over write_file for modifying existing files — sends only the diff, not the entire content. Two modes: single edit (old_str + new_str) or batch edits array — use batch for multiple changes to the same file to avoid repeated round-trips. If old_str appears multiple times, only the first match is replaced (use replace_all=true or add more surrounding context to disambiguate). If pattern is not found, a near-miss probe shows surrounding context to help you refine. Supports Go regex with $1/$2 back-references. Handles CRLF transparently.",
     "params": {
-      "path": "Path to the file",
-      "old_str": "Text (or regex) to find — single-edit mode",
-      "new_str": "Replacement text — single-edit mode",
-      "use_regex": "Treat old_str as a Go regular expression. Default: false",
-      "replace_all": "Replace every match. Default: false",
-      "dry_run": "Preview changes without writing. Default: false",
-      "context_lines": "Unchanged context lines around each change in the diff. Default: 3.",
+      "path": "Path to the file.",
+      "old_str": "Text (or regex) to find — single-edit mode.",
+      "new_str": "Replacement text — single-edit mode.",
+      "use_regex": "Treat old_str as a Go regular expression. Default: false.",
+      "replace_all": "Replace every match, not just the first. Default: false.",
+      "dry_run": "Preview changes without writing. Default: false.",
+      "context_lines": "Context lines shown around each change in the diff. Default: 3.",
       "edits": "Batch mode: array of {old_str, new_str, use_regex?, replace_all?} edits applied sequentially."
     }
   },
   "delete_file": {
-    "desc": "Delete a single file. Use delete_directory to remove directories.",
+    "desc": "Delete a single file. IRREVERSIBLE. For directories, use delete_directory instead.",
     "params": {
-      "path": "Path to the file"
+      "path": "Path to the file."
     }
   },
   "copy_file": {
-    "desc": "Copy a single file (not directories). Creates parent dirs of the destination automatically. To duplicate a directory tree, use compress_files + extract_archive, or invoke this per-file.",
+    "desc": "Copy a single file (not directories). Creates parent directories of the destination automatically. To duplicate a directory tree, use compress_files + extract_archive, or call copy_file per-file.",
     "params": {
-      "source": "Source file path",
-      "destination": "Destination file path",
-      "overwrite": "Overwrite if destination exists. Default: false"
+      "source": "Source file path.",
+      "destination": "Destination file path.",
+      "overwrite": "Overwrite if destination exists. Default: false."
     }
   },
   "move_file": {
-    "desc": "Move or rename a file or directory. Cross-device safe (copy+delete).",
+    "desc": "Move or rename a file or directory. Cross-device safe (copy + delete). IRREVERSIBLE if destination already exists and overwrite=true.",
     "params": {
-      "source": "Source path",
-      "destination": "Destination path",
-      "overwrite": "Overwrite if destination exists. Default: false"
+      "source": "Source path.",
+      "destination": "Destination path.",
+      "overwrite": "Overwrite if destination exists. Default: false."
     }
   },
   "get_file_info": {
-    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, and whether it is a symbolic link. Also includes line count for text files — useful to know before using start_line/end_line in read_file.",
+    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, symlink target, and line count for text files. Check line count here before using start_line/end_line in read_file.",
     "params": {
-      "path": "Path to the file or directory"
+      "path": "Path to the file or directory."
     }
   },
   "path_exists": {
-    "desc": "Lightweight check whether a path exists and return its type (file/directory/symlink) and size. Use before read/write operations to branch on whether a path already exists — faster than read_file or get_file_info when you only need existence.",
+    "desc": "Lightweight check: does this path exist and what is its type (file/directory/symlink)? Also returns size. Faster than read_file or get_file_info when you only need to confirm existence — use this to branch before read/write operations.",
     "params": {
-      "path": "Path to check"
+      "path": "Path to check."
     }
   },
   "diff_files": {
-    "desc": "Compare two files and return a unified diff. Returns empty when files are identical. Cross-platform — prefer this over running diff via run_command.",
+    "desc": "Compare two files and return a unified diff. Returns empty output when files are identical. Cross-platform — prefer this over running diff via run_command.",
     "params": {
-      "path_a": "First file (before / original)",
-      "path_b": "Second file (after / modified)",
+      "path_a": "First file (before / original).",
+      "path_b": "Second file (after / modified).",
       "context_lines": "Context lines around each change. Default: 3."
     }
   },
   "calculate_checksum": {
-    "desc": "Calculate MD5, SHA1, or SHA256 checksum of one or more files. Cross-platform — prefer this over running md5sum/shasum/sha256sum via run_command.",
+    "desc": "Calculate MD5, SHA1, or SHA256 checksum of one or more files. Cross-platform — prefer this over md5sum/shasum/sha256sum via run_command.",
     "params": {
-      "paths": "File paths to checksum",
-      "algorithm": "Hash algorithm: \"md5\", \"sha1\", or \"sha256\". Default: \"sha256\""
+      "paths": "Array of file paths to checksum.",
+      "algorithm": "Hash algorithm: \"md5\", \"sha1\", or \"sha256\". Default: \"sha256\"."
     }
   },
   "create_symlink": {
-    "desc": "Create a symbolic link. Cross-platform. On Windows, creating symlinks may require elevated privileges or Developer Mode enabled.",
+    "desc": "Create a symbolic link. Cross-platform. On Windows, creating symlinks may require elevated privileges or Developer Mode to be enabled.",
     "params": {
-      "source": "The path that the symlink points to (the target file or directory)",
-      "link": "The path of the symlink to create"
+      "source": "The path that the symlink points to (the target file or directory).",
+      "link": "The path of the symlink to create."
     }
   },
   "compress_files": {
-    "desc": "Compress files or directories into an archive. Supports zip and tar.gz formats. Auto-detects format from output file extension. Each input path is stored using its basename plus any subpaths (e.g. compressing /foo/bar/baz creates entries baz/..., not foo/bar/baz/...). Empty directories are skipped.",
+    "desc": "Compress files or directories into an archive. Supports zip and tar.gz. Format is auto-detected from the output file extension. Each input is stored by its basename and subpaths — e.g. compressing /foo/bar/baz creates entries baz/... (not foo/bar/baz/...). Empty directories are skipped.",
     "params": {
-      "paths": "Array of file/directory paths to include in the archive",
-      "output": "Output archive path (e.g. backup.zip, archive.tar.gz)",
+      "paths": "Array of file/directory paths to include in the archive.",
+      "output": "Output archive path (e.g. backup.zip, archive.tar.gz).",
       "format": "Archive format: \"zip\" or \"tar.gz\". Default: auto-detected from output extension."
     }
   },
   "extract_archive": {
-    "desc": "Extract a zip or tar.gz archive to a directory. Auto-detects format from file extension. Path-traversal protected (entries that resolve outside the output dir are rejected).",
+    "desc": "Extract a zip or tar.gz archive to a directory. Format is auto-detected from file extension. Path-traversal protected — entries that resolve outside the output directory are rejected.",
     "params": {
-      "archive": "Path to the archive file (zip or tar.gz)",
+      "archive": "Path to the archive file (zip or tar.gz).",
       "output": "Directory to extract into. Default: current working directory.",
       "format": "Archive format: \"zip\" or \"tar.gz\". Default: auto-detected from archive extension."
     }
