@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -161,12 +162,30 @@ func TestReadOneFileAsTextBinaryFile(t *testing.T) {
 	if err := os.WriteFile(f, []byte{0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	text, err := ReadOneFileAsText(f, DefaultMaxReadBytes)
+	text, err := ReadOneFileAsText(f, DefaultMaxReadBytes, false)
 	if err != nil {
 		t.Fatalf("unexpected error reading binary file: %v", err)
 	}
 	if !strings.Contains(text, "[BINARY FILE]") {
 		t.Errorf("expected [BINARY FILE] marker for binary file, got: %q", text)
+	}
+	if strings.Contains(text, "Base64:\n") {
+		t.Errorf("binary reads should omit base64 by default: %q", text)
+	}
+}
+
+func TestReadOneFileAsTextBinaryFileIncludeBase64(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "binary.bin")
+	if err := os.WriteFile(f, []byte{0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	text, err := ReadOneFileAsText(f, DefaultMaxReadBytes, true)
+	if err != nil {
+		t.Fatalf("unexpected error reading binary file: %v", err)
+	}
+	if !strings.Contains(text, "Base64:\n") {
+		t.Errorf("expected base64 when includeBase64=true, got: %q", text)
 	}
 }
 
@@ -264,6 +283,7 @@ func TestApplyEditRegex(t *testing.T) {
 		{"regex first", "foo123bar foo456bar", `foo\d+bar`, "X", false, "X foo456bar", 1, false},
 		{"regex all", "foo123bar foo456bar", `foo\d+bar`, "X", true, "X X", 2, false},
 		{"backreference", "2024-01-15", `(\d{4})-(\d{2})-(\d{2})`, "$3/$2/$1", true, "15/01/2024", 1, false},
+		{"backreference first only", "name: alpha", `name: (\w+)`, "name=$1", false, "name=alpha", 1, false},
 		{"not found", "hello", `xyz\d+`, "x", false, "hello", 0, false},
 		{"invalid regex", "hello", "[invalid", "x", false, "", 0, true},
 	}
@@ -600,9 +620,9 @@ func TestHashFileNotExist(t *testing.T) {
 
 func TestCountContentLines(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    int
+		name  string
+		input string
+		want  int
 	}{
 		{"empty", "", 0},
 		{"single no newline", "hello", 1},
@@ -750,6 +770,28 @@ func TestCollectFilesRecursive(t *testing.T) {
 	}
 }
 
+func TestCollectFilesExcludePatterns(t *testing.T) {
+	dir := t.TempDir()
+	skip := filepath.Join(dir, "node_modules")
+	if err := os.MkdirAll(skip, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skip, "dep.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := CollectFiles(dir, true, "*.go", false, []string{"node_modules"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || !strings.HasSuffix(files[0], "main.go") {
+		t.Fatalf("expected only main.go after pruning node_modules, got %v", files)
+	}
+}
+
 // ── ApplyReplaceToFile ────────────────────────────────────────────────────────
 
 // Reason: ApplyReplaceToFile with dryRun=true must count replacements and
@@ -803,6 +845,38 @@ func TestApplyReplaceToFileRegex(t *testing.T) {
 	data, _ := os.ReadFile(f)
 	if !strings.Contains(string(data), "const z = ") {
 		t.Errorf("expected regex replacement in file: %q", string(data))
+	}
+}
+
+func TestApplyReplaceToFilePreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not preserve Unix permission bits")
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, "script.sh")
+	if err := os.WriteFile(f, []byte("echo old\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	count, _, skipped, err := ApplyReplaceToFile(f, "old", "new", false, false, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if skipped {
+		t.Fatal("text file should not be skipped")
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 replacement, got %d", count)
+	}
+	info, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Errorf("mode after replace = %o, want 755", got)
 	}
 }
 

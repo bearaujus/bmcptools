@@ -1,6 +1,6 @@
 {
   "notify_user": {
-    "desc": "Fire-and-forget desktop notification — never blocks, never returns a reply. Use freely for progress milestones: task start, completion, errors, phase changes. Do NOT use when you need the user's answer — use ask_user for that.",
+    "desc": "Fire-and-forget desktop notification — never blocks, never returns a reply, and returns only delivery metadata to avoid echoing long messages. Use freely for progress milestones: task start, completion, errors, phase changes. Do NOT use when you need the user's answer — use ask_user for that.",
     "params": {
       "message": "Notification body text.",
       "title": "Notification title. Default: \"AI Assistant\".",
@@ -21,10 +21,11 @@
     }
   },
   "get_user_response": {
-    "desc": "Wait for a pending ask_user or rest dialog to be answered. Blocks up to wait_seconds per call, then returns. You MUST keep calling this in a loop until the result is NOT a PENDING string — the user may take a long time to reply. Possible non-PENDING results: the user's reply text; \"[User dismissed the dialog — no reply was sent]\"; \"[Dialog cancelled by AI]\"; \"[User did not respond within the allotted time]\".",
+    "desc": "Wait for a pending ask_user or rest dialog to be answered. Blocks up to wait_seconds per call, then returns. You MUST keep calling this in a loop until the result is NOT a PENDING string — the user may take a long time to reply. User replies are capped by default so pasted content cannot flood AI context. Possible non-PENDING results: the user's reply text; \"[User dismissed the dialog — no reply was sent]\"; \"[Dialog cancelled by AI]\"; \"[User did not respond within the allotted time]\".",
     "params": {
       "token": "Token returned by ask_user or rest. Required.",
-      "wait_seconds": "Seconds to block per poll. Default: 55. Max: 115."
+      "wait_seconds": "Seconds to block per poll. Default: 55. Max: 115.",
+      "max_response_bytes": "Maximum bytes to return from the user's reply. Default: 262144 (256 KB). Set 0 for unlimited."
     }
   },
   "update_dialog": {

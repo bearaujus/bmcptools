@@ -16,6 +16,7 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithNumber("start_line", mcp.Description(asset.ParamDesc(toolname.ReadFile, "start_line"))),
 		mcp.WithNumber("end_line", mcp.Description(asset.ParamDesc(toolname.ReadFile, "end_line"))),
 		mcp.WithNumber("max_bytes", mcp.Description(asset.ParamDesc(toolname.ReadFile, "max_bytes"))),
+		mcp.WithBoolean("include_base64", mcp.Description(asset.ParamDesc(toolname.ReadFile, "include_base64"))),
 		mcp.WithNumber("head", mcp.Description(asset.ParamDesc(toolname.ReadFile, "head"))),
 		mcp.WithNumber("tail", mcp.Description(asset.ParamDesc(toolname.ReadFile, "tail"))),
 		mcp.WithBoolean("show_line_numbers", mcp.Description(asset.ParamDesc(toolname.ReadFile, "show_line_numbers"))),
@@ -34,6 +35,7 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithString("content", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.WriteFile, "content"))),
 		mcp.WithBoolean("create_dirs", mcp.Description(asset.ParamDesc(toolname.WriteFile, "create_dirs"))),
 		mcp.WithBoolean("show_diff", mcp.Description(asset.ParamDesc(toolname.WriteFile, "show_diff"))),
+		mcp.WithNumber("max_diff_bytes", mcp.Description(asset.ParamDesc(toolname.WriteFile, "max_diff_bytes"))),
 	), writeFileHandler)
 
 	s.AddTool(mcp.NewTool(toolname.AppendToFile,
@@ -51,6 +53,7 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("replace_all", mcp.Description(asset.ParamDesc(toolname.EditFile, "replace_all"))),
 		mcp.WithBoolean("dry_run", mcp.Description(asset.ParamDesc(toolname.EditFile, "dry_run"))),
 		mcp.WithNumber("context_lines", mcp.Description(asset.ParamDesc(toolname.EditFile, "context_lines"))),
+		mcp.WithNumber("max_diff_bytes", mcp.Description(asset.ParamDesc(toolname.EditFile, "max_diff_bytes"))),
 		mcp.WithArray("edits",
 			mcp.Description(asset.ParamDesc(toolname.EditFile, "edits")),
 			mcp.Items(map[string]any{
@@ -88,6 +91,7 @@ func Register(s toolreg.ToolRegistrar) {
 	s.AddTool(mcp.NewTool(toolname.GetFileInfo,
 		mcp.WithDescription(asset.ToolDesc(toolname.GetFileInfo)),
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.GetFileInfo, "path"))),
+		mcp.WithString("output_mode", mcp.Description(asset.ParamDesc(toolname.GetFileInfo, "output_mode"))),
 	), getFileInfoHandler)
 
 	s.AddTool(mcp.NewTool(toolname.PathExists,
@@ -100,6 +104,8 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithString("path_a", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.DiffFiles, "path_a"))),
 		mcp.WithString("path_b", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.DiffFiles, "path_b"))),
 		mcp.WithNumber("context_lines", mcp.Description(asset.ParamDesc(toolname.DiffFiles, "context_lines"))),
+		mcp.WithNumber("max_file_bytes", mcp.Description(asset.ParamDesc(toolname.DiffFiles, "max_file_bytes"))),
+		mcp.WithNumber("max_diff_bytes", mcp.Description(asset.ParamDesc(toolname.DiffFiles, "max_diff_bytes"))),
 	), diffFilesHandler)
 
 	s.AddTool(mcp.NewTool(toolname.CalculateChecksum,

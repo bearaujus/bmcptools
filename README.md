@@ -1,6 +1,6 @@
 # bmcptools
 
-> An MCP server that exposes **73 developer tools** to any MCP-compatible LLM client — file I/O, shell execution, search, system info, and interactive user dialogs.
+> An MCP server that exposes **41 developer tools** to any MCP-compatible LLM client — file I/O, shell execution, search, system info, and interactive user dialogs.
 
 [![Go](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/bearaujus/bmcptools)](https://github.com/bearaujus/bmcptools/releases)
@@ -9,9 +9,8 @@ Communication happens over **stdio** using the [`mark3labs/mcp-go`](https://gith
 
 ### Why bmcptools?
 
-- **73 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, user interaction, and Binance USDT-M Futures trading
-  Disable any tool group you don't need with `--disable=binance,user,...` (see [Disabling tool groups](#disabling-tool-groups)).
-- **Binance USDT-M Futures** — market data, account/position queries, leverage/margin config, and gated trading (single + bracket orders) with browser-confirm dialogs and AI-supplied `reasoning`
+- **41 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, and user interaction
+  Disable any tool group you don't need with `--disable=user,system,...` (see [Disabling tool groups](#disabling-tool-groups)).
 - **Built-in server instructions** — the AI receives a categorized guide on when and how to use each tool
 - **Interactive dialogs** — `ask_user` opens a browser dialog with choices, markdown, live updates, and typing indicators
 - **Cross-platform** — macOS, Windows, and Linux (user dialogs require macOS/Windows; `notify_user` works everywhere)
@@ -47,17 +46,17 @@ Grab a pre-built binary from the [Releases](https://github.com/bearaujus/bmcptoo
 Don't need every group? Pass `--disable=GROUPS` (CSV) when launching the binary, or set the `BMCPTOOLS_DISABLE` env var. The flag wins when both are set.
 
 ```bash
-# Drop Binance and the interactive user prompts
-bmcptools --disable=binance,user
+# Drop the interactive user prompts
+bmcptools --disable=user
 
 # Same via env (handy in MCP client configs)
-BMCPTOOLS_DISABLE=binance bmcptools
+BMCPTOOLS_DISABLE=user bmcptools
 
 # List valid group names
 bmcptools --list-groups
 ```
 
-Available groups: `user, file, multi, dir, search, exec, system, binance`. The server instructions sent to the LLM are auto-trimmed to match — disabled sections are removed so the model isn't told about tools it can't see.
+Available groups: `user, file, multi, dir, search, exec, system`. The server instructions sent to the LLM are auto-trimmed to match — disabled sections are removed so the model isn't told about tools it can't see.
 
 For Claude Desktop / Cursor configs:
 
@@ -66,7 +65,7 @@ For Claude Desktop / Cursor configs:
   "mcpServers": {
     "bmcptools": {
       "command": "/absolute/path/to/bmcptools",
-      "args": ["--disable=binance"]
+      "args": ["--disable=user"]
     }
   }
 }
@@ -80,16 +79,16 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `read_file` | Read a file with encoding auto-detection. Supports `start_line`/`end_line`, multi-range (`ranges` param), `head`/`tail`, `show_line_numbers`, and byte limits. Binary → base64. |
-| `write_file` | Create or overwrite a file. Auto-creates parent dirs. Returns a unified diff when overwriting (configurable via `show_diff`). |
+| `read_file` | Read a file with encoding auto-detection. Defaults to a 256 KB context cap. Supports `start_line`/`end_line`, multi-range (`ranges` param), `head`/`tail`, `show_line_numbers`, and byte limits. Binary files return summaries unless `include_base64=true`. |
+| `write_file` | Create or overwrite a file. Auto-creates parent dirs. Returns a capped unified diff when overwriting (configurable via `show_diff`). |
 | `append_to_file` | Append content to a file (creates if absent). Returns new file size. |
-| `edit_file` | Surgical find-and-replace. Batch mode, Go regex, CRLF-transparent, near-miss probe, dry-run. **Preferred for editing.** |
+| `edit_file` | Surgical find-and-replace. Batch mode, Go regex with backreferences, CRLF-transparent, capped diff, near-miss probe, dry-run. **Preferred for editing.** |
 | `delete_file` | Delete a single file. |
 | `copy_file` | Copy a file. Auto-creates destination parent dirs. |
 | `move_file` | Move or rename a file/directory. Cross-device safe. |
-| `get_file_info` | Metadata: type, size, permissions, mod time, symlink target, line count. |
+| `get_file_info` | Compact metadata: type, size, permissions, mod time, symlink target, line count. `output_mode=details` for expanded fields. |
 | `path_exists` | Lightweight existence check — faster than `read_file` or `get_file_info`. |
-| `diff_files` | Unified diff between two files. Cross-platform. |
+| `diff_files` | Unified diff between two files. Guards large inputs and caps diff output by default. Cross-platform. |
 | `calculate_checksum` | MD5, SHA1, or SHA256 checksum. Batch-capable. Cross-platform. |
 | `create_symlink` | Create a symbolic link. Cross-platform (may require elevated privileges on Windows). |
 | `compress_files` | Compress files/directories into a zip or tar.gz archive. Auto-detects format from extension. |
@@ -99,18 +98,18 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file`. |
+| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file`. Compact path/size headers; defaults to 256 KB per file; binary summaries by default. |
 | `write_multiple_files` | Write 2+ files in one call. `show_diff` defaults to false for performance. |
-| `find_replace_in_files` | Find-and-replace across a directory tree. Regex, glob filter, dry-run, per-file diffs. |
-| `path_exists_batch` | Check whether multiple paths exist in one call. Returns type and size for each. |
-| `get_multiple_file_info` | Return metadata (type, size, modified, permissions, line count) for multiple paths. |
+| `find_replace_in_files` | Find-and-replace across a directory tree. Regex, glob/exclude filters, dry-run, per-file diffs, compact unmodified-file summary, and default oversized-file guard. |
+| `path_exists_batch` | Check whether multiple paths exist in one call. Returns type and size with a summary and limit control. |
+| `get_multiple_file_info` | Return compact metadata for multiple paths with limit control. `output_mode=details` for expanded fields. |
 
 ### Directory tools (4)
 
 | Tool | Description |
 |------|-------------|
-| `list_directory` | Contents with sizes, timestamps. Recursion, glob filter, sort by name/size. |
-| `directory_tree` | Visual tree view with sizes. Best for project structure overview. |
+| `list_directory` | Contents with sizes, timestamps. Recursion, glob/exclude filters, sort by name/size, and `max_entries` cap. |
+| `directory_tree` | Visual tree view with sizes. Best for project structure overview. Supports glob/exclude filters and `max_entries` cap. |
 | `create_directory` | Create directory + parents (`mkdir -p`). Idempotent. |
 | `delete_directory` | Delete directory. `force=true` for non-empty. |
 
@@ -118,117 +117,34 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `search_files` | Find files by **name** (glob patterns: `*.go`, `**/*.json`, `{a,b}`). |
-| `grep_files` | Find files by **content** (literal or regex). Auto/content/files/count output modes, pagination, multiline, glob filter. |
+| `search_files` | Find files/dirs by **name** (glob patterns or Go regex with `use_regex`). Concise relative paths by default, with details/absolute modes and case-insensitive matching. |
+| `grep_files` | Find files by **content** (literal or regex). Auto/content/files/count output modes, pagination, multiline, glob/exclude filters, relative paths by default. |
 
 ### User interaction tools (6)
 
 | Tool | Platform | Description |
 |------|----------|-------------|
 | `ask_user` | macOS, Windows | Browser dialog with choices, markdown details, live updates, typing detection. Returns token → poll with `get_user_response`. |
-| `get_user_response` | macOS, Windows | Long-poll for `ask_user`/`rest` response. Returns answer or detailed PENDING status (typing, idle, heartbeat). |
+| `get_user_response` | macOS, Windows | Long-poll for `ask_user`/`rest` response. Returns capped answer text or detailed PENDING status (typing, idle, heartbeat). |
 | `update_dialog` | macOS, Windows | Push live markdown updates into an open `ask_user` dialog. `replace_last` for streaming progress. |
 | `cancel_ask_user` | macOS, Windows | Dismiss a pending dialog by token. |
-| `notify_user` | **All platforms** | Fire-and-forget toast notification. `level`: info/warning/error. |
+| `notify_user` | **All platforms** | Fire-and-forget toast notification. Returns concise delivery metadata. `level`: info/warning/error. |
 | `rest` | macOS, Windows | AI goes idle with a browser "resting" page. Wake-up button. Returns token → poll with `get_user_response`. |
 
 ### System tools (10)
 
 | Tool | Description |
 |------|-------------|
-| `get_working_directory` | CWD, OS, hostname, and key env vars. **Call first** to orient. |
-| `run_command` | Shell execution (`sh -c` / `cmd /C`). Timeout max 600 s. Supports detach, raw output, stdin, env vars, output capping. |
+| `get_working_directory` | CWD, OS, hostname, and compact key env summary. **Call first** to orient. |
+| `run_command` | Non-interactive shell execution with selectable shell (`default`, `sh`, `bash`, `cmd`, `powershell`, `pwsh`). Timeout max 600 s with process-tree termination, fractional seconds, detach for long-running services, raw output, stdin, env vars, heredoc/here-string friendly command bodies, and default 256 KB output capping. No PTY/TUI support. |
 | `open_in_app` | Open file/dir/URL in default app. Cross-platform, non-blocking. |
-| `http_request` | HTTP client (all methods). JSON auto-pretty-print. Response capped at 1 MB. Timeout max 300 s. |
-| `list_processes` | Running processes with PID, name, CPU/memory. Filter and sort. |
+| `http_request` | HTTP client (all methods). JSON auto-pretty-print. Response body defaults to a 256 KB cap. Timeout max 300 s. |
+| `list_processes` | Running processes with PID, name, CPU/memory. Filter, sort, tune limit and command width. |
 | `get_system_info` | CPU, memory, and disk usage snapshot. |
-| `get_env` | Read environment variables. Specific key, filter by name substring, or list all. |
-| `clipboard_read` | Read system clipboard. |
+| `get_env` | Read environment variables. Specific key, filter by name substring, or list names by default with values capped/redacted. |
+| `clipboard_read` | Read system clipboard with a default 256 KB output cap. |
 | `clipboard_write` | Write to system clipboard. |
 | `download_file` | Download a file from a URL to a local path. Streaming (no memory buffering). Auto-creates parent dirs. |
-
-### Binance USDT-M Futures tools (32)
-
-Lets an MCP-connected LLM analyze the market and execute leveraged trades on Binance USDT-M Futures (`fapi.binance.com`). Read-only market-data tools work without credentials; account/config/trading tools require API key + secret. Mutating tools open a browser confirm dialog (via `pkg/confirm`) and require the AI to pass a `reasoning` string. Set `BINANCE_SKIP_ASK_USER=true` for full autonomy.
-
-**Environment variables**
-
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `BINANCE_API_KEY` | for auth tools | — | API key |
-| `BINANCE_API_SECRET` | for auth tools | — | API secret (HMAC-SHA256 signing) |
-| `BINANCE_TESTNET` | no | `false` | Set to `true` to use `https://testnet.binancefuture.com` instead of mainnet |
-| `BINANCE_SKIP_ASK_USER` | no | `false` | Skip the confirm dialog on every mutating call |
-| `BINANCE_RECV_WINDOW_MS` | no | `5000` | `recvWindow` for signed requests (max 60 000) |
-
-**Market data — no auth (15)**
-
-| Tool | Description |
-|------|-------------|
-| `binance_futures_ping` | Connectivity + server time skew check. |
-| `binance_futures_exchange_info` | Full exchange filters (large; prefer `symbol_specs`). |
-| `binance_futures_symbol_specs` | Compact per-symbol filters: `minNotional`, `minQty`, `stepSize`, `tickSize`, `maxLeverage`, allowed margin/order types. **Call before every order.** |
-| `binance_futures_klines` | OHLCV candles (ascending order). Intervals `1m`..`1M`. |
-| `binance_futures_ticker_price` | Latest price for one or all symbols. |
-| `binance_futures_ticker_24hr` | 24h rolling stats (volume, change %). Use with a specific symbol; for scanning use `market_scan`. |
-| `binance_futures_market_scan` | **First call for "what to trade today"** — ranked top N symbols by volume or \|change%\|, server-side filtered. Replaces raw all-symbols ticker dump. |
-| `binance_futures_order_book` | Depth (bids/asks) for slippage estimation. |
-| `binance_futures_mark_price` | Mark/index price + next funding rate + funding time. |
-| `binance_futures_open_interest` | Current open interest; `history=true` for trend. |
-| `binance_futures_long_short_ratio` | Top-trader / global sentiment. |
-| `binance_futures_funding_rate_history` | Historical funding rate series for a symbol (bias / carry analysis). |
-| `binance_futures_ta_snapshot` | One-shot technical-analysis snapshot: EMA(9/21/50), RSI(14), ATR(14), Bollinger(20,2), latest close — ready for the AI to reason over. |
-| `binance_futures_ta_snapshot_multi` | Batch TA snapshot for multiple symbols in parallel. Same indicators as `ta_snapshot` — prefer this over multiple sequential `ta_snapshot` calls when scanning candidates. |
-| `binance_futures_calc_order_size` | Convert a desired USDT notional → properly rounded quantity for the symbol. Validates `minNotional`, `minQty`, `maxQty`. No auth required. |
-
-**Account & positions — auth required (7)**
-
-| Tool | Description |
-|------|-------------|
-| `binance_futures_open_orders` | Working orders + algo/conditional orders (SL/TP) merged by default. Returns `{regular_orders, algo_orders, total}`. Set `include_algo_orders=false` for raw array. |
-| `binance_futures_order_history` | Historical orders (filled / canceled / expired). |
-| `binance_futures_income_history` | Realized PnL, funding fees, commissions. |
-| `binance_futures_position_overview` | Account + positions + commission + mark price stitched into one response (ideal for "where do I stand right now?"). Also covers what `account_info`, `position_risk`, and `commission_rate` used to provide. |
-| `binance_futures_position_health` | Open positions enriched with SL/TP distances from mark, P&L %, structural validity, R:R remaining — fetches positions and algo orders concurrently. Perfect for morning monitoring. |
-| `binance_futures_position_brief` | **Best morning check** — combines position health (SL/TP distances, R:R, structural validity) + today's P&L summary + free margin in one call. Surfaces `attention_needed` items. Replaces `position_health` + `daily_summary`. |
-| `binance_futures_daily_summary` | Aggregate realized PnL, commissions, funding fees, and net profit for a UTC day (default: today). |
-
-**Account configuration — mutating, gated (2)**
-
-| Tool | Description |
-|------|-------------|
-| `binance_futures_configure_symbol` | Set leverage and/or margin type for a symbol in one call with one confirmation dialog. Provide at least one of `leverage` or `margin_type`. ⚠️ Pass these to `place_bracket_order` instead to avoid extra confirmations. |
-| `binance_futures_change_position_mode` | Account-wide hedge vs one-way. |
-
-**Trading — mutating, gated (8)**
-
-| Tool | Description |
-|------|-------------|
-| `binance_futures_place_order` | Single order (`MARKET` / `LIMIT` / `STOP*` / `TAKE_PROFIT*` / `TRAILING_STOP_MARKET`). Pre-validates minimum notional. Idempotent via auto-generated `newClientOrderId`. Supports `dryRun=true`. |
-| `binance_futures_place_bracket_order` | **Preferred entry point** — entry + stop-loss + take-profit in ONE call with ONE confirmation dialog. Pass `leverage` and `margin_type` here to avoid extra confirmation pop-ups. Pre-validates minimum notional. `dryRun=true` skips mutations. |
-| `binance_futures_modify_order` | Amend price/quantity of a working LIMIT order (`PUT /fapi/v1/order`). |
-| `binance_futures_close_position` | Flatten an open position by auto-detecting side + quantity from `position_overview`, then placing a reduceOnly MARKET (or LIMIT) order. |
-| `binance_futures_cancel_order` | Cancel by `orderId` or `origClientOrderId`. |
-| `binance_futures_cancel_all_open_orders` | Cancel all working orders for a symbol. |
-| `binance_futures_cancel_algo_order` | Cancel a single algo/conditional (SL or TP) order by `algoId`. |
-| `binance_futures_update_sl_tp` | **Atomic SL/TP replacement** — cancels existing SL and/or TP algo orders and places new ones in a single flow. Validates that SL/TP are on the correct side of the entry price. Prompts confirmation. |
-
-**Safety model**
-
-- Mutating tools build a markdown trade brief (mark price, free margin, current positions, est. notional, SL/TP %, R:R, AI `reasoning`) and require user **Approve** in a browser dialog.
-- The confirm dialog includes an **editable parameters card** — the user can modify quantity, price, SL/TP, leverage, and other fields inline before clicking Confirm. Final edited values are applied to the actual order.
-- Every successful mutating tool result is prefixed with `Confirmed by user (human approval)` or `Auto-approved (BINANCE_SKIP_ASK_USER=true — no human confirmation was required)` so the AI always knows whether a human reviewed the action.
-- Auto time-sync against `/fapi/v1/time` (`-1021` triggers re-sync + retry).
-- HTTP 503 *Unknown error* on order placement is **never blind-retried** — the tool reconciles via `origClientOrderId` before reporting success or asking the user to verify.
-- Every response includes a `[rate-limit] used_weight_1m=… order_count_1m=…` footer so the AI can self-throttle.
-
-**Testnet caveats**
-
-- Base URL: `https://testnet.binancefuture.com`.
-- `STOP_MARKET`, `TAKE_PROFIT_MARKET`, and `TRAILING_STOP_MARKET` are **not supported** on Futures testnet (returns `-4120`). As a result, `place_bracket_order` cannot fully execute on testnet — the entry leg places fine, but the SL / TP legs will fail and the tool will roll back. Use mainnet (with the smallest allowed notional) to validate brackets end-to-end, or simulate SL/TP with conditional `STOP` / `TAKE_PROFIT` *limit* orders on testnet.
-- `/futures/data/*` (long/short ratio, open-interest history) returns HTTP 202 with empty body on testnet — this is a testnet limitation, not a tool bug.
-
----
 
 ## Development
 
@@ -281,8 +197,7 @@ bmcptools/                     ← public API (server.go, registrar.go, toolname
         ├── multi/             ← multi-file tools
         ├── search/            ← search & grep tools
         ├── system/            ← system info, HTTP, clipboard, processes
-        ├── user/              ← interactive UI tools (ask, notify, rest)
-        └── binance/           ← Binance USDT-M Futures (market data + signed trading)
+        └── user/              ← interactive UI tools (ask, notify, rest)
 ```
 
 ### Embedding bmcptools in another MCP server
@@ -317,16 +232,15 @@ bmcptools.Register(s, bmcptools.WithExcludeTools(
 #### Disable whole tool groups
 
 ```go
-// Skip Binance + interactive user-dialog tools entirely.
+// Skip interactive user-dialog tools entirely.
 // ServerInstructionsExcludingGroups trims the AI prompt to match.
 s := server.NewMCPServer(bmcptools.ServerName, bmcptools.Version,
     server.WithInstructions(bmcptools.ServerInstructionsExcludingGroups(
-        bmcptools.GroupBinance, bmcptools.GroupUser,
+        bmcptools.GroupUser,
     )),
 )
 
 bmcptools.Register(s, bmcptools.WithDisableGroups(
-    bmcptools.GroupBinance,
     bmcptools.GroupUser,
 ))
 ```

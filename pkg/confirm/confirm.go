@@ -33,9 +33,6 @@ type Theme int
 const (
 	// ThemeDefault is the generic red warning theme (used for non-specific operations).
 	ThemeDefault Theme = iota
-	// ThemeBinance applies Binance USDT-M Futures branding: gold avatar, candlestick
-	// icon, Binance-yellow confirm button, and a "Binance USDT-M Futures" subtitle.
-	ThemeBinance
 )
 
 // EditableParam defines a user-editable field shown in the confirmation dialog.
@@ -63,7 +60,6 @@ type confirmConfig struct {
 
 // WithEditableParams adds user-editable parameter fields to the confirmation dialog.
 // The user can modify these before confirming; final values are returned by Ask.
-// When BINANCE_SKIP_ASK_USER bypasses the dialog, the original values are returned.
 func WithEditableParams(params []EditableParam) Option {
 	return func(c *confirmConfig) { c.editableParams = params }
 }
@@ -80,7 +76,6 @@ func WithTimeout(d time.Duration) Option {
 }
 
 // WithTheme selects a visual preset for the confirmation dialog.
-// Use ThemeBinance for Binance Futures operations.
 func WithTheme(t Theme) Option {
 	return func(c *confirmConfig) { c.theme = t }
 }
@@ -261,6 +256,7 @@ func BuildConfirmHTML(title, details string, timeoutSec int, opts ...Option) str
 	}
 	return buildConfirmHTML(cfg, title, details, timeoutSec)
 }
+
 // `details` is treated as **markdown** and rendered client-side via the shared
 // markdown renderer (md.js / md.css), matching the look of the ask_user dialog.
 func buildConfirmHTML(cfg *confirmConfig, title, details string, timeoutSec int) string {
@@ -301,9 +297,6 @@ func buildConfirmHTML(cfg *confirmConfig, title, details string, timeoutSec int)
 // for the given theme preset.
 func resolveTheme(t Theme) (faviconHref, avatarSVG, extraCSS, extraJS, subtitle string) {
 	switch t {
-	case ThemeBinance:
-		return binanceFaviconHref, binanceAvatarSVG, binanceExtraCSS, binanceExtraJS,
-			"Binance USDT-M Futures \u00b7 Real funds at risk"
 	default:
 		return defaultFaviconHref, defaultAvatarSVG, "", "", "Destructive operation \u2014 review before confirming"
 	}
@@ -312,48 +305,3 @@ func resolveTheme(t Theme) (faviconHref, avatarSVG, extraCSS, extraJS, subtitle 
 const defaultFaviconHref = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23ff3b30'/><path d='M16 9v9' stroke='white' stroke-width='3' stroke-linecap='round'/><circle cx='16' cy='23' r='2' fill='white'/></svg>"
 
 const defaultAvatarSVG = `<svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3z"/><path d="M12 10v5"/><circle cx="12" cy="18" r="0.5" fill="#fff"/></svg>`
-
-// binanceFaviconHref is a yellow circle with a bar-chart icon (trading identity).
-const binanceFaviconHref = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23F0B90B'/><path d='M8 24V18M13 24V12M19 24V15M24 24V9' stroke='white' stroke-width='2.5' stroke-linecap='round'/></svg>"
-
-// binanceAvatarSVG is a 3-candle candlestick chart (Binance Futures trading icon).
-const binanceAvatarSVG = `<svg viewBox="0 0 24 24"><line x1="5" y1="4" x2="5" y2="7"/><rect x="3" y="7" width="4" height="7" rx="0.5"/><line x1="5" y1="14" x2="5" y2="17"/><line x1="12" y1="3" x2="12" y2="6"/><rect x="10" y="6" width="4" height="8" rx="0.5"/><line x1="12" y1="14" x2="12" y2="18"/><line x1="19" y1="5" x2="19" y2="8"/><rect x="17" y="8" width="4" height="6" rx="0.5"/><line x1="19" y1="14" x2="19" y2="17"/></svg>`
-
-// binanceExtraCSS overrides avatar and confirm-button colors to Binance gold,
-// keeping danger/warning signals (timer, bubble emphasis) in their original red.
-// fin-bull/fin-bear are applied by binanceExtraJS to LONG/SHORT/+%/-% tokens.
-const binanceExtraCSS = `.avatar{background:linear-gradient(135deg,#F3A829 0%,#d4a017 100%);box-shadow:0 2px 8px rgba(240,185,11,.40);}
-.btn-confirm{background:linear-gradient(135deg,#F3A829,#d4a017);box-shadow:0 2px 8px rgba(240,185,11,.40);}
-@keyframes confirm-pulse{0%,100%{box-shadow:0 0 0 0 rgba(240,185,11,.55)}50%{box-shadow:0 0 0 8px rgba(240,185,11,0)}}
-.fin-bull{color:#0ecb81;font-weight:600}
-.fin-bear{color:#f6465d;font-weight:600}`
-
-// binanceExtraJS walks the rendered details body and wraps directional terms
-// (LONG/SHORT/BUY/SELL/bullish/bearish) and signed percentages (+X%/-X%) in
-// colored spans using Binance's official bull (#0ecb81) and bear (#f6465d) colors.
-// Code blocks (<code>, <pre>) are skipped to avoid breaking syntax highlighting.
-const binanceExtraJS = `(function(){
-  var body=document.getElementById('detailsBody');
-  if(!body)return;
-  var re=/\b(LONG|SHORT|BUY|SELL|bullish|bearish)\b|([+-]\d+(?:\.\d+)?%)/gi;
-  function walk(node){
-    if(node.nodeType===3){
-      var txt=node.textContent;
-      if(!re.test(txt)){re.lastIndex=0;return;}
-      re.lastIndex=0;
-      var frag=document.createDocumentFragment(),last=0,m;
-      while((m=re.exec(txt))!==null){
-        if(m.index>last)frag.appendChild(document.createTextNode(txt.slice(last,m.index)));
-        var sp=document.createElement('span'),v=m[0];
-        sp.className=/^(LONG|BUY|bullish)$/i.test(v)||v[0]==='+'?'fin-bull':'fin-bear';
-        sp.textContent=v;frag.appendChild(sp);
-        last=m.index+v.length;
-      }
-      if(last<txt.length)frag.appendChild(document.createTextNode(txt.slice(last)));
-      node.parentNode.replaceChild(frag,node);
-    }else if(node.nodeType===1&&!/^(script|style|code|pre)$/i.test(node.tagName)){
-      Array.from(node.childNodes).forEach(walk);
-    }
-  }
-  Array.from(body.childNodes).forEach(walk);
-})()`

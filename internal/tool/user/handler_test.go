@@ -28,8 +28,8 @@ func TestNotifyUserSuccess(t *testing.T) {
 		t.Fatalf("unexpected error: %s", resultText(result))
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "test notification") {
-		t.Errorf("expected message in result: %q", text)
+	if !strings.Contains(text, "message_bytes=17") {
+		t.Errorf("expected concise message metadata in result: %q", text)
 	}
 }
 
@@ -116,7 +116,6 @@ func TestAskUserHandlerWhitespaceQuestion(t *testing.T) {
 		t.Error("expected error for whitespace-only question")
 	}
 }
-
 
 // Reason: Choices containing only whitespace should be stripped silently.
 // If they're kept, they create invisible buttons that a user can never click.
@@ -233,6 +232,37 @@ func TestGetUserResponseReceivesAnswer(t *testing.T) {
 	text := resultText(result)
 	if text != "my answer" {
 		t.Errorf("expected 'my answer', got: %q", text)
+	}
+}
+
+func TestGetUserResponseCapsLargeAnswer(t *testing.T) {
+	token := newDialogToken()
+	ch := make(chan string, 1)
+	ch <- strings.Repeat("x", 20)
+	state := &pendingDialogState{
+		responseCh: ch,
+		activity:   &dialogActivity{},
+	}
+	storePendingDialog(token, state)
+	defer deletePendingDialog(token)
+
+	result, err := getUserResponseHandler(nil, newTestRequest(map[string]any{
+		"token":              token,
+		"wait_seconds":       float64(5),
+		"max_response_bytes": float64(5),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "User response truncated") {
+		t.Errorf("expected truncation notice: %q", text)
+	}
+	if strings.Contains(text, strings.Repeat("x", 10)) {
+		t.Errorf("expected response body to be capped: %q", text)
 	}
 }
 

@@ -12,10 +12,19 @@ import (
 )
 
 // DefaultMaxReadBytes is the default limit for reading a single file as text.
-const DefaultMaxReadBytes = 10 * 1024 * 1024
+// Keep this conservative: tool output goes directly into model context.
+const DefaultMaxReadBytes = 256 * 1024
 
-// ReadBinaryFile reads a binary file and returns a base64-encoded text summary.
-func ReadBinaryFile(f *os.File, info os.FileInfo, contentType string, limit int) (string, error) {
+// ReadBinaryFile returns a compact binary file summary, optionally including
+// capped base64 content when explicitly requested.
+func ReadBinaryFile(f *os.File, info os.FileInfo, contentType string, limit int, includeBase64 bool) (string, error) {
+	if !includeBase64 {
+		return fmt.Sprintf(
+			"[BINARY FILE] %s: %s, content-type %s. Base64 omitted; set include_base64=true to return capped encoded bytes.",
+			info.Name(), HumanizeBytes(info.Size()), contentType,
+		), nil
+	}
+
 	readN := limit
 	if int(info.Size()) < readN {
 		readN = int(info.Size())
@@ -114,8 +123,9 @@ func SniffAndOpen(p string) (f *os.File, info os.FileInfo, contentType string, b
 	return f, info, contentType, binary, nil
 }
 
-// ReadOneFileAsText reads a single file as text, returning a base64 summary for binary files.
-func ReadOneFileAsText(p string, limitBytes int) (string, error) {
+// ReadOneFileAsText reads a single file as text, returning a compact binary
+// summary for binary files unless includeBase64 is true.
+func ReadOneFileAsText(p string, limitBytes int, includeBase64 bool) (string, error) {
 	f, info, contentType, binary, err := SniffAndOpen(p)
 	if err != nil {
 		return "", err
@@ -123,7 +133,7 @@ func ReadOneFileAsText(p string, limitBytes int) (string, error) {
 	defer f.Close()
 
 	if binary {
-		return ReadBinaryFile(f, info, contentType, limitBytes)
+		return ReadBinaryFile(f, info, contentType, limitBytes, includeBase64)
 	}
 	text, _, err := ReadFullText(f, info, limitBytes)
 	return text, err

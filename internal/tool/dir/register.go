@@ -18,6 +18,11 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithNumber("max_depth", mcp.Description(asset.ParamDesc(toolname.ListDirectory, "max_depth"))),
 		mcp.WithString("sort_by", mcp.Description(asset.ParamDesc(toolname.ListDirectory, "sort_by"))),
 		mcp.WithString("glob", mcp.Description(asset.ParamDesc(toolname.ListDirectory, "glob"))),
+		mcp.WithArray("exclude_patterns",
+			mcp.Description(asset.ParamDesc(toolname.ListDirectory, "exclude_patterns")),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithNumber("max_entries", mcp.Description(asset.ParamDesc(toolname.ListDirectory, "max_entries"))),
 	), listDirHandler)
 
 	s.AddTool(mcp.NewTool(toolname.CreateDirectory,
@@ -43,5 +48,6 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithString("glob",
 			mcp.Description(asset.ParamDesc(toolname.DirectoryTree, "glob")),
 		),
+		mcp.WithNumber("max_entries", mcp.Description(asset.ParamDesc(toolname.DirectoryTree, "max_entries"))),
 	), dirTreeHandler)
 }

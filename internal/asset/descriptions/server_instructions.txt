@@ -23,9 +23,9 @@ headings, bold, italic, inline code, fenced code blocks with syntax highlighting
 lists, tables, blockquotes, links, horizontal rules.
 
 - ask_user: Open a dialog; returns a JSON object with "status", "token", and "instructions" fields. Then call get_user_response(token=…) in a loop — each call long-polls up to 55 s and returns PENDING until answered. Keep looping indefinitely; the user may take a long time. Always populate the details param with your current reasoning and context — never send a bare question. While waiting, you may do other work (file reads, analysis) then resume polling.
-- get_user_response: Long-polls for an ask_user or rest response. Each call blocks up to wait_seconds (default 55 s) then returns PENDING if unanswered. If it returns a timeout/error (not PENDING and not a user answer), re-ask or proceed with a safe default.
+- get_user_response: Long-polls for an ask_user or rest response. Each call blocks up to wait_seconds (default 55 s) then returns PENDING if unanswered. User answers are capped by default; set max_response_bytes=0 only when you truly need a full pasted answer. If it returns a timeout/error (not PENDING and not a user answer), re-ask or proceed with a safe default.
 - update_dialog: Push a live progress update (rendered as markdown) into an open ask_user dialog while waiting for the user's reply — use this to share intermediate findings or progress without requiring a new question.
-- notify_user: Fire-and-forget toast notification. Use for background progress updates that don't require a reply. Does not block. Works on all platforms (macOS, Windows, Linux).
+- notify_user: Fire-and-forget toast notification. Use for background progress updates that don't require a reply. Does not block and returns concise delivery metadata. Works on all platforms (macOS, Windows, Linux).
 - cancel_ask_user: Dismiss a pending ask_user dialog when the question is no longer relevant (e.g. you already have the answer).
 - rest: Go idle while the user reviews. ALWAYS call this (never quit) when user says "take a rest / wait / stand by / I'll review". Workflow: call rest() → parse the JSON response to extract the "token" field → loop get_user_response(token=…) indefinitely until non-PENDING answer.
 
@@ -38,17 +38,17 @@ Platform note: ask_user, rest, and update_dialog require macOS or Windows (they 
 <!-- group:file -->
 ─── File operations ───────────────────────────────────────────────────────────
 
-read_file           — single file; supports line ranges (start_line/end_line), multi-range (ranges param), head/tail, line numbers
-read_multiple_files — batch read 2+ files in one call (more efficient)
-write_file          — create or overwrite; returns diff of changes
+read_file           — single file; defaults to a 256 KB cap; supports line ranges (start_line/end_line), multi-range (ranges param), head/tail, line numbers; binary files return summaries unless include_base64=true
+read_multiple_files — batch read 2+ files in one call (more efficient); compact path/size headers; defaults to 256 KB per file; binary files return summaries unless include_base64=true
+write_file          — create or overwrite; returns capped diff of changes
 write_multiple_files— batch write 2+ files in one call (show_diff defaults to false for performance)
 append_to_file      — append content without overwriting
-edit_file           — surgical find-and-replace (preferred for edits); supports batch mode for multiple edits in one call; returns unified diff; has near-miss probe to help refine patterns when not found
-find_replace_in_files — find-and-replace across multiple files at once; supports regex and glob filtering; use dry_run to preview
+edit_file           — surgical find-and-replace (preferred for edits); supports batch mode; returns capped unified diff; has near-miss probe
+find_replace_in_files — find-and-replace across multiple files at once; supports regex, glob, and exclude_patterns; use dry_run to preview; skips files >10 MB by default via max_file_size; unmodified files are counted but not listed unless show_unmodified=true
 delete_file, copy_file, move_file — self-explanatory
-get_file_info       — metadata + line count (useful before using line ranges)
+get_file_info       — compact metadata + line count (use output_mode="details" for expanded labeled fields)
 path_exists         — lightweight existence check (faster than read_file)
-diff_files          — unified diff between two files
+diff_files          — unified diff between two files; guards large inputs and caps diff output by default
 calculate_checksum  — MD5/SHA1/SHA256
 create_symlink      — create a symbolic link (may need elevated privileges on Windows)
 compress_files      — compress files/dirs into zip or tar.gz; auto-detects format from extension
@@ -57,27 +57,30 @@ extract_archive     — extract zip or tar.gz archive; path-traversal protected
 Performance tips:
   • Use read_multiple_files when reading 2+ files — single round-trip
   • Use edit_file batch mode (edits array) for multiple changes to the same file
-  • Use path_exists (single) or path_exists_batch (multiple) before read/write to branch on existence — faster than get_file_info
-  • Use get_multiple_file_info for batch metadata lookups (more efficient than repeated get_file_info)
+  • Use path_exists (single) or path_exists_batch (multiple, capped by default) before read/write to branch on existence — faster than get_file_info
+  • Use get_multiple_file_info for batch metadata lookups; compact one-line entries are default; set output_mode="details" only when expanded fields are needed
   • edit_file has a near-miss probe: if your pattern isn't found, it shows surrounding context to help you refine it
   • Use find_replace_in_files with dry_run=true to preview changes across a project before applying
+  • Do not request include_base64=true for binary/datawarehouse files unless you explicitly need bytes in context
 
 <!-- group:dir -->
 ─── Directory operations ──────────────────────────────────────────────────────
 
-list_directory — contents with sizes and timestamps; supports recursion and glob filtering
-directory_tree — visual tree view with sizes; better for understanding project structure
+list_directory — contents with sizes and timestamps; supports recursion, glob filtering, exclude_patterns, and max_entries
+directory_tree — visual tree view with sizes; better for understanding project structure; supports exclude_patterns, glob, and max_entries
 create_directory, delete_directory — self-explanatory
 
 When to use which:
   list_directory → detailed file listing (sizes, dates, one level)
   directory_tree → project structure overview (visual tree, multi-level)
 
+Both listing tools cap output at max_entries=500 by default. If output is truncated, narrow with glob/exclude_patterns first; use max_entries=0 only when you truly need everything.
+
 <!-- group:search -->
 ─── Search ────────────────────────────────────────────────────────────────────
 
-search_files — find files/dirs by NAME (glob patterns: *.go, **/*.json)
-grep_files   — find files by CONTENT (literal text or regex with use_regex=true)
+search_files — find files/dirs by NAME (glob patterns: *.go, **/*.json, or Go regex with use_regex=true); concise relative paths by default
+grep_files   — find files by CONTENT (literal text or regex with use_regex=true); relative paths by default
 
 When to use which:
   search_files → "find all .go files", "find files named config*"
@@ -86,106 +89,29 @@ When to use which:
 grep_files notes:
   • Patterns are literal by default. Set use_regex=true for |, ., *, +, ^, $, [], etc.
   • output_mode "auto" (default) shows matching lines when results fit within max_results (default 50); switches to file-path list when results are capped. Use "content" to force matching lines.
+  • Use glob to include only relevant file types and exclude_patterns to prune noisy basenames such as node_modules, .git, dist, build, or generated files.
+  • Use path_format="absolute" only when relative paths are ambiguous.
+search_files notes:
+  • Set use_regex=true for basename/path matching with ^, $, |, character classes, or start/end constraints.
+  • Regex patterns without / match only basenames; regex patterns with / match relative paths.
+  • Set case_insensitive=true when filesystem casing is unknown or irrelevant.
 
 <!-- group:exec -->
 ─── Shell ─────────────────────────────────────────────────────────────────────
 
-get_working_directory — OS, hostname, cwd (call first to orient)
-run_command           — execute shell commands (sh -c on Unix, cmd /C on Windows); use max_output_bytes to cap large output
-                        Platform note: cmd /C does NOT understand Unix syntax (`;`, heredocs, `$VAR`, single-quoted strings) — wrap in `powershell -NoProfile -Command "..."` for Windows.
+get_working_directory — OS, hostname, cwd, compact PATH summary (call first to orient)
+run_command           — execute non-interactive shell commands; defaults to sh -c on Unix and cmd /C on Windows; set shell=sh/bash/powershell/pwsh when command syntax needs that shell. Output is capped at 256 KB by default; set max_output_bytes=0 only when you truly need unlimited output. Use short timeout_seconds for risky commands; timeout attempts to kill the process tree. Use stdin for scripted prompts and detach=true for long-running services/watchers.
+                        Platform note: cmd /C does NOT understand Unix syntax (`;`, heredocs, `$VAR`, single-quoted strings). Use shell=sh/bash for heredocs and Unix syntax, or shell=powershell/pwsh for PowerShell here-strings.
+                        No PTY is allocated: avoid interactive shells, TUIs, curses apps, pagers, editors, and full-screen prompts unless they have a non-interactive flag.
 open_in_app           — open file/URL in default app
 
 <!-- group:system -->
 ─── System ────────────────────────────────────────────────────────────────────
 
-http_request    — HTTP client (GET/POST/PUT/PATCH/DELETE); response capped at 1 MB; timeout max 300 s
-clipboard_read  — read system clipboard
+http_request    — HTTP client (GET/POST/PUT/PATCH/DELETE); response body defaults to 256 KB; timeout max 300 s
+clipboard_read  — read system clipboard; output defaults to 256 KB
 clipboard_write — write to system clipboard
-list_processes  — running processes with CPU/memory
+list_processes  — running processes with CPU/memory; filter/sort and tune limit/command_width
 get_system_info — CPU, memory, disk snapshot
-get_env         — read environment variables; specific key, filter by name, or list all
+get_env         — read environment variables; no-arg mode lists names only; values can be capped/redacted
 download_file   — download a URL to a local file with streaming; prefer over http_request + write_file for binary/large files
-
-<!-- group:binance -->
-─── Binance USDT-M Futures ───────────────────────────────────────────────────
-
-Market data (no auth):
-  binance_futures_ping              — connectivity + server time skew check
-  binance_futures_exchange_info     — full symbol filters (large; prefer symbol_specs)
-  binance_futures_symbol_specs      — compact per-symbol filters: minNotional, minQty, stepSize, tickSize, maxLeverage, allowed marginTypes/orderTypes. CALL THIS BEFORE EVERY ORDER.
-  binance_futures_klines            — OHLCV candles (ascending: oldest first); intervals 1m..1M
-  binance_futures_ticker_price      — latest price (one or all symbols)
-  binance_futures_ticker_24hr       — 24h rolling stats; use with a specific symbol for stats on one pair
-  binance_futures_market_scan       — FIRST CALL for "what to trade today": top N symbols by volume or |change%|, server-side filtered (replaces raw all-symbols ticker dump)
-  binance_futures_order_book        — depth (bids/asks) for slippage estimation
-  binance_futures_mark_price        — mark/index price + next funding rate
-  binance_futures_open_interest     — current open interest; history=true for trend
-  binance_futures_long_short_ratio  — top-trader / global sentiment
-  binance_futures_funding_rate_history — historical funding rates for bias/carry analysis
-  binance_futures_ta_snapshot       — one-shot EMA(9/21/50) + RSI(14) + ATR(14) + Bollinger(20,2) + latest close
-  binance_futures_ta_snapshot_multi — batch ta_snapshot for N symbols in parallel — call instead of multiple ta_snapshot calls when scanning candidates
-
-Sizing helpers (no auth):
-  binance_futures_calc_order_size   — convert desired USDT notional → properly rounded quantity; validates minNotional, minQty, maxQty
-
-Daily review (auth required):
-  binance_futures_daily_summary     — aggregate realized PnL + commission + funding fees + net profit for a UTC day (default: today)
-
-Account & positions (auth required):
-  binance_futures_open_orders       — working orders + algo (SL/TP) orders merged by default; returns {regular_orders, algo_orders, total}
-  binance_futures_order_history     — historical orders
-  binance_futures_income_history    — realized PnL, funding, commissions
-  binance_futures_position_overview — account + positions + commission + mark price in one response (preferred; replaces account_info, position_risk, commission_rate)
-  binance_futures_position_health   — open positions enriched with SL/TP distances, P&L %, structural validity, and R:R remaining in one call
-  binance_futures_position_brief    — BEST morning check: position health + today's P&L + free margin in one call (replaces position_health + daily_summary)
-
-Account configuration (mutating, gated):
-  binance_futures_configure_symbol     — set leverage and/or margin type per symbol in one call — ⚠️ NEVER call before place_bracket_order
-  binance_futures_change_position_mode — account-wide hedge vs one-way
-
-Trading (mutating, gated):
-  binance_futures_place_order            — single order; supports MARKET/LIMIT/STOP*/TAKE_PROFIT*/TRAILING_STOP_MARKET
-  binance_futures_place_bracket_order    — entry + stop-loss + take-profit in one call (PREFERRED)
-  binance_futures_modify_order           — amend price/quantity of a working LIMIT order
-  binance_futures_close_position         — flatten a position: auto-detects side+qty, reduceOnly MARKET/LIMIT
-  binance_futures_cancel_order           — cancel by orderId or origClientOrderId
-  binance_futures_cancel_all_open_orders — cancel all working orders for a symbol
-  binance_futures_cancel_algo_order      — cancel a single algo/conditional (SL or TP) order by algoId
-  binance_futures_update_sl_tp          — replace SL and/or TP for an open position atomically: cancels old algo orders then places new ones
-
-Trade entry workflow (canonical order):
-  1. position_overview            — equity, open risk, free margin, fees in one call
-                                    ⚠️ CHECK FREE MARGIN FIRST: if free_margin_usdt is below the
-                                    minimum viable trade size, STOP immediately and tell the user
-                                    their balance is insufficient — do NOT proceed to market analysis.
-  2. market_scan                  — includes free_margin_usdt (when creds available) as a budget
-                                    reminder; use it to confirm sizing before analyzing any coins
-  3. calc_order_size              — convert "I want $50 worth" → rounded qty (avoids -1111/-4164);
-                                    includes free_margin_usdt + balance_note so you can verify
-                                    (required_margin = actual_notional / leverage) ≤ free_margin_usdt
-                                    BEFORE placing an order; if insufficient, STOP and inform the user
-  4. ta_snapshot + mark_price
-     + funding_rate_history       — form thesis (trend, levels, funding bias)
-  5. order_book                   — verify slippage on intended size
-  6. place_bracket_order with
-     dry_run=true                 — validates legs via /order/test (no exec, no confirm)
-  7. place_bracket_order          — real entry; user approves; reasoning string mandatory
-  8. (monitoring) position_brief  — BEST morning check: position_health + daily_summary in one call (P&L %, SL/TP, R:R, today's income, free margin, attention_needed items)
-  9. (later) close_position
-     or update_sl_tp              — manage; never widen SL away from entry; use update_sl_tp to tighten SL or shift TP
-
-Strategy guidance for the AI:
-  • ⚠️ BUDGET CHECK FIRST: market_scan and calc_order_size both return free_margin_usdt (when creds available). Before spending time on market analysis, verify the user has sufficient margin. Required margin = desired_notional / leverage. If free_margin_usdt < required_margin, STOP and inform the user — do not scan coins or analyze charts.
-  • ALWAYS call calc_order_size before sizing — converts "$X notional" → rounded qty and validates minNotional/minQty. Avoids -1111 and -4164 errors.
-  • PREFER place_bracket_order over place_order — every position should ship with SL + TP.
-  • NEVER call configure_symbol separately before place_bracket_order. Pass leverage and margin_type directly as params to place_bracket_order — this keeps everything in ONE confirmation dialog.
-  • PREFER ISOLATED margin (limits blast radius). Use CROSSED only when explicitly needed.
-  • Sanity-check first with dryRun=true on place_order/place_bracket_order — uses /order/test, no execution, no confirmation prompt.
-  • Use open_orders (with default include_algo_orders=true) to see all working orders including SL/TP algo orders in one call.
-  • For "what to trade today?" — call market_scan first (sort_by=volume or change_pct) to get a ranked shortlist of top movers without flooding context. Then run ta_snapshot_multi on your top 5+ candidates in one parallel call, check open_interest (history=true) and long_short_ratio for confirmation.
-  • For "is it worth it now for X?" — combine mark_price + ticker_24hr + order_book (slippage) + klines (trend), and compute SL/TP from ATR or recent swing levels.
-  • For "trade autonomously while I sleep" — set BINANCE_SKIP_ASK_USER=true at the user's instruction; otherwise every mutating call requires browser confirmation. Even in skip mode, supply a meaningful `reasoning` for every order so the user can audit later via order_history.
-  • Mutating tools require a `reasoning` parameter — articulate signal, risk, R:R, and exit plan.
-  • On HTTP 503 "Unknown error" the order MAY have placed — never blind-retry; the tool reconciles via origClientOrderId automatically.
-  • Watch the [rate-limit] footer on responses; back off if used_weight_1m climbs.
-  • TESTNET (BINANCE_FUTURES_BASE_URL=https://testnet.binancefuture.com): STOP_MARKET / TAKE_PROFIT_MARKET / TRAILING_STOP_MARKET are NOT supported (returns -4120). Bracket orders will fail on the SL/TP legs and roll back. Validate brackets on mainnet with minimum size, or use conditional STOP / TAKE_PROFIT *limit* orders on testnet. /futures/data/* endpoints (long_short_ratio, open_interest history) return empty on testnet.

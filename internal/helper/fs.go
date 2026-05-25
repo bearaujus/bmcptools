@@ -18,7 +18,8 @@ type EntryWithInfo struct {
 }
 
 // CollectFiles walks root and returns all matching file paths.
-func CollectFiles(root string, recursive bool, globPattern string, showHidden bool) ([]string, error) {
+// Optional exclude patterns match entry basenames and prune matching directories.
+func CollectFiles(root string, recursive bool, globPattern string, showHidden bool, excludePatternSets ...[]string) ([]string, error) {
 	rootInfo, err := os.Stat(root)
 	if err != nil {
 		return nil, fmt.Errorf("cannot stat %q: %w", root, err)
@@ -27,12 +28,23 @@ func CollectFiles(root string, recursive bool, globPattern string, showHidden bo
 		return []string{root}, nil
 	}
 
+	var excludePatterns []string
+	if len(excludePatternSets) > 0 {
+		excludePatterns = excludePatternSets[0]
+	}
+
 	var files []string
 	walkErr := filepath.WalkDir(root, func(p string, d os.DirEntry, werr error) error {
 		if werr != nil {
 			return nil
 		}
 		name := d.Name()
+		if p != root && MatchesAnyGlobName(name, excludePatterns) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if !showHidden && strings.HasPrefix(name, ".") {
 			if d.IsDir() {
 				return filepath.SkipDir
@@ -78,19 +90,36 @@ func CopyFileDataN(src, dst string, mode os.FileMode) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("cannot open source: %w", err)
 	}
+	defer in.Close()
 
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	dir := filepath.Dir(dst)
+	tmp, err := os.CreateTemp(dir, ".bmcptools-copy-*")
 	if err != nil {
-		in.Close()
 		return 0, fmt.Errorf("cannot create destination: %w", err)
 	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
-	n, copyErr := io.Copy(out, in)
-	in.Close()
-	if closeErr := out.Close(); closeErr != nil && copyErr == nil {
+	n, copyErr := io.Copy(tmp, in)
+	if copyErr == nil {
+		copyErr = tmp.Chmod(mode)
+	}
+	if closeErr := tmp.Close(); closeErr != nil && copyErr == nil {
 		copyErr = closeErr
 	}
-	return n, copyErr
+	if copyErr != nil {
+		return n, copyErr
+	}
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return n, err
+	}
+	cleanup = false
+	return n, nil
 }
 
 // CountContentLines returns the number of lines in content.
@@ -103,6 +132,15 @@ func CountContentLines(content string) int {
 		n++
 	}
 	return n
+}
+
+// ExistingFilePerm returns path's current permission bits when it exists.
+func ExistingFilePerm(path string, fallback os.FileMode) os.FileMode {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fallback
+	}
+	return info.Mode().Perm()
 }
 
 // ApplyReplaceToFile reads filePath, applies the replacement, and writes back.
@@ -142,7 +180,7 @@ func ApplyReplaceToFile(filePath, oldStr, newStr string, useRegex, dryRun, produ
 		if hasCRLF {
 			modified = RestoreCRLF(modified)
 		}
-		wErr := AtomicWriteFile(filePath, []byte(modified), 0o644)
+		wErr := AtomicWriteFile(filePath, []byte(modified), ExistingFilePerm(filePath, 0o644))
 		unlock()
 		if wErr != nil {
 			return count, diff, false, wErr

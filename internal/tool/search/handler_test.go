@@ -172,6 +172,12 @@ func TestSearchFilesHandler(t *testing.T) {
 	if strings.Contains(text, "bar.ts") {
 		t.Errorf("did not expect bar.ts in results: %q", text)
 	}
+	if strings.Contains(text, "[file]") {
+		t.Errorf("default search_files output should be concise paths, got: %q", text)
+	}
+	if !strings.Contains(text, "\n  foo.go\n") {
+		t.Errorf("default search_files output should use root-relative paths, got: %q", text)
+	}
 }
 
 func TestGrepFilesHandler(t *testing.T) {
@@ -386,8 +392,6 @@ func TestGrepFilesExplicitFilesWithMatchesModeUnchanged(t *testing.T) {
 	}
 }
 
-
-
 func TestGrepFilesGlobFilter(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "match.go"), []byte("hello world\n"), 0o644); err != nil {
@@ -412,6 +416,68 @@ func TestGrepFilesGlobFilter(t *testing.T) {
 	}
 	if strings.Contains(text, "skip.txt") {
 		t.Errorf("skip.txt should be excluded by glob filter: %q", text)
+	}
+}
+
+func TestGrepFilesExcludePatternsAndRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	skip := filepath.Join(dir, "node_modules")
+	if err := os.MkdirAll(skip, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skip, "dep.txt"), []byte("needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.txt"), []byte("needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":             dir,
+		"pattern":          "needle",
+		"exclude_patterns": []any{"node_modules"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "app.txt") {
+		t.Errorf("expected app.txt in grep output: %q", text)
+	}
+	if strings.Contains(text, "dep.txt") || strings.Contains(text, "node_modules") {
+		t.Errorf("excluded subtree should not appear in grep output: %q", text)
+	}
+	if strings.Contains(text, dir) {
+		t.Errorf("default grep_files output should use relative paths, got: %q", text)
+	}
+}
+
+func TestSearchFilesDetailsAbsoluteAndEntryType(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "*",
+		"entry_type":  "dir",
+		"output_mode": "details",
+		"path_format": "absolute",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "[dir ]") || !strings.Contains(text, sub) {
+		t.Errorf("expected absolute directory detail in output: %q", text)
+	}
+	if strings.Contains(text, "main.go") {
+		t.Errorf("entry_type=dir should exclude files: %q", text)
 	}
 }
 
@@ -444,6 +510,103 @@ func TestSearchFilesPathGlob(t *testing.T) {
 	}
 	if strings.Contains(text, "root.go") {
 		t.Errorf("root.go should not match src/**/*.go: %q", text)
+	}
+}
+
+func TestSearchFilesRegexBasenameAndPath(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	docs := filepath.Join(dir, "docs")
+	if err := os.Mkdir(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(docs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "report_2026.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "report_2026.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "report_old.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	basenameResult, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   `^report_\d+\.md$`,
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	basenameText := resultText(basenameResult)
+	if !strings.Contains(basenameText, "src/report_2026.md") || !strings.Contains(basenameText, "docs/report_2026.md") {
+		t.Errorf("basename regex should match files in any directory: %q", basenameText)
+	}
+	if strings.Contains(basenameText, "report_old.md") {
+		t.Errorf("basename regex should exclude non-matching basename: %q", basenameText)
+	}
+
+	pathResult, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   `^src/report_\d+\.md$`,
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathText := resultText(pathResult)
+	if !strings.Contains(pathText, "src/report_2026.md") {
+		t.Errorf("path regex should match src/report_2026.md: %q", pathText)
+	}
+	if strings.Contains(pathText, "docs/report_2026.md") {
+		t.Errorf("path regex should not match docs/report_2026.md: %q", pathText)
+	}
+}
+
+func TestSearchFilesCaseInsensitiveGlob(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Report.TXT"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	caseSensitive, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"pattern": "*.txt",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(resultText(caseSensitive), "Report.TXT") {
+		t.Errorf("case-sensitive glob should not match Report.TXT: %q", resultText(caseSensitive))
+	}
+
+	caseInsensitive, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":             dir,
+		"pattern":          "*.txt",
+		"case_insensitive": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resultText(caseInsensitive), "Report.TXT") {
+		t.Errorf("case-insensitive glob should match Report.TXT: %q", resultText(caseInsensitive))
+	}
+}
+
+func TestSearchFilesInvalidRegex(t *testing.T) {
+	result, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      t.TempDir(),
+		"pattern":   "[unclosed",
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected invalid regex to return tool error, got: %q", resultText(result))
 	}
 }
 
@@ -599,8 +762,6 @@ func TestGrepFileContextAdjacentMatches(t *testing.T) {
 		t.Errorf("second match after-context = %v, want [c]", matches[1].after)
 	}
 }
-
-
 
 // ── grep_files case_insensitive ───────────────────────────────────────────────
 // Reason: The case_insensitive flag is a documented parameter of grep_files

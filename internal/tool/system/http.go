@@ -18,6 +18,11 @@ import (
 	"github.com/bearaujus/bmcptools/internal/helper"
 )
 
+const (
+	defaultHTTPResponseMaxBytes = 256 * 1024
+	maxHTTPResponseMaxBytes     = 10 * 1024 * 1024
+)
+
 func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	rawURL := req.GetString("url", "")
 	if strings.TrimSpace(rawURL) == "" {
@@ -35,6 +40,14 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 	if timeoutSec > 300 {
 		timeoutSec = 300
+	}
+
+	maxResponseBytes := int64(req.GetFloat("max_response_bytes", defaultHTTPResponseMaxBytes))
+	if maxResponseBytes < 0 {
+		maxResponseBytes = defaultHTTPResponseMaxBytes
+	}
+	if maxResponseBytes > maxHTTPResponseMaxBytes {
+		maxResponseBytes = maxHTTPResponseMaxBytes
 	}
 
 	followRedirects := req.GetBool("follow_redirects", true)
@@ -91,7 +104,7 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024))
+	respBody, truncated, err := readResponseBody(resp.Body, maxResponseBytes)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("reading response body: %v", err)), nil
 	}
@@ -99,7 +112,14 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Status:  %s\n", resp.Status)
 	fmt.Fprintf(&sb, "Elapsed: %s\n", elapsed.Round(time.Millisecond))
-	fmt.Fprintf(&sb, "Size:    %d bytes\n", len(respBody))
+	fmt.Fprintf(&sb, "Size:    %d bytes", len(respBody))
+	if truncated {
+		fmt.Fprintf(&sb, " shown (truncated at %s)", helper.HumanizeBytes(maxResponseBytes))
+		if resp.ContentLength > int64(len(respBody)) {
+			fmt.Fprintf(&sb, "; Content-Length: %s", helper.HumanizeBytes(resp.ContentLength))
+		}
+	}
+	sb.WriteByte('\n')
 
 	if includeRespHeaders {
 		sb.WriteString("\n\u2500\u2500 Response Headers \u2500\u2500\n")
@@ -126,9 +146,27 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 		} else {
 			sb.Write(respBody)
 		}
+		if truncated {
+			fmt.Fprintf(&sb, "\n\n[Response body truncated. Increase max_response_bytes up to %d, or use download_file for large/binary responses.]", maxHTTPResponseMaxBytes)
+		}
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func readResponseBody(r io.Reader, maxBytes int64) ([]byte, bool, error) {
+	if maxBytes == 0 {
+		body, err := io.ReadAll(r)
+		return body, false, err
+	}
+	body, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(body)) > maxBytes {
+		return body[:maxBytes], true, nil
+	}
+	return body, false, nil
 }
 
 func downloadFileHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

@@ -77,6 +77,9 @@ func Register(s toolreg.ToolRegistrar, opts ...Option) {
 			mcp.WithNumber("wait_seconds",
 				mcp.Description(asset.ParamDesc(toolname.GetUserResponse, "wait_seconds")),
 			),
+			mcp.WithNumber("max_response_bytes",
+				mcp.Description(asset.ParamDesc(toolname.GetUserResponse, "max_response_bytes")),
+			),
 		),
 		getUserResponseHandler,
 	)

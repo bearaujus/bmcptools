@@ -35,7 +35,7 @@ func myToolHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 
 ### Adding a new tool group
 
-If your tool lives in a brand-new `internal/tool/<group>/` package (i.e. not one of `user, file, multi, dir, search, exec, system, binance`), there are two extra steps so the group can be selectively disabled:
+If your tool lives in a brand-new `internal/tool/<group>/` package (i.e. not one of `user, file, multi, dir, search, exec, system`), there are two extra steps so the group can be selectively disabled:
 
 1. Add a `Group<Name>` constant in `server.go` and append it to `AllGroups()`.
 2. Wrap the new `xxx.Register(reg)` call in `Register()` with `if !cfg.disableGroups[Group<Name>] { ... }`.

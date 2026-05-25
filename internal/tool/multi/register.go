@@ -20,6 +20,9 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithNumber("max_bytes_per_file",
 			mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "max_bytes_per_file")),
 		),
+		mcp.WithBoolean("include_base64",
+			mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "include_base64")),
+		),
 	), readMultipleFilesHandler)
 
 	s.AddTool(mcp.NewTool(toolname.WriteMultipleFiles,
@@ -76,6 +79,16 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("show_hidden",
 			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "show_hidden")),
 		),
+		mcp.WithArray("exclude_patterns",
+			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "exclude_patterns")),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithBoolean("show_unmodified",
+			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "show_unmodified")),
+		),
+		mcp.WithNumber("max_file_size",
+			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "max_file_size")),
+		),
 	), findReplaceInFilesHandler)
 
 	s.AddTool(mcp.NewTool(toolname.PathExistsBatch,
@@ -85,6 +98,9 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.Description(asset.ParamDesc(toolname.PathExistsBatch, "paths")),
 			mcp.Items(map[string]any{"type": "string"}),
 		),
+		mcp.WithNumber("limit",
+			mcp.Description(asset.ParamDesc(toolname.PathExistsBatch, "limit")),
+		),
 	), pathExistsBatchHandler)
 
 	s.AddTool(mcp.NewTool(toolname.GetMultipleFileInfo,
@@ -93,6 +109,15 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.Required(),
 			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "paths")),
 			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "limit")),
+		),
+		mcp.WithBoolean("count_lines",
+			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "count_lines")),
+		),
+		mcp.WithString("output_mode",
+			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "output_mode")),
 		),
 	), getMultipleFileInfoHandler)
 }

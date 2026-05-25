@@ -1,13 +1,14 @@
 {
   "read_multiple_files": {
-    "desc": "Read multiple files in a single call — more efficient than calling read_file repeatedly. Each file's content is returned with its path as a header. Failed reads (not found, permission denied) are reported inline without aborting the rest of the batch.",
+    "desc": "Read multiple files in a single call — use this instead of repeated read_file when reading 2+ files. Each file's content is returned with a compact path/size header and per-file byte cap. Binary files return compact summaries unless include_base64=true. Failed reads are reported inline without aborting the batch.",
     "params": {
       "paths": "Array of file paths to read.",
-      "max_bytes_per_file": "Max bytes per file. Default: 10485760 (10 MB)."
+      "max_bytes_per_file": "Max bytes per file. Default: 262144 (256 KB). Raise only when you truly need more context.",
+      "include_base64": "For binary files, include capped base64 bytes. Default: false to protect context."
     }
   },
   "write_multiple_files": {
-    "desc": "Write content to multiple files in a single call — more efficient than calling write_file repeatedly. Creates or overwrites each file. show_diff defaults to false here (unlike write_file) to avoid flooding the response when writing many files — set true if you need to review the diffs.",
+    "desc": "Write content to multiple files in a single call — use this instead of repeated write_file when writing 2+ files. Creates or overwrites each file and preserves existing permissions on overwrite. show_diff defaults to false to avoid flooding context; set true only when the per-file diffs matter.",
     "params": {
       "files": "Array of {\"path\": \"...\", \"content\": \"...\"} objects to write.",
       "create_dirs": "Create missing parent directories. Default: true.",
@@ -15,29 +16,36 @@
     }
   },
   "find_replace_in_files": {
-    "desc": "Find and replace text across multiple files in one call. Returns per-file unified diffs. Always run with dry_run=true first to preview which files match and how — then run again without dry_run to apply. Supports Go regex with $1/$2 back-references. Handles CRLF transparently: LF-only patterns match CRLF files and original line endings are preserved after editing.",
+    "desc": "Find and replace text across files. Always run with dry_run=true first to preview matches, then rerun without dry_run to apply. Returns changed files and optional capped diffs while summarizing unmodified files by default. Supports Go regex with $1/$2 back-references, preserves CRLF line endings, skips binary files, and skips files larger than max_file_size by default to avoid generated/data blobs.",
     "params": {
       "path": "Root file or directory to search.",
       "old_str": "Text (or regex pattern when use_regex=true) to find.",
       "new_str": "Replacement text. Use $1/$2 back-references when use_regex=true.",
       "use_regex": "Treat old_str as a Go regular expression. Default: false.",
       "recursive": "Descend into subdirectories. Default: true.",
-      "glob": "Only process files matching this glob pattern (e.g. *.go). Default: all files.",
+      "glob": "Only process files matching this glob pattern (e.g. *.go). Strongly prefer setting this in large projects. Default: all files.",
       "dry_run": "Preview matches without writing. Default: false. Run this first before applying.",
-      "show_diff": "Include a unified diff for each changed file. Default: true.",
-      "show_hidden": "Include hidden files and directories. Default: false."
+      "show_diff": "Include a unified diff for each changed file. Default: true; set false for broad refactors to keep output compact.",
+      "show_hidden": "Include hidden files and directories. Default: false.",
+      "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). Matching directories are pruned before processing. Use to skip node_modules, .git, vendor, dist, build, or generated files.",
+      "show_unmodified": "List files that were scanned but had no match. Default: false, which reports only the count to avoid noisy output.",
+      "max_file_size": "Skip files larger than this many bytes. Default: 10485760 (10 MB). Set 0 for unlimited."
     }
   },
   "path_exists_batch": {
     "desc": "Check whether multiple paths exist in a single call. Returns each path's existence, type (file/directory/symlink), and size. More efficient than calling path_exists repeatedly.",
     "params": {
-      "paths": "Array of file/directory paths to check."
+      "paths": "Array of file/directory paths to check.",
+      "limit": "Maximum paths to return. Default: 500. Set 0 for unlimited."
     }
   },
   "get_multiple_file_info": {
-    "desc": "Return metadata for multiple files/directories in a single call. Each entry includes type, size, modification time, permissions, symlink target, and line count for text files. More efficient than calling get_file_info repeatedly.",
+    "desc": "Return metadata for multiple files/directories in a single call. Compact one-line entries are returned by default; set output_mode=details for expanded labeled fields. More efficient than calling get_file_info repeatedly.",
     "params": {
-      "paths": "Array of file/directory paths to inspect."
+      "paths": "Array of file/directory paths to inspect.",
+      "limit": "Maximum paths to return. Default: 100. Set 0 for unlimited.",
+      "count_lines": "Count lines for text files. Default: true. Set false for faster/noiseless metadata scans.",
+      "output_mode": "\"compact\" (default) returns one line per path. \"details\" returns expanded labeled metadata fields."
     }
   }
 }

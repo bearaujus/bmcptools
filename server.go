@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/bearaujus/bmcptools/internal/asset"
-	"github.com/bearaujus/bmcptools/internal/tool/binance"
 	"github.com/bearaujus/bmcptools/internal/tool/dir"
 	"github.com/bearaujus/bmcptools/internal/tool/exec"
 	"github.com/bearaujus/bmcptools/internal/tool/file"
@@ -33,14 +32,13 @@ var Version = "dev"
 // internal/asset/descriptions/server_instructions.txt (except "multi", which
 // is documented inside the file group).
 const (
-	GroupUser    = "user"
-	GroupFile    = "file"
-	GroupMulti   = "multi"
-	GroupDir     = "dir"
-	GroupSearch  = "search"
-	GroupExec    = "exec"
-	GroupSystem  = "system"
-	GroupBinance = "binance"
+	GroupUser   = "user"
+	GroupFile   = "file"
+	GroupMulti  = "multi"
+	GroupDir    = "dir"
+	GroupSearch = "search"
+	GroupExec   = "exec"
+	GroupSystem = "system"
 )
 
 // AllGroups returns the canonical list of registrable tool groups, in the
@@ -48,7 +46,7 @@ const (
 func AllGroups() []string {
 	return []string{
 		GroupUser, GroupFile, GroupMulti, GroupDir,
-		GroupSearch, GroupExec, GroupSystem, GroupBinance,
+		GroupSearch, GroupExec, GroupSystem,
 	}
 }
 
@@ -78,7 +76,7 @@ func ServerInstructions() string { return asset.ServerInstructions() }
 
 // ServerInstructionsForGroups returns server instructions filtered to only
 // the specified groups. Valid group names: "user", "file", "dir", "search",
-// "exec", "system", "binance". The intro section is always included.
+// "exec", "system". The intro section is always included.
 // Passing no groups returns the full instructions (same as ServerInstructions).
 func ServerInstructionsForGroups(groups ...string) string {
 	return asset.ServerInstructionsForGroups(groups...)
@@ -131,7 +129,7 @@ func WithExcludeTools(names ...string) Option {
 }
 
 // WithDisableGroups prevents whole tool groups from being registered.
-// Use the Group* constants (GroupBinance, GroupSystem, ...). Unknown group
+// Use the Group* constants (GroupSystem, GroupUser, ...). Unknown group
 // names are silently ignored at registration; use ValidateGroups beforehand
 // for strict validation (e.g. when parsing CLI flags).
 func WithDisableGroups(groups ...string) Option {
@@ -192,9 +190,6 @@ func Register(s ToolRegistrar, opts ...Option) {
 	if !cfg.disableGroups[GroupSystem] {
 		system.Register(reg)
 	}
-	if !cfg.disableGroups[GroupBinance] {
-		binance.Register(reg)
-	}
 }
 
 // RegisterFile registers only the file tool group.
@@ -218,9 +213,6 @@ func RegisterMulti(s ToolRegistrar) { multi.Register(s) }
 // RegisterUser registers only the user interaction tool group.
 // opts allows overriding default HTML templates for dialogs.
 func RegisterUser(s ToolRegistrar, opts ...UserOption) { user.Register(s, opts...) }
-
-// RegisterBinance registers only the Binance USDT-M Futures tool group.
-func RegisterBinance(s ToolRegistrar) { binance.Register(s) }
 
 // RegisterConnectors registers one or more external connectors.
 // Each connector provides its own tool group via the Connector interface.

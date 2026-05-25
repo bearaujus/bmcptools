@@ -10,6 +10,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+const defaultClipboardReadMaxBytes = 256 * 1024
+
 func clipboardWriteHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	text := req.GetString("text", "")
 	if err := writeClipboard(text); err != nil {
@@ -43,7 +45,7 @@ func writeClipboard(text string) error {
 	return cmd.Run()
 }
 
-func clipboardReadHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func clipboardReadHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	text, err := readClipboard()
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("clipboard read failed: %v", err)), nil
@@ -51,8 +53,26 @@ func clipboardReadHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallTo
 	if text == "" {
 		return mcp.NewToolResultText("(clipboard is empty)"), nil
 	}
-	lines := strings.Count(text, "\n") + 1
-	return mcp.NewToolResultText(fmt.Sprintf("[Clipboard \u2014 %d bytes, %d line(s)]\n%s", len(text), lines, text)), nil
+	maxBytes := int(req.GetFloat("max_bytes", defaultClipboardReadMaxBytes))
+	if maxBytes < 0 {
+		maxBytes = defaultClipboardReadMaxBytes
+	}
+	return mcp.NewToolResultText(formatClipboardRead(text, maxBytes)), nil
+}
+
+func formatClipboardRead(text string, maxBytes int) string {
+	truncated := false
+	display := text
+	if maxBytes > 0 && len(display) > maxBytes {
+		display = display[:maxBytes]
+		truncated = true
+	}
+	lines := strings.Count(display, "\n") + 1
+	result := fmt.Sprintf("[Clipboard - %d/%d bytes shown, %d line(s)]\n%s", len(display), len(text), lines, display)
+	if truncated {
+		result += fmt.Sprintf("\n\n[Clipboard truncated at %d bytes. Increase max_bytes or set max_bytes=0 for unlimited.]", maxBytes)
+	}
+	return result
 }
 
 func readClipboard() (string, error) {

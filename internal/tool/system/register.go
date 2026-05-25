@@ -20,6 +20,9 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.ClipboardRead,
 		mcp.WithDescription(asset.ToolDesc(toolname.ClipboardRead)),
+		mcp.WithNumber("max_bytes",
+			mcp.Description(asset.ParamDesc(toolname.ClipboardRead, "max_bytes")),
+		),
 	), clipboardReadHandler)
 
 	s.AddTool(mcp.NewTool(toolname.HTTPRequest,
@@ -49,6 +52,9 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("include_response_headers",
 			mcp.Description(asset.ParamDesc(toolname.HTTPRequest, "include_response_headers")),
 		),
+		mcp.WithNumber("max_response_bytes",
+			mcp.Description(asset.ParamDesc(toolname.HTTPRequest, "max_response_bytes")),
+		),
 	), httpRequestHandler)
 
 	s.AddTool(mcp.NewTool(toolname.ListProcesses,
@@ -61,6 +67,9 @@ func Register(s toolreg.ToolRegistrar) {
 		),
 		mcp.WithNumber("limit",
 			mcp.Description(asset.ParamDesc(toolname.ListProcesses, "limit")),
+		),
+		mcp.WithNumber("command_width",
+			mcp.Description(asset.ParamDesc(toolname.ListProcesses, "command_width")),
 		),
 	), listProcessesHandler)
 

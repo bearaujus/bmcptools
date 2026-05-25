@@ -1,11 +1,12 @@
 {
   "read_file": {
-    "desc": "Read file contents. Text files returned as UTF-8; files with NUL bytes or invalid UTF-8 are returned base64-encoded with a header indicating so. For large files, use head/tail or start_line/end_line to read only what you need — call get_file_info first to learn the line count. Precedence when multiple narrowing params are set: ranges > head/tail > start_line/end_line.",
+    "desc": "Read file contents. Text files are returned as UTF-8; binary files return a compact summary by default and only include base64 when include_base64=true. For large files, use head/tail or start_line/end_line to read only what you need — call get_file_info first to learn the line count. Precedence when multiple narrowing params are set: ranges > head/tail > start_line/end_line.",
     "params": {
       "path": "Path to the file.",
       "start_line": "First line to read (1-indexed).",
       "end_line": "Last line to read (inclusive).",
-      "max_bytes": "Maximum bytes to return. Default: 10485760 (10 MB).",
+      "max_bytes": "Maximum bytes to return. Default: 262144 (256 KB). Raise only when you truly need more context.",
+      "include_base64": "For binary files, include capped base64 bytes. Default: false to protect context.",
       "head": "Return only the first N lines.",
       "tail": "Return only the last N lines.",
       "show_line_numbers": "Prefix every line with its line number. Default: false.",
@@ -13,31 +14,33 @@
     }
   },
   "write_file": {
-    "desc": "Write content to a file, creating or overwriting it. Creates parent directories automatically. Returns a unified diff when overwriting an existing file. For modifying specific sections, prefer edit_file — it is surgical and less error-prone than rewriting the entire file.",
+    "desc": "Write content to a file, creating or fully overwriting it. Creates parent directories automatically and preserves existing file permissions on overwrite. Returns a capped unified diff when overwriting by default. For modifying specific sections, prefer edit_file — it is surgical and sends only the diff back.",
     "params": {
       "path": "Path to the file.",
       "content": "Content to write.",
       "create_dirs": "Create missing parent directories. Default: true.",
-      "show_diff": "Return a unified diff of changes when overwriting. Default: true for existing files, false for new files."
+      "show_diff": "Return a unified diff of changes when overwriting. Default: true for existing files, false for new files.",
+      "max_diff_bytes": "Maximum diff bytes to return when show_diff is enabled. Default: 262144 (256 KB). Set 0 for unlimited."
     }
   },
   "append_to_file": {
-    "desc": "Append content to a file, creating the file and any missing parent directories if needed. Returns the new file size.",
+    "desc": "Append content to a file, creating the file and any missing parent directories if needed. Use for additive writes only; use edit_file or write_file when existing content must change. Returns the new file size.",
     "params": {
       "path": "Path to the file.",
       "content": "Content to append."
     }
   },
   "edit_file": {
-    "desc": "Surgical find-and-replace in a file. Prefer this over write_file for modifying existing files — sends only the diff, not the entire content. Two modes: single edit (old_str + new_str) or batch edits array — use batch for multiple changes to the same file to avoid repeated round-trips. If old_str appears multiple times, only the first match is replaced (use replace_all=true or add more surrounding context to disambiguate). If pattern is not found, a near-miss probe shows surrounding context to help you refine. Supports Go regex with $1/$2 back-references. Handles CRLF transparently.",
+    "desc": "Surgical find-and-replace in a file. Prefer this over write_file for modifying existing files because it returns only a capped diff. Two modes: single edit (old_str + new_str) or batch edits array; use batch for multiple changes to the same file. If old_str appears multiple times, only the first match is replaced unless replace_all=true, so add context when uniqueness matters. If pattern is not found, a near-miss probe shows surrounding context. Supports Go regex with $1/$2 back-references, preserves existing permissions, and handles CRLF transparently.",
     "params": {
       "path": "Path to the file.",
       "old_str": "Text (or regex) to find — single-edit mode.",
       "new_str": "Replacement text — single-edit mode.",
       "use_regex": "Treat old_str as a Go regular expression. Default: false.",
-      "replace_all": "Replace every match, not just the first. Default: false.",
+      "replace_all": "Replace every match, not just the first. Default: false; add surrounding context instead when only one occurrence should change.",
       "dry_run": "Preview changes without writing. Default: false.",
       "context_lines": "Context lines shown around each change in the diff. Default: 3.",
+      "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB). Set 0 for unlimited.",
       "edits": "Batch mode: array of {old_str, new_str, use_regex?, replace_all?} edits applied sequentially."
     }
   },
@@ -48,7 +51,7 @@
     }
   },
   "copy_file": {
-    "desc": "Copy a single file (not directories). Creates parent directories of the destination automatically. To duplicate a directory tree, use compress_files + extract_archive, or call copy_file per-file.",
+    "desc": "Copy a single file (not directories). Creates parent directories of the destination automatically and refuses same-file copies. To duplicate a directory tree, use compress_files + extract_archive, or call copy_file per file.",
     "params": {
       "source": "Source file path.",
       "destination": "Destination file path.",
@@ -56,7 +59,7 @@
     }
   },
   "move_file": {
-    "desc": "Move or rename a file or directory. Cross-device safe (copy + delete). IRREVERSIBLE if destination already exists and overwrite=true.",
+    "desc": "Move or rename a file or directory. Cross-device file moves fall back to copy+delete. Refuses same-file moves. IRREVERSIBLE if destination exists and overwrite=true.",
     "params": {
       "source": "Source path.",
       "destination": "Destination path.",
@@ -64,9 +67,10 @@
     }
   },
   "get_file_info": {
-    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, symlink target, and line count for text files. Check line count here before using start_line/end_line in read_file.",
+    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, symlink target, and line count for text files. Compact one-line output is returned by default; set output_mode=details for expanded labeled fields. Check line count here before using start_line/end_line in read_file.",
     "params": {
-      "path": "Path to the file or directory."
+      "path": "Path to the file or directory.",
+      "output_mode": "\"compact\" (default) returns one line. \"details\" returns expanded labeled metadata fields."
     }
   },
   "path_exists": {
@@ -76,11 +80,13 @@
     }
   },
   "diff_files": {
-    "desc": "Compare two files and return a unified diff. Returns empty output when files are identical. Cross-platform — prefer this over running diff via run_command.",
+    "desc": "Compare two text files and return a unified diff. Refuses binary files and guards large inputs by default. Returns a short identical-files message when unchanged. Cross-platform — prefer this over running diff via run_command.",
     "params": {
       "path_a": "First file (before / original).",
       "path_b": "Second file (after / modified).",
-      "context_lines": "Context lines around each change. Default: 3."
+      "context_lines": "Context lines around each change. Default: 3.",
+      "max_file_bytes": "Maximum size for each input file before refusing to diff. Default: 2097152 (2 MB). Set 0 for unlimited.",
+      "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB). Set 0 for unlimited."
     }
   },
   "calculate_checksum": {
