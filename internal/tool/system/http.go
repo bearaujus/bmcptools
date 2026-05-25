@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -21,6 +23,10 @@ import (
 const (
 	defaultHTTPResponseMaxBytes = 256 * 1024
 	maxHTTPResponseMaxBytes     = 10 * 1024 * 1024
+	defaultHTTPBodyFilterCtx    = 120
+	maxHTTPBodyFilterCtx        = 4096
+	defaultHTTPBodyFilterMax    = 20
+	maxHTTPBodyFilterCtxLines   = 20
 )
 
 func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -52,6 +58,11 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 
 	followRedirects := req.GetBool("follow_redirects", true)
 	includeRespHeaders := req.GetBool("include_response_headers", false)
+	jsonFormat := normalizeHTTPJSONFormat(req.GetString("json_format", "compact"))
+	bodyFilter, err := newHTTPBodyFilter(req)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 
 	bodyStr := req.GetString("body", "")
 	var bodyReader io.Reader
@@ -135,16 +146,13 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 
 	if len(respBody) > 0 {
 		sb.WriteString("\n\u2500\u2500 Body \u2500\u2500\n")
-		ct := resp.Header.Get("Content-Type")
-		if strings.Contains(ct, "json") || json.Valid(respBody) {
-			var pretty bytes.Buffer
-			if jsonErr := json.Indent(&pretty, respBody, "", "  "); jsonErr == nil {
-				sb.WriteString(pretty.String())
-			} else {
-				sb.Write(respBody)
-			}
+		rendered, renderErr := renderHTTPBody(resp, respBody, jsonFormat)
+		if renderErr != nil {
+			sb.WriteString(renderErr.Error())
+		} else if bodyFilter != nil {
+			sb.WriteString(bodyFilter.Apply(rendered))
 		} else {
-			sb.Write(respBody)
+			sb.WriteString(rendered)
 		}
 		if truncated {
 			fmt.Fprintf(&sb, "\n\n[Response body truncated. Increase max_response_bytes up to %d, or use download_file for large/binary responses.]", maxHTTPResponseMaxBytes)
@@ -152,6 +160,420 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func normalizeHTTPJSONFormat(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "raw":
+		return "raw"
+	case "pretty":
+		return "pretty"
+	default:
+		return "compact"
+	}
+}
+
+func renderHTTPBody(resp *http.Response, body []byte, jsonFormat string) (string, error) {
+	body = helper.StripBOM(body)
+	if isHTTPBinaryResponse(resp, body) {
+		ct := resp.Header.Get("Content-Type")
+		if ct == "" {
+			ct = http.DetectContentType(firstHTTPBodyBytes(body, 512))
+		}
+		return "", fmt.Errorf("[BINARY RESPONSE] %s body (%s) omitted; use download_file for binary content",
+			ct, helper.HumanizeBytes(int64(len(body))))
+	}
+
+	if jsonFormat != "raw" && isHTTPJSONResponse(resp, body) {
+		var formatted bytes.Buffer
+		var err error
+		if jsonFormat == "pretty" {
+			err = json.Indent(&formatted, body, "", "  ")
+		} else {
+			err = json.Compact(&formatted, body)
+		}
+		if err == nil {
+			return formatted.String(), nil
+		}
+	}
+
+	if !utf8.Valid(body) {
+		return strings.ToValidUTF8(string(body), "\uFFFD"), nil
+	}
+	return string(body), nil
+}
+
+func isHTTPJSONResponse(resp *http.Response, body []byte) bool {
+	return strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "json") || json.Valid(body)
+}
+
+func isHTTPBinaryResponse(resp *http.Response, body []byte) bool {
+	sniff := firstHTTPBodyBytes(body, 512)
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = http.DetectContentType(sniff)
+	}
+	contentType = strings.ToLower(contentType)
+	if helper.IsBinaryContent(sniff, contentType) {
+		return true
+	}
+	if isHTTPTextContentType(contentType) {
+		return false
+	}
+	return strings.TrimSpace(contentType) != ""
+}
+
+func isHTTPTextContentType(contentType string) bool {
+	mediaType := strings.TrimSpace(strings.Split(contentType, ";")[0])
+	if strings.HasPrefix(mediaType, "text/") {
+		return true
+	}
+	switch mediaType {
+	case "application/json",
+		"application/xml",
+		"application/javascript",
+		"application/x-javascript",
+		"application/typescript",
+		"application/x-yaml",
+		"application/yaml",
+		"application/toml",
+		"application/x-www-form-urlencoded",
+		"application/graphql":
+		return true
+	default:
+		return strings.HasSuffix(mediaType, "+json") ||
+			strings.HasSuffix(mediaType, "+xml") ||
+			strings.HasSuffix(mediaType, "svg+xml")
+	}
+}
+
+func firstHTTPBodyBytes(body []byte, n int) []byte {
+	if len(body) < n {
+		return body
+	}
+	return body[:n]
+}
+
+type httpBodyFilter struct {
+	pattern      string
+	mode         string
+	re           *regexp.Regexp
+	contextBytes int
+	contextLines int
+	maxMatches   int
+}
+
+func newHTTPBodyFilter(req mcp.CallToolRequest) (*httpBodyFilter, error) {
+	pattern := req.GetString("body_filter", "")
+	if pattern == "" {
+		return nil, nil
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(req.GetString("body_filter_mode", "matches")))
+	switch mode {
+	case "matches", "lines", "count":
+	default:
+		mode = "matches"
+	}
+
+	contextBytes := int(req.GetFloat("body_filter_context_bytes", defaultHTTPBodyFilterCtx))
+	if contextBytes < 0 {
+		contextBytes = defaultHTTPBodyFilterCtx
+	}
+	if contextBytes > maxHTTPBodyFilterCtx {
+		contextBytes = maxHTTPBodyFilterCtx
+	}
+
+	contextLines := int(req.GetFloat("body_filter_context_lines", 0))
+	if contextLines < 0 {
+		contextLines = 0
+	}
+	if contextLines > maxHTTPBodyFilterCtxLines {
+		contextLines = maxHTTPBodyFilterCtxLines
+	}
+
+	maxMatches := int(req.GetFloat("body_filter_max_matches", defaultHTTPBodyFilterMax))
+	if maxMatches < 0 {
+		maxMatches = defaultHTTPBodyFilterMax
+	}
+
+	useRegex := req.GetBool("body_filter_regex", false)
+	caseInsensitive := req.GetBool("body_filter_case_insensitive", false)
+	filter := &httpBodyFilter{
+		pattern:      pattern,
+		mode:         mode,
+		contextBytes: contextBytes,
+		contextLines: contextLines,
+		maxMatches:   maxMatches,
+	}
+
+	if useRegex || caseInsensitive {
+		regexPattern := pattern
+		if !useRegex {
+			regexPattern = regexp.QuoteMeta(pattern)
+		}
+		if caseInsensitive {
+			regexPattern = "(?i)" + regexPattern
+		}
+		re, err := regexp.Compile(regexPattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid body_filter regex %q: %w", pattern, err)
+		}
+		filter.re = re
+	}
+
+	return filter, nil
+}
+
+func (f *httpBodyFilter) Apply(body string) string {
+	switch f.mode {
+	case "lines":
+		return f.applyLines(body)
+	case "count":
+		return f.applyCount(body)
+	default:
+		return f.applyMatches(body)
+	}
+}
+
+func (f *httpBodyFilter) applyMatches(body string) string {
+	limit := f.maxMatches
+	findLimit := limit
+	if limit > 0 {
+		findLimit = limit + 1
+	}
+	locs := f.findAll(body, findLimit)
+	limited := limit > 0 && len(locs) > limit
+	if limited {
+		locs = locs[:limit]
+	}
+	if len(locs) == 0 {
+		return f.noMatchMessage(body)
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Body filter matched %s for %q (mode=matches, context=%d bytes):\n\n",
+		helper.Pluralize(len(locs), "occurrence"), f.pattern, f.contextBytes)
+	for i, loc := range locs {
+		snippet := f.snippet(body, loc[0], loc[1])
+		fmt.Fprintf(&sb, "%d. bytes %d..%d: %s\n", i+1, loc[0], loc[1], snippet)
+	}
+	if limited {
+		fmt.Fprintf(&sb, "\n[Result limit of %d reached. Increase body_filter_max_matches or use body_filter_mode=\"count\".]", limit)
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (f *httpBodyFilter) applyLines(body string) string {
+	lines := strings.Split(body, "\n")
+	type lineHit struct {
+		index int
+		line  string
+	}
+	var hits []lineHit
+	limited := false
+	for i, line := range lines {
+		line = strings.TrimSuffix(line, "\r")
+		if !f.matches(line) {
+			continue
+		}
+		if f.maxMatches > 0 && len(hits) >= f.maxMatches {
+			limited = true
+			break
+		}
+		hits = append(hits, lineHit{i, line})
+	}
+	if len(hits) == 0 {
+		return f.noMatchMessage(body)
+	}
+
+	show := make(map[int]bool)
+	for _, hit := range hits {
+		start := max(0, hit.index-f.contextLines)
+		end := min(len(lines)-1, hit.index+f.contextLines)
+		for i := start; i <= end; i++ {
+			show[i] = true
+		}
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Body filter matched %s for %q (mode=lines, context=%d lines):\n\n",
+		helper.Pluralize(len(hits), "line"), f.pattern, f.contextLines)
+	for i, raw := range lines {
+		if !show[i] {
+			continue
+		}
+		line := strings.TrimSuffix(raw, "\r")
+		prefix := "-"
+		if f.matches(line) {
+			prefix = ":"
+		}
+		fmt.Fprintf(&sb, "%d%s %s\n", i+1, prefix, f.trimLine(line))
+	}
+	if limited {
+		fmt.Fprintf(&sb, "\n[Result limit of %d matched lines reached. Increase body_filter_max_matches or use body_filter_mode=\"count\".]", f.maxMatches)
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (f *httpBodyFilter) applyCount(body string) string {
+	count := f.countAll(body)
+	return fmt.Sprintf("Body filter found %s for %q in %s of rendered response body.",
+		helper.Pluralize(count, "match"), f.pattern, helper.HumanizeBytes(int64(len(body))))
+}
+
+func (f *httpBodyFilter) noMatchMessage(body string) string {
+	msg := fmt.Sprintf("Body filter found no matches for %q in %s of rendered response body.",
+		f.pattern, helper.HumanizeBytes(int64(len(body))))
+	if f.re == nil && containsHTTPRegexMetachars(f.pattern) {
+		msg += "\nHint: body_filter is literal by default; set body_filter_regex=true to enable Go regex syntax."
+	}
+	return msg
+}
+
+func (f *httpBodyFilter) findAll(body string, n int) [][2]int {
+	if f.re != nil {
+		raw := f.re.FindAllStringIndex(body, n)
+		locs := make([][2]int, 0, len(raw))
+		for _, loc := range raw {
+			locs = append(locs, [2]int{loc[0], loc[1]})
+		}
+		return locs
+	}
+
+	var locs [][2]int
+	offset := 0
+	for {
+		if n >= 0 && len(locs) >= n {
+			return locs
+		}
+		idx := strings.Index(body[offset:], f.pattern)
+		if idx < 0 {
+			return locs
+		}
+		start := offset + idx
+		end := start + len(f.pattern)
+		locs = append(locs, [2]int{start, end})
+		offset = end
+		if offset > len(body) {
+			return locs
+		}
+	}
+}
+
+func (f *httpBodyFilter) countAll(body string) int {
+	if f.re != nil {
+		count := 0
+		offset := 0
+		for offset <= len(body) {
+			loc := f.re.FindStringIndex(body[offset:])
+			if loc == nil {
+				return count
+			}
+			count++
+			end := offset + loc[1]
+			if loc[0] == loc[1] {
+				if end >= len(body) {
+					return count
+				}
+				_, size := utf8.DecodeRuneInString(body[end:])
+				if size <= 0 {
+					size = 1
+				}
+				offset = end + size
+				continue
+			}
+			offset = end
+		}
+		return count
+	}
+
+	count := 0
+	offset := 0
+	for {
+		idx := strings.Index(body[offset:], f.pattern)
+		if idx < 0 {
+			return count
+		}
+		count++
+		offset += idx + len(f.pattern)
+		if offset > len(body) {
+			return count
+		}
+	}
+}
+
+func (f *httpBodyFilter) matches(s string) bool {
+	if f.re != nil {
+		return f.re.MatchString(s)
+	}
+	return strings.Contains(s, f.pattern)
+}
+
+func (f *httpBodyFilter) firstMatch(s string) (int, int, bool) {
+	if f.re != nil {
+		loc := f.re.FindStringIndex(s)
+		if loc == nil {
+			return 0, 0, false
+		}
+		return loc[0], loc[1], true
+	}
+	idx := strings.Index(s, f.pattern)
+	if idx < 0 {
+		return 0, 0, false
+	}
+	return idx, idx + len(f.pattern), true
+}
+
+func (f *httpBodyFilter) snippet(s string, start, end int) string {
+	left := clampHTTPRuneBoundary(s, max(0, start-f.contextBytes), -1)
+	right := clampHTTPRuneBoundary(s, min(len(s), end+f.contextBytes), 1)
+	snippet := s[left:right]
+	snippet = strings.ReplaceAll(snippet, "\r", "\\r")
+	snippet = strings.ReplaceAll(snippet, "\n", "\\n")
+	if left > 0 {
+		snippet = "..." + snippet
+	}
+	if right < len(s) {
+		snippet += "..."
+	}
+	return snippet
+}
+
+func (f *httpBodyFilter) trimLine(line string) string {
+	const maxLineBytes = 2000
+	if len(line) <= maxLineBytes {
+		return line
+	}
+	start, end, ok := f.firstMatch(line)
+	if !ok {
+		right := clampHTTPRuneBoundary(line, maxLineBytes, -1)
+		return line[:right] + "... [line truncated]"
+	}
+	return f.snippet(line, start, end) + " [line truncated]"
+}
+
+func clampHTTPRuneBoundary(s string, idx, direction int) int {
+	if idx <= 0 {
+		return 0
+	}
+	if idx >= len(s) {
+		return len(s)
+	}
+	if direction < 0 {
+		for idx > 0 && !utf8.RuneStart(s[idx]) {
+			idx--
+		}
+		return idx
+	}
+	for idx < len(s) && !utf8.RuneStart(s[idx]) {
+		idx++
+	}
+	return idx
+}
+
+func containsHTTPRegexMetachars(s string) bool {
+	return strings.ContainsAny(s, `|.+*?^$()[]{}\`)
 }
 
 func readResponseBody(r io.Reader, maxBytes int64) ([]byte, bool, error) {

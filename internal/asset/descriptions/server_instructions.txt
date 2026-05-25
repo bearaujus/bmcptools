@@ -110,7 +110,7 @@ open_in_app           — open file/URL in default app
 [[group:system]]
 ─── System ────────────────────────────────────────────────────────────────────
 
-http_request    — HTTP client (GET/POST/PUT/PATCH/DELETE); response body defaults to 256 KB; timeout max 300 s
+http_request    — HTTP client (GET/POST/PUT/PATCH/DELETE); JSON compacts by default; body defaults to 256 KB; use body_filter with regex/literal matching to return snippets/lines/counts without reading the whole body; timeout max 300 s
 clipboard_read  — read system clipboard; output defaults to 256 KB
 clipboard_write — write to system clipboard
 list_processes  — running processes with CPU/memory; filter/sort and tune limit/command_width

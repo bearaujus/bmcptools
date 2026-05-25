@@ -175,10 +175,10 @@ func TestHTTPRequestResponseBodyCap(t *testing.T) {
 	}
 }
 
-func TestHTTPRequestJSONBodyIsPrettyPrinted(t *testing.T) {
+func TestHTTPRequestJSONBodyIsCompactedByDefault(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"key":"value"}`)
+		fmt.Fprint(w, "{\n  \"key\": \"value\",\n  \"items\": [1, 2]\n}")
 	}))
 	defer srv.Close()
 
@@ -189,9 +189,31 @@ func TestHTTPRequestJSONBodyIsPrettyPrinted(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := resultText(result)
-	// Verify the JSON was pretty-printed (contains indented key)
-	if !strings.Contains(text, `"key"`) {
-		t.Errorf("expected pretty-printed JSON in output: %q", text)
+	if !strings.Contains(text, `{"key":"value","items":[1,2]}`) {
+		t.Errorf("expected compact JSON in output: %q", text)
+	}
+	if strings.Contains(text, "\n  \"key\"") {
+		t.Errorf("expected JSON not to be pretty-printed by default: %q", text)
+	}
+}
+
+func TestHTTPRequestJSONBodyPrettyFormatOptIn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"key":"value","items":[1,2]}`)
+	}))
+	defer srv.Close()
+
+	result, err := httpRequestHandler(context.Background(), newTestRequest(map[string]any{
+		"url":         srv.URL,
+		"json_format": "pretty",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "\n  \"key\": \"value\"") {
+		t.Errorf("expected pretty JSON when json_format=pretty: %q", text)
 	}
 }
 
@@ -607,6 +629,128 @@ func TestHTTPRequestServerError4xxIsTextResult(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "404") {
 		t.Errorf("expected 404 in output: %q", text)
+	}
+}
+
+// Reason: Agents often need to probe a large response for only a few facts.
+// body_filter should return snippets around regex matches without returning the
+// entire body into model context.
+func TestHTTPRequestBodyFilterRegexSnippets(t *testing.T) {
+	body := "alpha before\n" + strings.Repeat("noise ", 20) + "ticket-42 middle secret-tail\nomega after"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	result, err := httpRequestHandler(context.Background(), newTestRequest(map[string]any{
+		"url":                       srv.URL,
+		"body_filter":               `ticket-\d+`,
+		"body_filter_regex":         true,
+		"body_filter_context_bytes": float64(6),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Body filter matched 1 occurrence") || !strings.Contains(text, "ticket-42") {
+		t.Errorf("expected regex snippet output: %q", text)
+	}
+	if strings.Contains(text, strings.Repeat("noise ", 10)) {
+		t.Errorf("expected body_filter to omit unrelated body content: %q", text)
+	}
+}
+
+// Reason: For human-readable pages and logs, line mode should preserve nearby
+// context lines while still avoiding the full response body.
+func TestHTTPRequestBodyFilterLineContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "first\nbefore\nneedle line\nafter\nlast")
+	}))
+	defer srv.Close()
+
+	result, err := httpRequestHandler(context.Background(), newTestRequest(map[string]any{
+		"url":                       srv.URL,
+		"body_filter":               "needle",
+		"body_filter_mode":          "lines",
+		"body_filter_context_lines": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "2- before") || !strings.Contains(text, "3: needle line") || !strings.Contains(text, "4- after") {
+		t.Errorf("expected matching line with context lines: %q", text)
+	}
+	if strings.Contains(text, "1- first") || strings.Contains(text, "5- last") {
+		t.Errorf("expected line mode to omit lines outside context: %q", text)
+	}
+}
+
+// Reason: Count mode is the lowest-context probe and should not echo the body
+// at all, even when there are many matches.
+func TestHTTPRequestBodyFilterCountMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "needle noise needle noise needle")
+	}))
+	defer srv.Close()
+
+	result, err := httpRequestHandler(context.Background(), newTestRequest(map[string]any{
+		"url":              srv.URL,
+		"body_filter":      "needle",
+		"body_filter_mode": "count",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Body filter found 3 matches") {
+		t.Errorf("expected count output: %q", text)
+	}
+	if strings.Contains(text, "needle noise") {
+		t.Errorf("expected count mode not to echo response body: %q", text)
+	}
+}
+
+// Reason: A malformed regex should be rejected before making the request,
+// saving network work and returning a clear tool error to the agent.
+func TestHTTPRequestBodyFilterInvalidRegex(t *testing.T) {
+	result, err := httpRequestHandler(context.Background(), newTestRequest(map[string]any{
+		"url":               "http://example.invalid",
+		"body_filter":       "[bad",
+		"body_filter_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) || !strings.Contains(resultText(result), "invalid body_filter regex") {
+		t.Errorf("expected invalid regex tool error, got: %q", resultText(result))
+	}
+}
+
+// Reason: http_request is not a good channel for binary blobs. Binary response
+// bodies should be summarized rather than returned as unreadable bytes.
+func TestHTTPRequestBinaryBodyOmitted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte{0x00, 0x01, 0x02, 0x03})
+	}))
+	defer srv.Close()
+
+	result, err := httpRequestHandler(context.Background(), newTestRequest(map[string]any{
+		"url": srv.URL,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "[BINARY RESPONSE]") {
+		t.Errorf("expected binary response summary: %q", text)
+	}
+	if strings.Contains(text, "\x00") {
+		t.Errorf("expected raw binary bytes to be omitted: %q", text)
 	}
 }
 
