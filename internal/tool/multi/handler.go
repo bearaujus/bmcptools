@@ -15,6 +15,7 @@ import (
 const (
 	defaultPathExistsBatchLimit      = 500
 	defaultMultipleFileInfoPathLimit = 100
+	defaultFindReplaceMaxFileSize    = 10 * 1024 * 1024
 )
 
 func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -27,6 +28,7 @@ func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 	if mb := req.GetFloat("max_bytes_per_file", 0); mb > 0 {
 		limitPerFile = int(mb)
 	}
+	includeBase64 := req.GetBool("include_base64", false)
 
 	var sb strings.Builder
 
@@ -46,7 +48,7 @@ func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 			sizeStr = helper.HumanizeBytes(fileSize)
 		}
 
-		text, readErr := helper.ReadOneFileAsText(p, limitPerFile)
+		text, readErr := helper.ReadOneFileAsText(p, limitPerFile, includeBase64)
 
 		if sizeStr != "" && readErr == nil {
 			lineCount := helper.CountContentLines(text)
@@ -195,6 +197,10 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	showHidden := req.GetBool("show_hidden", false)
 	excludePatterns := req.GetStringSlice("exclude_patterns", nil)
 	showUnmodified := req.GetBool("show_unmodified", false)
+	maxFileSize := int64(req.GetFloat("max_file_size", float64(defaultFindReplaceMaxFileSize)))
+	if maxFileSize < 0 {
+		maxFileSize = defaultFindReplaceMaxFileSize
+	}
 
 	if useRegex {
 		if _, _, err := helper.ApplyEdit("test", oldStr, newStr, true, false); err != nil {
@@ -216,11 +222,19 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	var changed []fileResult
 	var unmodified []string
 	var skipped []string
+	var oversized []string
 	totalCount := 0
 	totalScanned := len(files)
 	var errBuf strings.Builder
 
 	for _, filePath := range files {
+		if maxFileSize > 0 {
+			if info, statErr := os.Stat(filePath); statErr == nil && info.Size() > maxFileSize {
+				oversized = append(oversized, filePath)
+				continue
+			}
+		}
+
 		count, diff, skip, werr := helper.ApplyReplaceToFile(filePath, oldStr, newStr, useRegex, dryRun, showDiff)
 		if werr != nil {
 			fmt.Fprintf(&errBuf, "[ERROR] %s: %v\n", filePath, werr)
@@ -243,6 +257,9 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 			oldStr, root, helper.Pluralize(totalScanned, "file"), errBuf.String())
 		if len(skipped) > 0 {
 			msg += fmt.Sprintf("\nSkipped %s (binary).", helper.Pluralize(len(skipped), "file"))
+		}
+		if len(oversized) > 0 {
+			msg += fmt.Sprintf("\nSkipped %s over max_file_size=%s.", helper.Pluralize(len(oversized), "file"), helper.HumanizeBytes(maxFileSize))
 		}
 		return mcp.NewToolResultText(msg), nil
 	}
@@ -271,6 +288,10 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	if len(skipped) > 0 {
 		fmt.Fprintf(&sb, "\nSkipped %s (binary):\n", helper.Pluralize(len(skipped), "file"))
 		writeLimitedPathList(&sb, skipped, 20)
+	}
+	if len(oversized) > 0 {
+		fmt.Fprintf(&sb, "\nSkipped %s over max_file_size=%s:\n", helper.Pluralize(len(oversized), "file"), helper.HumanizeBytes(maxFileSize))
+		writeLimitedPathList(&sb, oversized, 20)
 	}
 	if len(unmodified) > 0 {
 		if showUnmodified {

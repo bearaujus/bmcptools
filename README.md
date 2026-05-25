@@ -79,7 +79,7 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `read_file` | Read a file with encoding auto-detection. Defaults to a 256 KB context cap. Supports `start_line`/`end_line`, multi-range (`ranges` param), `head`/`tail`, `show_line_numbers`, and byte limits. Binary → base64. |
+| `read_file` | Read a file with encoding auto-detection. Defaults to a 256 KB context cap. Supports `start_line`/`end_line`, multi-range (`ranges` param), `head`/`tail`, `show_line_numbers`, and byte limits. Binary files return summaries unless `include_base64=true`. |
 | `write_file` | Create or overwrite a file. Auto-creates parent dirs. Returns a capped unified diff when overwriting (configurable via `show_diff`). |
 | `append_to_file` | Append content to a file (creates if absent). Returns new file size. |
 | `edit_file` | Surgical find-and-replace. Batch mode, Go regex with backreferences, CRLF-transparent, capped diff, near-miss probe, dry-run. **Preferred for editing.** |
@@ -98,9 +98,9 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file`. Compact path/size headers; defaults to 256 KB per file. |
+| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file`. Compact path/size headers; defaults to 256 KB per file; binary summaries by default. |
 | `write_multiple_files` | Write 2+ files in one call. `show_diff` defaults to false for performance. |
-| `find_replace_in_files` | Find-and-replace across a directory tree. Regex, glob/exclude filters, dry-run, per-file diffs, compact unmodified-file summary. |
+| `find_replace_in_files` | Find-and-replace across a directory tree. Regex, glob/exclude filters, dry-run, per-file diffs, compact unmodified-file summary, and default oversized-file guard. |
 | `path_exists_batch` | Check whether multiple paths exist in one call. Returns type and size with a summary and limit control. |
 | `get_multiple_file_info` | Return compact metadata for multiple paths with limit control. `output_mode=details` for expanded fields. |
 

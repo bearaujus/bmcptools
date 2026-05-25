@@ -20,6 +20,9 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithNumber("max_bytes_per_file",
 			mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "max_bytes_per_file")),
 		),
+		mcp.WithBoolean("include_base64",
+			mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "include_base64")),
+		),
 	), readMultipleFilesHandler)
 
 	s.AddTool(mcp.NewTool(toolname.WriteMultipleFiles,
@@ -82,6 +85,9 @@ func Register(s toolreg.ToolRegistrar) {
 		),
 		mcp.WithBoolean("show_unmodified",
 			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "show_unmodified")),
+		),
+		mcp.WithNumber("max_file_size",
+			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "max_file_size")),
 		),
 	), findReplaceInFilesHandler)
 

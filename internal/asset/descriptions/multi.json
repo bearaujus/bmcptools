@@ -1,9 +1,10 @@
 {
   "read_multiple_files": {
-    "desc": "Read multiple files in a single call — more efficient than calling read_file repeatedly. Each file's content is returned with a compact path/size header. Failed reads (not found, permission denied) are reported inline without aborting the rest of the batch.",
+    "desc": "Read multiple files in a single call — more efficient than calling read_file repeatedly. Each file's content is returned with a compact path/size header. Binary files return compact summaries unless include_base64=true. Failed reads (not found, permission denied) are reported inline without aborting the rest of the batch.",
     "params": {
       "paths": "Array of file paths to read.",
-      "max_bytes_per_file": "Max bytes per file. Default: 262144 (256 KB). Raise only when you truly need more context."
+      "max_bytes_per_file": "Max bytes per file. Default: 262144 (256 KB). Raise only when you truly need more context.",
+      "include_base64": "For binary files, include capped base64 bytes. Default: false to protect context."
     }
   },
   "write_multiple_files": {
@@ -15,7 +16,7 @@
     }
   },
   "find_replace_in_files": {
-    "desc": "Find and replace text across multiple files in one call. Returns changed files and per-file unified diffs, while summarizing unmodified files by default to protect AI context. Always run with dry_run=true first to preview which files match and how — then run again without dry_run to apply. Supports Go regex with $1/$2 back-references. Handles CRLF transparently: LF-only patterns match CRLF files and original line endings are preserved after editing.",
+    "desc": "Find and replace text across multiple files in one call. Returns changed files and per-file unified diffs, while summarizing unmodified files by default to protect AI context. Always run with dry_run=true first to preview which files match and how — then run again without dry_run to apply. Supports Go regex with $1/$2 back-references. Handles CRLF transparently: LF-only patterns match CRLF files and original line endings are preserved after editing. Skips files larger than max_file_size by default to avoid generated/data blobs.",
     "params": {
       "path": "Root file or directory to search.",
       "old_str": "Text (or regex pattern when use_regex=true) to find.",
@@ -27,7 +28,8 @@
       "show_diff": "Include a unified diff for each changed file. Default: true.",
       "show_hidden": "Include hidden files and directories. Default: false.",
       "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). Matching directories are pruned before processing. Use to skip node_modules, .git, vendor, dist, build, or generated files.",
-      "show_unmodified": "List files that were scanned but had no match. Default: false, which reports only the count to avoid noisy output."
+      "show_unmodified": "List files that were scanned but had no match. Default: false, which reports only the count to avoid noisy output.",
+      "max_file_size": "Skip files larger than this many bytes. Default: 10485760 (10 MB). Set 0 for unlimited."
     }
   },
   "path_exists_batch": {

@@ -34,6 +34,7 @@ func readFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	if mb := req.GetFloat("max_bytes", 0); mb > 0 {
 		limitBytes = int(mb)
 	}
+	includeBase64 := req.GetBool("include_base64", false)
 
 	var startLine, endLine int
 	if sl := req.GetFloat("start_line", 0); sl >= 1 {
@@ -54,7 +55,7 @@ func readFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	defer f.Close()
 
 	if binary {
-		text, err := helper.ReadBinaryFile(f, info, contentType, limitBytes)
+		text, err := helper.ReadBinaryFile(f, info, contentType, limitBytes, includeBase64)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

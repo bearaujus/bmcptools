@@ -458,6 +458,64 @@ func TestFindReplaceInFilesBinarySniff(t *testing.T) {
 	}
 }
 
+func TestFindReplaceInFilesSkipsOversizedByDefault(t *testing.T) {
+	dir := t.TempDir()
+	large := filepath.Join(dir, "large.txt")
+	if err := os.WriteFile(large, []byte("old "+strings.Repeat("x", defaultFindReplaceMaxFileSize)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	small := filepath.Join(dir, "small.txt")
+	if err := os.WriteFile(small, []byte("old value"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"old_str": "old",
+		"new_str": "new",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "large.txt") || !strings.Contains(text, "max_file_size") {
+		t.Errorf("expected oversized skip notice: %q", text)
+	}
+	largeData, _ := os.ReadFile(large)
+	if !strings.HasPrefix(string(largeData), "old ") {
+		t.Errorf("oversized file should not be modified")
+	}
+	smallData, _ := os.ReadFile(small)
+	if !strings.Contains(string(smallData), "new value") {
+		t.Errorf("small file should be modified: %q", string(smallData))
+	}
+}
+
+func TestFindReplaceInFilesMaxFileSizeZeroAllowsLarge(t *testing.T) {
+	dir := t.TempDir()
+	large := filepath.Join(dir, "large.txt")
+	if err := os.WriteFile(large, []byte("old "+strings.Repeat("x", 1024)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":          dir,
+		"old_str":       "old",
+		"new_str":       "new",
+		"max_file_size": float64(0),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	data, _ := os.ReadFile(large)
+	if !strings.HasPrefix(string(data), "new ") {
+		t.Errorf("max_file_size=0 should allow large file replacement")
+	}
+}
+
 // ── find_replace_in_files CRLF ────────────────────────────────────────────────
 
 func TestFindReplaceInFilesCRLF(t *testing.T) {
@@ -513,6 +571,30 @@ func TestReadMultipleFilesHandlerBinaryFile(t *testing.T) {
 	}
 	if !strings.Contains(text, "[BINARY FILE]") {
 		t.Errorf("expected [BINARY FILE] marker for binary file: %q", text)
+	}
+	if strings.Contains(text, "Base64:\n") {
+		t.Errorf("binary file should not include base64 by default: %q", text)
+	}
+}
+
+func TestReadMultipleFilesHandlerBinaryIncludeBase64(t *testing.T) {
+	dir := t.TempDir()
+	fb := filepath.Join(dir, "binary.bin")
+	if err := os.WriteFile(fb, []byte{0x00, 0x01, 0x02}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{
+		"paths":          []any{fb},
+		"include_base64": true,
+	})
+	result, err := readMultipleFilesHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Base64:\n") {
+		t.Errorf("expected base64 when include_base64=true: %q", text)
 	}
 }
 

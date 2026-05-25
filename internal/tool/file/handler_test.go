@@ -142,6 +142,46 @@ func TestReadFileNotExist(t *testing.T) {
 	}
 }
 
+func TestReadFileBinarySummaryByDefault(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "binary.bin")
+	if err := os.WriteFile(f, []byte{0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readFileHandler(nil, newTestRequest(map[string]any{"path": f}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "[BINARY FILE]") {
+		t.Errorf("expected binary summary: %q", text)
+	}
+	if strings.Contains(text, "Base64:\n") {
+		t.Errorf("binary read should not include base64 by default: %q", text)
+	}
+}
+
+func TestReadFileBinaryIncludeBase64(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "binary.bin")
+	if err := os.WriteFile(f, []byte{0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readFileHandler(nil, newTestRequest(map[string]any{
+		"path":           f,
+		"include_base64": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Base64:\n") {
+		t.Errorf("expected base64 when include_base64=true: %q", text)
+	}
+}
+
 // ── write_file ───────────────────────────────────────────────────────────────
 
 func TestWriteFileHandler(t *testing.T) {

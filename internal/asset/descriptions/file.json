@@ -1,11 +1,12 @@
 {
   "read_file": {
-    "desc": "Read file contents. Text files returned as UTF-8; files with NUL bytes or invalid UTF-8 are returned base64-encoded with a header indicating so. For large files, use head/tail or start_line/end_line to read only what you need — call get_file_info first to learn the line count. Precedence when multiple narrowing params are set: ranges > head/tail > start_line/end_line.",
+    "desc": "Read file contents. Text files are returned as UTF-8; binary files return a compact summary by default and only include base64 when include_base64=true. For large files, use head/tail or start_line/end_line to read only what you need — call get_file_info first to learn the line count. Precedence when multiple narrowing params are set: ranges > head/tail > start_line/end_line.",
     "params": {
       "path": "Path to the file.",
       "start_line": "First line to read (1-indexed).",
       "end_line": "Last line to read (inclusive).",
       "max_bytes": "Maximum bytes to return. Default: 262144 (256 KB). Raise only when you truly need more context.",
+      "include_base64": "For binary files, include capped base64 bytes. Default: false to protect context.",
       "head": "Return only the first N lines.",
       "tail": "Return only the last N lines.",
       "show_line_numbers": "Prefix every line with its line number. Default: false.",

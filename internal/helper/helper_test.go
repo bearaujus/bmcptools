@@ -162,12 +162,30 @@ func TestReadOneFileAsTextBinaryFile(t *testing.T) {
 	if err := os.WriteFile(f, []byte{0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	text, err := ReadOneFileAsText(f, DefaultMaxReadBytes)
+	text, err := ReadOneFileAsText(f, DefaultMaxReadBytes, false)
 	if err != nil {
 		t.Fatalf("unexpected error reading binary file: %v", err)
 	}
 	if !strings.Contains(text, "[BINARY FILE]") {
 		t.Errorf("expected [BINARY FILE] marker for binary file, got: %q", text)
+	}
+	if strings.Contains(text, "Base64:\n") {
+		t.Errorf("binary reads should omit base64 by default: %q", text)
+	}
+}
+
+func TestReadOneFileAsTextBinaryFileIncludeBase64(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "binary.bin")
+	if err := os.WriteFile(f, []byte{0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	text, err := ReadOneFileAsText(f, DefaultMaxReadBytes, true)
+	if err != nil {
+		t.Fatalf("unexpected error reading binary file: %v", err)
+	}
+	if !strings.Contains(text, "Base64:\n") {
+		t.Errorf("expected base64 when includeBase64=true, got: %q", text)
 	}
 }
 

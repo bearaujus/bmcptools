@@ -16,6 +16,7 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithNumber("start_line", mcp.Description(asset.ParamDesc(toolname.ReadFile, "start_line"))),
 		mcp.WithNumber("end_line", mcp.Description(asset.ParamDesc(toolname.ReadFile, "end_line"))),
 		mcp.WithNumber("max_bytes", mcp.Description(asset.ParamDesc(toolname.ReadFile, "max_bytes"))),
+		mcp.WithBoolean("include_base64", mcp.Description(asset.ParamDesc(toolname.ReadFile, "include_base64"))),
 		mcp.WithNumber("head", mcp.Description(asset.ParamDesc(toolname.ReadFile, "head"))),
 		mcp.WithNumber("tail", mcp.Description(asset.ParamDesc(toolname.ReadFile, "tail"))),
 		mcp.WithBoolean("show_line_numbers", mcp.Description(asset.ParamDesc(toolname.ReadFile, "show_line_numbers"))),
