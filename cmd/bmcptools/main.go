@@ -14,14 +14,14 @@ import (
 // Falls back to "dev" when building without ldflags (e.g. go run . locally).
 var serverVersion = "dev"
 
-const usage = `bmcptools — MCP server with developer + Binance Futures tools.
+const usage = `bmcptools — MCP server with developer tools.
 
 Usage:
   bmcptools [flags]
 
 Flags:
   --disable=GROUPS    Comma-separated tool groups to NOT register.
-                      Example: --disable=binance,system
+                      Example: --disable=user,system
                       Also reads env var BMCPTOOLS_DISABLE (flag wins).
   --list-groups       Print available groups and exit.
   --version           Print version and exit.

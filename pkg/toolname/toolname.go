@@ -22,11 +22,11 @@ const (
 
 // Multi-file tools.
 const (
-	ReadMultipleFiles    = "read_multiple_files"
-	WriteMultipleFiles   = "write_multiple_files"
-	FindReplaceInFiles   = "find_replace_in_files"
-	PathExistsBatch      = "path_exists_batch"
-	GetMultipleFileInfo  = "get_multiple_file_info"
+	ReadMultipleFiles   = "read_multiple_files"
+	WriteMultipleFiles  = "write_multiple_files"
+	FindReplaceInFiles  = "find_replace_in_files"
+	PathExistsBatch     = "path_exists_batch"
+	GetMultipleFileInfo = "get_multiple_file_info"
 )
 
 // Directory tools.
@@ -69,40 +69,4 @@ const (
 	UpdateDialog    = "update_dialog"
 	CancelAskUser   = "cancel_ask_user"
 	Rest            = "rest"
-)
-
-// Binance USDT-M Futures tools.
-const (
-	BinanceFuturesPing               = "binance_futures_ping"
-	BinanceFuturesExchangeInfo       = "binance_futures_exchange_info"
-	BinanceFuturesSymbolSpecs        = "binance_futures_symbol_specs"
-	BinanceFuturesKlines             = "binance_futures_klines"
-	BinanceFuturesTickerPrice        = "binance_futures_ticker_price"
-	BinanceFuturesTicker24hr         = "binance_futures_ticker_24hr"
-	BinanceFuturesOrderBook          = "binance_futures_order_book"
-	BinanceFuturesMarkPrice          = "binance_futures_mark_price"
-	BinanceFuturesOpenInterest       = "binance_futures_open_interest"
-	BinanceFuturesLongShortRatio     = "binance_futures_long_short_ratio"
-	BinanceFuturesOpenOrders          = "binance_futures_open_orders"
-	BinanceFuturesOrderHistory        = "binance_futures_order_history"
-	BinanceFuturesIncomeHistory       = "binance_futures_income_history"
-	BinanceFuturesConfigureSymbol     = "binance_futures_configure_symbol"
-	BinanceFuturesChangePositionMode  = "binance_futures_change_position_mode"
-	BinanceFuturesPlaceOrder          = "binance_futures_place_order"
-	BinanceFuturesPlaceBracketOrder   = "binance_futures_place_bracket_order"
-	BinanceFuturesCancelOrder         = "binance_futures_cancel_order"
-	BinanceFuturesCancelAllOrders     = "binance_futures_cancel_all_open_orders"
-	BinanceFuturesClosePosition       = "binance_futures_close_position"
-	BinanceFuturesModifyOrder         = "binance_futures_modify_order"
-	BinanceFuturesFundingRateHistory  = "binance_futures_funding_rate_history"
-	BinanceFuturesPositionOverview    = "binance_futures_position_overview"
-	BinanceFuturesTASnapshot          = "binance_futures_ta_snapshot"
-	BinanceFuturesCancelAlgoOrder     = "binance_futures_cancel_algo_order"
-	BinanceFuturesPositionHealth      = "binance_futures_position_health"
-	BinanceFuturesCalcOrderSize       = "binance_futures_calc_order_size"
-	BinanceFuturesDailySummary        = "binance_futures_daily_summary"
-	BinanceFuturesMarketScan          = "binance_futures_market_scan"
-	BinanceFuturesTASnapshotMulti     = "binance_futures_ta_snapshot_multi"
-	BinanceFuturesUpdateSLTP          = "binance_futures_update_sl_tp"
-	BinanceFuturesPositionBrief       = "binance_futures_position_brief"
 )

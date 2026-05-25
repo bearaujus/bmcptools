@@ -56,8 +56,8 @@ func renderDialog() string {
 		chip("Yes, looks **great**!", 0) +
 		chip("I have some tweaks — see `notes` below", 1) +
 		chip("Let me think…", 2) +
-		chip("Open **LONG BTCUSDT** at `67 850` with **10x ISOLATED**, SL `66 100`, TP `71 200` — long enough to wrap to a second line so we can verify the alignment fix", 3) +
-		chip("Reject — funding too **negative**", 4) +
+		chip("Run **project cleanup** for `dist/cache/tmp` with dry-run first — long enough to wrap to a second line so we can verify the alignment fix", 3) +
+		chip("Reject — path is **outside workspace**", 4) +
 		chip("[Docs link](https://example.com) inside a chip", 5) +
 		`</div></div>`
 
@@ -106,11 +106,11 @@ func renderDialog() string {
 		"| a    | b      | 1.00  |\n" +
 		"| long text | mid | 99.99 |\n\n" +
 		"Wide table — scroll inside the rounded frame, **never overflows the card**:\n\n" +
-		"| Symbol | Side | Type | Quantity | Entry | Stop Loss | Take Profit | Leverage | Notional (USDT) | Liq Price | Funding | Notes |\n" +
+		"| File | Operation | Size | Modified | Owner | Status | Risk | Backup | Hash | Notes | Next Step | Ticket |\n" +
 		"|---|---|---|---|---|---|---|---|---|---|---|---|\n" +
-		"| BTCUSDT | LONG | LIMIT | 0.025 | 67 850.0 | 66 100.0 | 71 200.0 | 10x ISOLATED | 1696.25 | 61 420.0 | 0.0103%/8h | breakout retest |\n" +
-		"| ETHUSDT | SHORT | MARKET | 0.5 | 3 482.0 | 3 540.0 | 3 380.0 | 5x CROSSED | 1741.00 | 3 920.0 | -0.0011%/8h | resistance reject |\n" +
-		"| SOLUSDT | LONG | STOP | 12 | 142.30 | 138.20 | 156.00 | 8x ISOLATED | 1707.60 | 124.10 | 0.0089%/8h | momentum |\n\n" +
+		"| `dist/app.js` | delete | 2.4 MB | today | build | ignored | low | yes | `a3f1...` | generated bundle | remove | OPS-12 |\n" +
+		"| `cache/index.db` | inspect | 18 MB | yesterday | app | untracked | medium | no | `9bc2...` | may contain local state | ask user | OPS-13 |\n" +
+		"| `logs/debug.log` | truncate | 41 MB | today | dev | ignored | low | yes | `71de...` | noisy output | rotate | OPS-14 |\n\n" +
 		"Pipe escaping inside cell: `val\\|with\\|pipes` should render as one cell.\n\n" +
 		"### 7. Inline code edge cases\n\n" +
 		"Single backtick: `os.Args[1]`. Double backtick allows ` inside: ``echo `pwd` ``. Empty `` `` should not crash.\n\n" +
@@ -118,9 +118,9 @@ func renderDialog() string {
 		"Language label visible in the new header bar; copy button no longer overlaps the code.\n\n" +
 		"```go\nfunc main() {\n    fmt.Println(\"Hello, bmcptools!\")\n}\n```\n\n" +
 		"With JSON:\n\n" +
-		"```json\n{\n  \"mcpServers\": {\n    \"bmcptools\": {\n      \"command\": \"/usr/local/bin/bmcptools\",\n      \"args\": [\"--disable=binance\"]\n    }\n  }\n}\n```\n\n" +
+		"```json\n{\n  \"mcpServers\": {\n    \"bmcptools\": {\n      \"command\": \"/usr/local/bin/bmcptools\",\n      \"args\": [\"--disable=user\"]\n    }\n  }\n}\n```\n\n" +
 		"With shell:\n\n" +
-		"```sh\n# Drop binance and the interactive user prompts\nbmcptools --disable=binance,user\n\n# List valid group names\nbmcptools --list-groups\n```\n\n" +
+		"```sh\n# Drop interactive user prompts\nbmcptools --disable=user\n\n# List valid group names\nbmcptools --list-groups\n```\n\n" +
 		"Plain (no language) — header still shows `text`:\n\n" +
 		"```\nplain text\nno highlighting\n```\n\n" +
 		"Long block (collapses with \"Show N more lines\"):\n\n" +
@@ -159,32 +159,21 @@ func renderRest() string {
 
 func renderConfirm() string {
 	details := "### Proposed action\n" +
-		"Open **LONG** position on **BTCUSDT** — `MARKET` order, quantity `0.025 BTC`\n" +
-		"Leverage: **10x ISOLATED**   ·   Notional: **1 696.25 USDT**\n\n" +
+		"Delete directory **`D:\\\\tmp\\\\old-build`** with recursive cleanup enabled.\n\n" +
 		"### Risk\n" +
-		"| Level | Price | Distance | Impact |\n" +
-		"|---|---:|---:|---:|\n" +
-		"| Stop loss   | 66 100.0 | -2.6% | -44.05 USDT |\n" +
-		"| Take profit | 71 200.0 | +5.0% | +83.75 USDT |\n" +
-		"| R:R | | | **1.9** |\n\n" +
-		"### Market snapshot\n" +
-		"- Mark price: **67 850.0**\n" +
-		"- 24h Δ: **+1.4%**\n" +
-		"- Funding: **0.0103%/8h**\n" +
-		"- Free margin: **480 USDT**\n\n" +
+		"| Check | Value |\n" +
+		"|---|---|\n" +
+		"| Target path | `D:\\\\tmp\\\\old-build` |\n" +
+		"| Recursive | `true` |\n" +
+		"| Reversible | No |\n\n" +
 		"### AI reasoning\n" +
-		"Bullish breakout retest above the 4H pivot at 67 500. Volume confirms; " +
-		"funding remains neutral. SL placed below the retest wick to allow normal " +
-		"intra-bar volatility while keeping the loss bounded to ~2.6% of notional.\n\n" +
-		"```sh\n# Equivalent CLI for audit:\nbinance futures order place \\\n  --symbol BTCUSDT --side BUY --type MARKET --quantity 0.025\n```"
+		"The directory is an ignored build output folder and no source files are expected inside it.\n\n" +
+		"```sh\n# Equivalent CLI for audit:\nbmcptools delete_directory --path D:\\\\tmp\\\\old-build --force true\n```"
 
-	return confirm.BuildConfirmHTML("place_bracket_order", details, 300,
-		confirm.WithTheme(confirm.ThemeBinance),
+	return confirm.BuildConfirmHTML("delete_directory", details, 300,
 		confirm.WithEditableParams([]confirm.EditableParam{
-			{Key: "entry_price", Label: "Entry Price", Value: "67850", Type: "number", Step: "any"},
-			{Key: "quantity", Label: "Quantity", Value: "0.025", Type: "number", Step: "any"},
-			{Key: "stop_loss_price", Label: "Stop Loss Price", Value: "66100", Type: "number", Step: "any"},
-			{Key: "take_profit_price", Label: "Take Profit Price", Value: "71200", Type: "number", Step: "any"},
+			{Key: "path", Label: "Path", Value: "D:\\tmp\\old-build", Type: "text"},
+			{Key: "force", Label: "Force", Value: "true", Type: "text"},
 		}),
 	)
 }

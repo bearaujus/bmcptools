@@ -38,10 +38,10 @@ func TestValidateGroups(t *testing.T) {
 	if err := ValidateGroups(nil); err != nil {
 		t.Fatalf("nil should be valid: %v", err)
 	}
-	if err := ValidateGroups([]string{GroupBinance, GroupFile}); err != nil {
+	if err := ValidateGroups([]string{GroupSystem, GroupFile}); err != nil {
 		t.Fatalf("known groups should validate: %v", err)
 	}
-	err := ValidateGroups([]string{"binance", "nope", "alsobad"})
+	err := ValidateGroups([]string{"nope", "alsobad"})
 	if err == nil {
 		t.Fatal("expected error for unknown groups")
 	}
@@ -50,26 +50,26 @@ func TestValidateGroups(t *testing.T) {
 	}
 }
 
-func TestRegisterWithDisableGroupsBinance(t *testing.T) {
+func TestRegisterWithDisableGroupsSystem(t *testing.T) {
 	cap := &captureRegistrar{}
-	Register(cap, WithDisableGroups(GroupBinance))
+	Register(cap, WithDisableGroups(GroupSystem))
 
 	for _, name := range cap.names {
-		if strings.HasPrefix(name, "binance_") {
+		if name == "http_request" || name == "get_system_info" {
 			t.Fatalf("disabled group leaked tool: %s", name)
 		}
 	}
-	// Sanity: a non-binance tool still registered.
+	// Sanity: a non-system tool still registered.
 	if !contains(cap.names, "read_file") {
-		t.Fatal("read_file should still be registered when only binance disabled")
+		t.Fatal("read_file should still be registered when only system disabled")
 	}
 }
 
 func TestRegisterWithDisableGroupsMultiple(t *testing.T) {
 	cap := &captureRegistrar{}
-	Register(cap, WithDisableGroups(GroupBinance, GroupSystem, GroupUser))
+	Register(cap, WithDisableGroups(GroupSystem, GroupUser))
 
-	for _, banned := range []string{"binance_", "http_request", "ask_user", "notify_user"} {
+	for _, banned := range []string{"http_request", "ask_user", "notify_user"} {
 		for _, name := range cap.names {
 			if strings.HasPrefix(name, banned) || name == banned {
 				t.Fatalf("disabled tool registered: %s", name)
@@ -81,38 +81,33 @@ func TestRegisterWithDisableGroupsMultiple(t *testing.T) {
 	}
 }
 
-func TestRegisterDefaultRegistersBinance(t *testing.T) {
+func TestRegisterDefaultRegistersCoreTools(t *testing.T) {
 	cap := &captureRegistrar{}
 	Register(cap)
 
-	found := false
-	for _, name := range cap.names {
-		if strings.HasPrefix(name, "binance_") {
-			found = true
-			break
+	for _, want := range []string{"read_file", "grep_files", "run_command", "http_request"} {
+		if !contains(cap.names, want) {
+			t.Fatalf("expected %s to register by default", want)
 		}
-	}
-	if !found {
-		t.Fatal("expected binance_* tools to register by default")
 	}
 }
 
 func TestServerInstructionsExcludingGroups(t *testing.T) {
 	full := ServerInstructions()
-	if !strings.Contains(full, "Binance USDT-M Futures") {
-		t.Fatal("full instructions should contain binance section")
+	if !strings.Contains(full, "System") {
+		t.Fatal("full instructions should contain system section")
 	}
 
-	noBinance := ServerInstructionsExcludingGroups(GroupBinance)
-	if strings.Contains(noBinance, "Binance USDT-M Futures") {
-		t.Fatal("excluding binance group should remove its section header")
+	noSystem := ServerInstructionsExcludingGroups(GroupSystem)
+	if strings.Contains(noSystem, "http_request") {
+		t.Fatal("excluding system group should remove its tools")
 	}
 	// Intro must remain.
-	if !strings.Contains(noBinance, "PERFORMANCE:") {
+	if !strings.Contains(noSystem, "PERFORMANCE:") {
 		t.Fatal("intro section should always be retained")
 	}
 	// Other groups remain.
-	if !strings.Contains(noBinance, "File operations") {
-		t.Fatal("file section should remain when only binance excluded")
+	if !strings.Contains(noSystem, "File operations") {
+		t.Fatal("file section should remain when only system excluded")
 	}
 }

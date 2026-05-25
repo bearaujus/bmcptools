@@ -74,39 +74,3 @@ const (
 	ToolCancelAskUser   = toolname.CancelAskUser
 	ToolRest            = toolname.Rest
 )
-
-// Binance USDT-M Futures tools.
-const (
-	ToolBinanceFuturesPing               = toolname.BinanceFuturesPing
-	ToolBinanceFuturesExchangeInfo       = toolname.BinanceFuturesExchangeInfo
-	ToolBinanceFuturesSymbolSpecs        = toolname.BinanceFuturesSymbolSpecs
-	ToolBinanceFuturesKlines             = toolname.BinanceFuturesKlines
-	ToolBinanceFuturesTickerPrice        = toolname.BinanceFuturesTickerPrice
-	ToolBinanceFuturesTicker24hr         = toolname.BinanceFuturesTicker24hr
-	ToolBinanceFuturesOrderBook          = toolname.BinanceFuturesOrderBook
-	ToolBinanceFuturesMarkPrice          = toolname.BinanceFuturesMarkPrice
-	ToolBinanceFuturesOpenInterest       = toolname.BinanceFuturesOpenInterest
-	ToolBinanceFuturesLongShortRatio     = toolname.BinanceFuturesLongShortRatio
-	ToolBinanceFuturesOpenOrders          = toolname.BinanceFuturesOpenOrders
-	ToolBinanceFuturesOrderHistory        = toolname.BinanceFuturesOrderHistory
-	ToolBinanceFuturesIncomeHistory       = toolname.BinanceFuturesIncomeHistory
-	ToolBinanceFuturesConfigureSymbol     = toolname.BinanceFuturesConfigureSymbol
-	ToolBinanceFuturesChangePositionMode  = toolname.BinanceFuturesChangePositionMode
-	ToolBinanceFuturesPlaceOrder          = toolname.BinanceFuturesPlaceOrder
-	ToolBinanceFuturesPlaceBracketOrder   = toolname.BinanceFuturesPlaceBracketOrder
-	ToolBinanceFuturesCancelOrder         = toolname.BinanceFuturesCancelOrder
-	ToolBinanceFuturesCancelAllOrders     = toolname.BinanceFuturesCancelAllOrders
-	ToolBinanceFuturesClosePosition       = toolname.BinanceFuturesClosePosition
-	ToolBinanceFuturesModifyOrder         = toolname.BinanceFuturesModifyOrder
-	ToolBinanceFuturesFundingRateHistory  = toolname.BinanceFuturesFundingRateHistory
-	ToolBinanceFuturesPositionOverview    = toolname.BinanceFuturesPositionOverview
-	ToolBinanceFuturesTASnapshot          = toolname.BinanceFuturesTASnapshot
-	ToolBinanceFuturesCancelAlgoOrder     = toolname.BinanceFuturesCancelAlgoOrder
-	ToolBinanceFuturesPositionHealth      = toolname.BinanceFuturesPositionHealth
-	ToolBinanceFuturesCalcOrderSize       = toolname.BinanceFuturesCalcOrderSize
-	ToolBinanceFuturesDailySummary        = toolname.BinanceFuturesDailySummary
-	ToolBinanceFuturesMarketScan          = toolname.BinanceFuturesMarketScan
-	ToolBinanceFuturesTASnapshotMulti     = toolname.BinanceFuturesTASnapshotMulti
-	ToolBinanceFuturesUpdateSLTP          = toolname.BinanceFuturesUpdateSLTP
-	ToolBinanceFuturesPositionBrief       = toolname.BinanceFuturesPositionBrief
-)
