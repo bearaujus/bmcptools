@@ -3,6 +3,7 @@ package user
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // ── notify_user ───────────────────────────────────────────────────────────────
@@ -91,9 +92,8 @@ func TestNotifyUserWhitespaceOnlyMessage(t *testing.T) {
 
 // ── ask_user ──────────────────────────────────────────────────────────────────
 
-// Reason: ask_user has ZERO test coverage. The handler has several validation
-// paths (missing question, no choices with allowFreeform=false, empty choice
-// stripping) that would silently regress without tests.
+// Reason: ask_user has validation paths (missing question/details and empty
+// choice stripping) that would silently regress without tests.
 
 func TestAskUserHandlerMissingQuestion(t *testing.T) {
 	result, err := makeAskUserHandler("")(nil, newTestRequest(nil))
@@ -117,11 +117,24 @@ func TestAskUserHandlerWhitespaceQuestion(t *testing.T) {
 	}
 }
 
+func TestAskUserHandlerMissingDetails(t *testing.T) {
+	result, err := makeAskUserHandler("")(nil, newTestRequest(map[string]any{
+		"question": "What should happen next?",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Error("expected error for missing details")
+	}
+}
+
 // Reason: Choices containing only whitespace should be stripped silently.
 // If they're kept, they create invisible buttons that a user can never click.
 func TestAskUserHandlerEmptyChoicesFiltered(t *testing.T) {
 	result, err := makeAskUserHandler("")(nil, newTestRequest(map[string]any{
 		"question": "pick one",
+		"details":  "Choose one of the proposed options.",
 		"choices":  []any{"", "  ", "valid choice"},
 	}))
 	if err != nil {
@@ -145,6 +158,7 @@ func TestAskUserHandlerEmptyChoicesFiltered(t *testing.T) {
 func TestAskUserHandlerReturnsToken(t *testing.T) {
 	result, err := makeAskUserHandler("")(nil, newTestRequest(map[string]any{
 		"question": "What is your name?",
+		"details":  "I need the name to use in the generated greeting.",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -158,6 +172,9 @@ func TestAskUserHandlerReturnsToken(t *testing.T) {
 	}
 	if !strings.Contains(text, "get_user_response") {
 		t.Errorf("expected polling instructions in response: %q", text)
+	}
+	if !strings.Contains(text, "do not repeat the question") {
+		t.Errorf("expected anti-CLI prompt instruction in response: %q", text)
 	}
 }
 
@@ -266,6 +283,65 @@ func TestGetUserResponseCapsLargeAnswer(t *testing.T) {
 	}
 }
 
+func TestGetUserResponseDefaultIsUnlimited(t *testing.T) {
+	token := newDialogToken()
+	answer := strings.Repeat("x", 512*1024)
+	ch := make(chan string, 1)
+	ch <- answer
+	state := &pendingDialogState{
+		responseCh: ch,
+		activity:   &dialogActivity{},
+	}
+	storePendingDialog(token, state)
+	defer deletePendingDialog(token)
+
+	result, err := getUserResponseHandler(nil, newTestRequest(map[string]any{
+		"token":        token,
+		"wait_seconds": float64(5),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if text != answer {
+		t.Fatalf("expected uncapped default response, got %d bytes", len(text))
+	}
+}
+
+func TestGetUserResponseCapsLargeAnswerAtUTF8Boundary(t *testing.T) {
+	token := newDialogToken()
+	ch := make(chan string, 1)
+	ch <- "a🙂b"
+	state := &pendingDialogState{
+		responseCh: ch,
+		activity:   &dialogActivity{},
+	}
+	storePendingDialog(token, state)
+	defer deletePendingDialog(token)
+
+	result, err := getUserResponseHandler(nil, newTestRequest(map[string]any{
+		"token":              token,
+		"wait_seconds":       float64(5),
+		"max_response_bytes": float64(2),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !utf8.ValidString(text) {
+		t.Fatalf("expected valid UTF-8 after byte cap, got: %q", text)
+	}
+	if !strings.HasPrefix(text, "a\n\n[User response truncated") {
+		t.Errorf("expected truncation at rune boundary after ASCII prefix, got: %q", text)
+	}
+}
+
 // Reason: When the dialog is open but no answer has arrived yet, get_user_response
 // must return a PENDING message (not block forever) after wait_seconds elapses.
 func TestGetUserResponseReturnsPendingOnTimeout(t *testing.T) {
@@ -363,17 +439,23 @@ func TestUpdateDialogBroadcastsToKnownToken(t *testing.T) {
 	}
 	// Verify the broadcast reached the subscriber.
 	select {
-	case msg := <-ch:
-		if msg != "progress update" {
-			t.Errorf("expected 'progress update', got: %q", msg)
+	case evt := <-ch:
+		if evt.Type != dialogEventUpdate {
+			t.Errorf("expected update event type, got: %q", evt.Type)
+		}
+		if evt.Message != "progress update" {
+			t.Errorf("expected 'progress update', got: %q", evt.Message)
+		}
+		if evt.Replace {
+			t.Error("expected replace=false")
 		}
 	default:
 		t.Error("expected broadcast to reach subscriber channel")
 	}
 }
 
-// Reason: replace_last=true prefixes the message with __REPLACE__ for the
-// browser to swap the last update entry. This path was untested.
+// Reason: replace_last=true marks the event for browser-side replacement
+// without mutating the user-visible message body.
 func TestUpdateDialogReplaceLastFlag(t *testing.T) {
 	token := newDialogToken()
 	act := &dialogActivity{}
@@ -395,12 +477,50 @@ func TestUpdateDialogReplaceLastFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case msg := <-ch:
-		if !strings.HasPrefix(msg, "__REPLACE__") {
-			t.Errorf("expected __REPLACE__ prefix for replace_last=true: %q", msg)
+	case evt := <-ch:
+		if evt.Type != dialogEventUpdate {
+			t.Errorf("expected update event type, got: %q", evt.Type)
+		}
+		if evt.Message != "replaced" {
+			t.Errorf("expected raw message without transport prefix, got: %q", evt.Message)
+		}
+		if !evt.Replace {
+			t.Error("expected replace=true")
 		}
 	default:
 		t.Error("expected broadcast message for replace_last")
+	}
+}
+
+func TestUpdateDialogSentinelLikeMessagesArePlainUpdates(t *testing.T) {
+	token := newDialogToken()
+	act := &dialogActivity{}
+	ch, unsub := act.subscribe()
+	defer unsub()
+	state := &pendingDialogState{
+		responseCh: make(chan string, 1),
+		activity:   act,
+	}
+	storePendingDialog(token, state)
+	defer deletePendingDialog(token)
+
+	_, err := updateDialogHandler(nil, newTestRequest(map[string]any{
+		"token":   token,
+		"message": "__DISMISS__",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case evt := <-ch:
+		if evt.Type != dialogEventUpdate {
+			t.Errorf("expected update event type, got: %q", evt.Type)
+		}
+		if evt.Message != "__DISMISS__" {
+			t.Errorf("expected sentinel-like text to stay user-visible, got: %q", evt.Message)
+		}
+	default:
+		t.Error("expected broadcast message for sentinel-like update")
 	}
 }
 

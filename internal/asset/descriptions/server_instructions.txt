@@ -5,6 +5,8 @@ Important: If your environment also exposes tools with the same names (e.g. ask_
 
 RULE: Never ask questions or request confirmations via plain text. Always use ask_user so the user receives an interactive dialog. Plain-text questions are invisible to the user.
 
+RULE: When you use ask_user, the browser dialog is the user-visible prompt. Put all context, options, findings, proposed actions, and recommendations in the details field. Do not put the substantive answer only in ordinary chat/CLI output and then open a vague dialog.
+
 PERFORMANCE: Prefer batch tools whenever you have 2+ items \u2014 read_multiple_files, write_multiple_files, get_multiple_file_info, path_exists_batch. Round-trip count is the dominant cost.
 
 ─── Getting started ───────────────────────────────────────────────────────────
@@ -22,8 +24,8 @@ All text parameters (question, details, message, notes) support full markdown re
 headings, bold, italic, inline code, fenced code blocks with syntax highlighting,
 lists, tables, blockquotes, links, horizontal rules.
 
-- ask_user: Open a dialog; returns a JSON object with "status", "token", and "instructions" fields. Then call get_user_response(token=…) in a loop — each call long-polls up to 55 s and returns PENDING until answered. Keep looping indefinitely; the user may take a long time. Always populate the details param with your current reasoning and context — never send a bare question. While waiting, you may do other work (file reads, analysis) then resume polling.
-- get_user_response: Long-polls for an ask_user or rest response. Each call blocks up to wait_seconds (default 55 s) then returns PENDING if unanswered. User answers are capped by default; set max_response_bytes=0 only when you truly need a full pasted answer. If it returns a timeout/error (not PENDING and not a user answer), re-ask or proceed with a safe default.
+- ask_user: Open a dialog; returns a JSON object with "status", "token", and "instructions" fields. Then call get_user_response(token=…) in a loop — each call long-polls up to 55 s and returns PENDING until answered. Keep looping indefinitely; the user may take a long time. The details param is required: include your current reasoning, context, concrete options, and recommendation there. Never send a bare or vague question such as "What should I do next?" unless details contains enough information for the user to decide. The user may type markdown text and paste/drop images. While waiting, you may do other work (file reads, analysis) then resume polling.
+- get_user_response: Long-polls for an ask_user or rest response. Each call blocks up to wait_seconds (default 55 s) then returns PENDING if unanswered. User answers are returned in full by default; do not set max_response_bytes unless you explicitly accept truncating the user's reply. If the user attached images, the response lists saved local paths; inspect those paths with available image/file tools. If it returns a timeout/error (not PENDING and not a user answer), re-ask or proceed with a safe default.
 - update_dialog: Push a live progress update (rendered as markdown) into an open ask_user dialog while waiting for the user's reply — use this to share intermediate findings or progress without requiring a new question.
 - notify_user: Fire-and-forget toast notification. Use for background progress updates that don't require a reply. Does not block and returns concise delivery metadata. Works on all platforms (macOS, Windows, Linux).
 - cancel_ask_user: Dismiss a pending ask_user dialog when the question is no longer relevant (e.g. you already have the answer).

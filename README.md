@@ -13,7 +13,7 @@ Communication happens over **stdio** using the [`mark3labs/mcp-go`](https://gith
 - **41 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, and user interaction
   Disable any tool group you don't need with `--disable=user,system,...` (see [Disabling tool groups](#disabling-tool-groups)).
 - **Built-in server instructions** — the AI receives a categorized guide on when and how to use each tool
-- **Interactive dialogs** — `ask_user` opens a browser dialog with choices, markdown, live updates, and typing indicators
+- **Interactive dialogs** — `ask_user` opens a browser dialog with choices, markdown, pasted/dropped images, live updates, and typing indicators
 - **Cross-platform** — macOS, Windows, and Linux (user dialogs require macOS/Windows; `notify_user` works everywhere)
 - **Surgical editing** — `edit_file` with near-miss probe, CRLF transparency, batch mode, and regex support
 - **Performance-first** — batch tools (`read_multiple_files`, `write_multiple_files`, `path_exists_batch`, `get_multiple_file_info`, `edit_file` batch mode) reduce round-trips
@@ -125,8 +125,8 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Platform | Description |
 |------|----------|-------------|
-| `ask_user` | macOS, Windows | Browser dialog with choices, markdown details, live updates, typing detection. Returns token → poll with `get_user_response`. |
-| `get_user_response` | macOS, Windows | Long-poll for `ask_user`/`rest` response. Returns capped answer text or detailed PENDING status (typing, idle, heartbeat). |
+| `ask_user` | macOS, Windows | Browser dialog with choices, required markdown details, pasted/dropped images, live updates, typing detection. Returns token → poll with `get_user_response`. |
+| `get_user_response` | macOS, Windows | Long-poll for `ask_user`/`rest` response. Returns full answer text by default, plus local paths for attached images, or detailed PENDING status (typing, idle, heartbeat). |
 | `update_dialog` | macOS, Windows | Push live markdown updates into an open `ask_user` dialog. `replace_last` for streaming progress. |
 | `cancel_ask_user` | macOS, Windows | Dismiss a pending dialog by token. |
 | `notify_user` | **All platforms** | Fire-and-forget toast notification. Returns concise delivery metadata. `level`: info/warning/error. |

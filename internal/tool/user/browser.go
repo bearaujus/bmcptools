@@ -2,12 +2,17 @@ package user
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -21,6 +26,19 @@ import (
 // openBrowserFn delegates to browser.Open and can be overridden in tests
 // to suppress real browser windows.
 var openBrowserFn = browser.Open
+
+type dialogAttachmentPayload struct {
+	Name string `json:"name"`
+	MIME string `json:"mime"`
+	Data string `json:"data"`
+}
+
+type dialogAttachmentFile struct {
+	Name string
+	MIME string
+	Size int
+	Path string
+}
 
 func promptUser(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
 	switch runtime.GOOS {
@@ -55,27 +73,28 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		body, _ := io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 
 		var payload struct {
-			Choice    string `json:"choice"`
-			Notes     string `json:"notes"`
-			Dismissed bool   `json:"dismissed"`
+			Choice      string                    `json:"choice"`
+			Notes       string                    `json:"notes"`
+			Dismissed   bool                      `json:"dismissed"`
+			Attachments []dialogAttachmentPayload `json:"attachments"`
 		}
 		answer := ""
 		if jsonErr := json.Unmarshal(body, &payload); jsonErr == nil {
 			if payload.Dismissed {
 				answer = "[User dismissed the dialog — no reply was sent]"
 			} else {
-				switch {
-				case payload.Choice != "" && payload.Notes != "":
-					answer = payload.Choice + "\n\n" + payload.Notes
-				case payload.Choice != "":
-					answer = payload.Choice
-				default:
-					answer = payload.Notes
+				files, saveErr := saveDialogAttachments(payload.Attachments)
+				answer = formatDialogAnswer(payload.Choice, payload.Notes, files)
+				if saveErr != nil {
+					if strings.TrimSpace(answer) != "" {
+						answer += "\n\n"
+					}
+					answer += "[Some attached images could not be saved: " + saveErr.Error() + "]"
 				}
 			}
 		} else {
@@ -123,8 +142,11 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 				select {
 				case <-ctx.Done():
 					return
-				case msg := <-ch:
-					jsonMsg, _ := json.Marshal(msg)
+				case evt := <-ch:
+					if evt.Type == "" {
+						evt.Type = dialogEventUpdate
+					}
+					jsonMsg, _ := json.Marshal(evt)
 					fmt.Fprintf(w, "data: %s\n\n", string(jsonMsg))
 					flusher.Flush()
 				case <-time.After(25 * time.Second):
@@ -151,13 +173,199 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 		return answer, nil
 	case <-ctx.Done():
 		if activity != nil {
-			activity.broadcast("__DISMISS__")
+			activity.broadcastDismiss()
 		}
 		return "[Dialog cancelled by AI]", nil
 	case <-time.After(timeout + 2*time.Second):
 		// +2s grace window lets the browser's JS timer fire and POST /answer before
 		// the server tears down. A blank string triggers a retry in runDialogBlocking.
 		return "", nil
+	}
+}
+
+func formatDialogAnswer(choice, notes string, attachments []dialogAttachmentFile) string {
+	var parts []string
+	switch {
+	case choice != "" && notes != "":
+		parts = append(parts, choice+"\n\n"+notes)
+	case choice != "":
+		parts = append(parts, choice)
+	case notes != "":
+		parts = append(parts, notes)
+	}
+	if len(attachments) > 0 {
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Attached images (%d):", len(attachments))
+		for i, a := range attachments {
+			fmt.Fprintf(&sb, "\n%d. %s (%s, %d bytes)\n   Local path: %s", i+1, a.Name, a.MIME, a.Size, a.Path)
+		}
+		parts = append(parts, sb.String())
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func saveDialogAttachments(payloads []dialogAttachmentPayload) ([]dialogAttachmentFile, error) {
+	if len(payloads) == 0 {
+		return nil, nil
+	}
+	dir, err := os.MkdirTemp("", "bmcptools-ask-user-*")
+	if err != nil {
+		return nil, err
+	}
+
+	var files []dialogAttachmentFile
+	var errs []string
+	usedNames := make(map[string]struct{}, len(payloads))
+	seenData := make(map[[sha256.Size]byte]struct{}, len(payloads))
+	for i, p := range payloads {
+		mimeType, raw, err := decodeImageDataURL(p.MIME, p.Data)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", fallbackAttachmentName(p.Name, i+1, ".png"), err))
+			continue
+		}
+		digest := sha256.Sum256(raw)
+		if _, exists := seenData[digest]; exists {
+			continue
+		}
+		seenData[digest] = struct{}{}
+		name := uniqueAttachmentName(fallbackAttachmentName(p.Name, i+1, extensionForImageMIME(mimeType)), usedNames)
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		files = append(files, dialogAttachmentFile{
+			Name: name,
+			MIME: mimeType,
+			Size: len(raw),
+			Path: path,
+		})
+	}
+	if len(errs) > 0 {
+		return files, errors.New(strings.Join(errs, "; "))
+	}
+	return files, nil
+}
+
+func decodeImageDataURL(fallbackMIME, dataURL string) (string, []byte, error) {
+	dataURL = strings.TrimSpace(dataURL)
+	if dataURL == "" {
+		return "", nil, fmt.Errorf("empty image data")
+	}
+	mimeType := strings.TrimSpace(fallbackMIME)
+	encoded := dataURL
+	if len(dataURL) >= len("data:") && strings.EqualFold(dataURL[:len("data:")], "data:") {
+		comma := strings.IndexByte(dataURL, ',')
+		if comma < 0 {
+			return "", nil, fmt.Errorf("image data URL is not base64")
+		}
+		meta := dataURL[len("data:"):comma]
+		metaParts := strings.Split(meta, ";")
+		isBase64 := false
+		for _, part := range metaParts[1:] {
+			if strings.EqualFold(strings.TrimSpace(part), "base64") {
+				isBase64 = true
+				break
+			}
+		}
+		if !isBase64 {
+			return "", nil, fmt.Errorf("image data URL is not base64")
+		}
+		if strings.TrimSpace(metaParts[0]) != "" {
+			mimeType = strings.TrimSpace(metaParts[0])
+		}
+		encoded = dataURL[comma+1:]
+	}
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+		return "", nil, fmt.Errorf("unsupported attachment MIME type %q", mimeType)
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid base64 image data: %w", err)
+	}
+	return mimeType, raw, nil
+}
+
+func uniqueAttachmentName(name string, used map[string]struct{}) string {
+	if name == "" {
+		name = "image.img"
+	}
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	ext := filepath.Ext(name)
+	if base == "" {
+		base = "image"
+	}
+	candidate := name
+	for i := 2; ; i++ {
+		key := strings.ToLower(candidate)
+		if _, exists := used[key]; !exists {
+			used[key] = struct{}{}
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s-%d%s", base, i, ext)
+	}
+}
+
+func fallbackAttachmentName(name string, index int, ext string) string {
+	name = sanitizeAttachmentName(name)
+	if ext == "" {
+		ext = ".img"
+	}
+	if name == "" {
+		return fmt.Sprintf("image-%d%s", index, ext)
+	}
+	if filepath.Ext(name) == "" {
+		name += ext
+	}
+	return name
+}
+
+func sanitizeAttachmentName(name string) string {
+	name = filepath.Base(strings.TrimSpace(name))
+	if name == "." || name == string(filepath.Separator) {
+		return ""
+	}
+	name = strings.Map(func(r rune) rune {
+		switch {
+		case r < 32:
+			return -1
+		case strings.ContainsRune(`<>:"/\|?*`, r):
+			return '_'
+		default:
+			return r
+		}
+	}, name)
+	name = strings.Trim(name, " .")
+	if len(name) > 120 {
+		ext := filepath.Ext(name)
+		stem := strings.TrimSuffix(name, ext)
+		if len(stem) > 100 {
+			stem = stem[:100]
+		}
+		name = stem + ext
+	}
+	return name
+}
+
+func extensionForImageMIME(mimeType string) string {
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	case "image/bmp":
+		return ".bmp"
+	case "image/svg+xml":
+		return ".svg"
+	case "image/tiff":
+		return ".tiff"
+	default:
+		return ".img"
 	}
 }
 
@@ -172,7 +380,6 @@ func chipHTML(c string) string {
 func encodeURIComponentJS(s string) string {
 	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }
-
 
 // buildDialogHTML renders the ask_user dialog HTML template.
 // htmlSource is the base template (default or custom override).
@@ -282,7 +489,7 @@ func makeRestHandler(htmlSource string) func(context.Context, mcp.CallToolReques
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
-			body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			body, _ := io.ReadAll(r.Body)
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprint(w, "ok")
 

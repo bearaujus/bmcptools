@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-const defaultUserResponseMaxBytes = 256 * 1024
+const defaultUserResponseMaxBytes = 0
 
 func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -19,6 +20,9 @@ func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolReq
 		}
 
 		details := req.GetString("details", "")
+		if strings.TrimSpace(details) == "" {
+			return mcp.NewToolResultError("details is required; include the context/options the user needs to answer"), nil
+		}
 		title := req.GetString("title", "AI Assistant")
 		if title == "" {
 			title = "AI Assistant"
@@ -71,7 +75,7 @@ func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolReq
 			"{\n" +
 				"  \"status\": \"PENDING\",\n" +
 				"  \"token\": \"" + token + "\",\n" +
-				"  \"instructions\": \"Call get_user_response(token=\\\"" + token + "\\\") to retrieve the answer. Each call waits up to wait_seconds (default 55) before returning PENDING again. Keep polling indefinitely — the user may take a long time to reply.\"\n" +
+				"  \"instructions\": \"The browser dialog is already visible to the user; do not repeat the question in chat or a CLI. Call get_user_response(token=\\\"" + token + "\\\") to retrieve the answer. Each call waits up to wait_seconds (default 55) before returning PENDING again. Keep polling indefinitely — the user may take a long time to reply.\"\n" +
 				"}",
 		), nil
 	}
@@ -81,7 +85,7 @@ func runDialogBlocking(ctx context.Context, htmlSource, question, details, title
 	if notify {
 		msg := question
 		if len(msg) > 120 {
-			msg = msg[:120] + "..."
+			msg = truncateUTF8Bytes(msg, 120) + "..."
 		}
 		go sendNotificationFn(msg, title, "info", 10)
 	}
@@ -150,8 +154,20 @@ func limitUserResponse(answer string, maxBytes int) string {
 	if maxBytes <= 0 || len(answer) <= maxBytes {
 		return answer
 	}
+	prefix := truncateUTF8Bytes(answer, maxBytes)
 	return fmt.Sprintf("%s\n\n[User response truncated at %d/%d bytes. Increase max_response_bytes or set max_response_bytes=0 for unlimited.]",
-		answer[:maxBytes], maxBytes, len(answer))
+		prefix, maxBytes, len(answer))
+}
+
+func truncateUTF8Bytes(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	n := maxBytes
+	for n > 0 && n < len(s) && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 func buildPendingMessage(token string, act *dialogActivity) string {
@@ -220,11 +236,7 @@ func updateDialogHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError("this dialog does not support live updates"), nil
 	}
 
-	if replaceLast {
-		state.activity.broadcast("__REPLACE__" + message)
-	} else {
-		state.activity.broadcast(message)
-	}
+	state.activity.broadcastUpdate(message, replaceLast)
 	return mcp.NewToolResultText("message delivered to dialog"), nil
 }
 

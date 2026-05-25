@@ -138,6 +138,28 @@ function assertNotContains(name, html, substr) {
 })();
 
 (function() {
+  var html = mdRender('[email](mailto:test@example.com)');
+  assertContains('mailto link allowed', html, 'href="mailto:test@example.com"');
+})();
+
+(function() {
+  var html = mdRender('[bad](javascript:alert(1))');
+  assertNotContains('javascript href rejected', html, '<a ');
+  assertContains('rejected link keeps label', html, 'bad');
+})();
+
+(function() {
+  var html = mdRender('[bad](data:text/html,alert)');
+  assertNotContains('data href rejected', html, '<a ');
+})();
+
+(function() {
+  var html = mdRender('[safe](https://example.test/?q=" onmouseover="alert)');
+  assertContains('link href quotes escaped', html, 'q=&quot; onmouseover=&quot;alert');
+  assertNotContains('link href cannot break attribute', html, 'href="https://example.test/?q=" onmouseover="');
+})();
+
+(function() {
   var html = mdRender('---');
   assertContains('horizontal rule', html, '<hr>');
 })();
@@ -224,6 +246,28 @@ function assertNotContains(name, html, substr) {
   var input = '```\n' + lines.join('\n') + '\n```';
   var html = mdRender(input);
   assertNotContains('short code block not collapsed', html, 'collapsed');
+})();
+
+(function() {
+  var html = mdRender('`[x](javascript:alert(1)) **bold**`');
+  assertContains('inline code preserves markdown text', html, '<code>[x](javascript:alert(1)) **bold**</code>');
+  assertNotContains('inline code does not render links', html, '<a ');
+  assertNotContains('inline code does not render emphasis', html, '<strong>');
+})();
+
+(function() {
+  var html = mdRender('```js\nconst x = 1\n```');
+  assertNotContains('fenced code block is not paragraph-wrapped', html, '<p><div class="code-wrap');
+})();
+
+(function() {
+  var html = mdRender(null);
+  assert('null input does not crash', typeof html === 'string');
+})();
+
+(function() {
+  var html = mdRender('\\\"quoted\\\"');
+  assertContains('backslash quote is preserved', html, '\\"quoted\\"');
 })();
 
 (function() {

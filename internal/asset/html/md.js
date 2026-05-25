@@ -17,7 +17,26 @@ KW.javascript = KW.js; KW.typescript = KW.ts; KW.python = KW.py;
 KW.golang = KW.go; KW.bash = KW.sh; KW.shell = KW.sh; KW.zsh = KW.sh; KW.rust = KW.rs;
 
 function esc(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;');
+}
+
+function escAttrFromEscaped(s) {
+  return String(s == null ? '' : s)
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function safeHref(href) {
+  var h = String(href == null ? '' : href).trim();
+  if(!h) return '';
+  var compact = h.replace(/[\u0000-\u0020\u007f]+/g, '').toLowerCase();
+  if(/^(javascript|vbscript|data):/.test(compact)) return '';
+  if(/^[a-z][a-z0-9+.-]*:/i.test(h) && !/^(https?|mailto):/i.test(h)) return '';
+  return h;
 }
 
 function span(cls, s) {
@@ -108,7 +127,8 @@ function mdRender(raw) {
   var COLLAPSE_LINES = 10; // collapse code blocks taller than this
 
   // Unescape literal \n and \t from AI runtimes FIRST (before code block extraction)
-  var s = raw.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"');
+  raw = String(raw == null ? '' : raw);
+  var s = raw.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
 
   // Extract fenced code blocks before HTML-escaping so highlighter gets raw code.
   var blocks = [];
@@ -156,8 +176,18 @@ function mdRender(raw) {
   s = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
   // Inline code — double-backtick first (allows single ` inside), then single
-  s = s.replace(/``([^`\n]+)``/g, '<code>$1</code>');
-  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  var inlineBlocks = [];
+  function stashInline(html) {
+    var idx = inlineBlocks.length;
+    inlineBlocks.push(html);
+    return '\x00INLINE' + idx + '\x00';
+  }
+  s = s.replace(/``([^`\n]+)``/g, function(_, code) {
+    return stashInline('<code>' + code + '</code>');
+  });
+  s = s.replace(/`([^`\n]+)`/g, function(_, code) {
+    return stashInline('<code>' + code + '</code>');
+  });
   // Headings
   s = s.replace(/^(#{1,6}) (.+)$/gm, function(_, h, t) {
     var n = h.length; return '<h'+n+'>'+t+'</h'+n+'>';
@@ -169,8 +199,11 @@ function mdRender(raw) {
   // Italic
   s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
   // Links
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, label, href) {
+    var safe = safeHref(href);
+    if(!safe) return label;
+    return '<a href="' + escAttrFromEscaped(safe) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+  });
   // Unordered lists
   s = s.replace(/((?:^[ \t]*[-*] .+\n?)+)/gm, function(b) {
     var items = b.match(/^[ \t]*[-*] (.+)$/gm) || [];
@@ -257,9 +290,13 @@ function mdRender(raw) {
   // Paragraphs
   s = s.split(/\n{2,}/).map(function(p) {
     p = p.trim(); if (!p) return '';
-    if (/^<(h[1-6]|ul|ol|pre|div|hr|blockquote|table|\x00BLOCK)/.test(p)) return p;
+    if (/^(?:<(?:h[1-6]|ul|ol|pre|div|hr|blockquote|table)|\x00BLOCK)/.test(p)) return p;
     return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
   }).filter(Boolean).join('\n');
+
+  // Restore inline code before fenced code blocks. Inline code was stashed so
+  // later markdown transforms cannot create links or emphasis inside <code>.
+  s = s.replace(/\x00INLINE(\d+)\x00/g, function(_, i) { return inlineBlocks[+i]; });
 
   // Restore code blocks
   s = s.replace(/\x00BLOCK(\d+)\x00/g, function(_, i) { return blocks[+i]; });

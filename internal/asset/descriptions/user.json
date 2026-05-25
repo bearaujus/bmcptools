@@ -9,10 +9,10 @@
     }
   },
   "ask_user": {
-    "desc": "Open a browser dialog to ask the user a question. Returns a token immediately — the dialog is non-blocking. Call get_user_response(token=...) right after to wait for the answer. Use ONLY when you genuinely need a human decision before continuing — not to share information, progress, or summaries (put those in your chat response instead). Ask exactly one question; keep it short. Put supporting context in details, not in the question itself. Providing choices adds quick-reply chips, but the user can always type a free reply too.",
+    "desc": "Open a browser dialog to ask the user a question. Returns a token immediately — the dialog is non-blocking. Call get_user_response(token=...) right after to wait for the answer. Use ONLY when you genuinely need a human decision before continuing. The browser dialog is the user-visible prompt: put all decision context in details, not in ordinary chat/CLI output. Ask exactly one question; keep it short. Avoid vague prompts like \"What should I do next?\" unless details gives concrete options and enough context. Providing choices adds quick-reply chips, but the user can always type a free reply too, including pasted or dropped images.",
     "params": {
-      "question": "One short, focused question. No reasoning, code, or explanations here — those belong in details or your chat response.",
-      "details": "Optional markdown context shown below the question: summaries, findings, diffs, tables, relevant background. This is where substance belongs.",
+      "question": "One short, focused question. No reasoning, code, or explanations here — those belong in details.",
+      "details": "Required markdown context shown below the question: summaries, findings, diffs, concrete options, recommendations, and relevant background. This is where the substance belongs; do not rely on separate chat/CLI output.",
       "title": "Dialog window title. Default: \"AI Assistant\".",
       "subtitle": "Subtitle shown under the title — e.g. your agent or model name.",
       "choices": "Optional quick-reply chip buttons (array of strings). User can tap a chip and/or type a custom reply.",
@@ -21,11 +21,11 @@
     }
   },
   "get_user_response": {
-    "desc": "Wait for a pending ask_user or rest dialog to be answered. Blocks up to wait_seconds per call, then returns. You MUST keep calling this in a loop until the result is NOT a PENDING string — the user may take a long time to reply. User replies are capped by default so pasted content cannot flood AI context. Possible non-PENDING results: the user's reply text; \"[User dismissed the dialog — no reply was sent]\"; \"[Dialog cancelled by AI]\"; \"[User did not respond within the allotted time]\".",
+    "desc": "Wait for a pending ask_user or rest dialog to be answered. Blocks up to wait_seconds per call, then returns. You MUST keep calling this in a loop until the result is NOT a PENDING string — the user may take a long time to reply. User replies are returned in full by default so the user's typed effort is not silently lost. If the user attached images, the answer includes saved local file paths and metadata instead of inline base64. Possible non-PENDING results: the user's reply text; \"[User dismissed the dialog — no reply was sent]\"; \"[Dialog cancelled by AI]\"; \"[User did not respond within the allotted time]\".",
     "params": {
       "token": "Token returned by ask_user or rest. Required.",
       "wait_seconds": "Seconds to block per poll. Default: 55. Max: 115.",
-      "max_response_bytes": "Maximum bytes to return from the user's reply. Default: 262144 (256 KB). Set 0 for unlimited."
+      "max_response_bytes": "Optional compatibility cap for returned reply bytes. Default: 0 (unlimited). Only set this if you explicitly accept truncating the user's reply."
     }
   },
   "update_dialog": {
