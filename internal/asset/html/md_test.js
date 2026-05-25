@@ -138,8 +138,8 @@ function assertNotContains(name, html, substr) {
 })();
 
 (function() {
-  var html = mdRender('[email](mailto:test@example.com)');
-  assertContains('mailto link allowed', html, 'href="mailto:test@example.com"');
+  var html = mdRender('[email](mailto:test@localhost)');
+  assertContains('mailto link allowed', html, 'href="mailto:test@localhost"');
 })();
 
 (function() {
@@ -154,9 +154,9 @@ function assertNotContains(name, html, substr) {
 })();
 
 (function() {
-  var html = mdRender('[safe](https://example.test/?q=" onmouseover="alert)');
-  assertContains('link href quotes escaped', html, 'q=&quot; onmouseover=&quot;alert');
-  assertNotContains('link href cannot break attribute', html, 'href="https://example.test/?q=" onmouseover="');
+  var html = mdRender('[safe](/search?q=" data-break="1)');
+  assertContains('link href quotes escaped', html, 'q=&quot; data-break=&quot;1');
+  assertNotContains('link href cannot break attribute', html, 'href="/search?q=" data-break="');
 })();
 
 (function() {
