@@ -65,7 +65,7 @@ func ServerInstructions() string {
 
 // ServerInstructionsForGroups returns server instructions filtered to only
 // the specified groups. The "intro" section is always included.
-// Valid group names: "intro", "user", "file", "dir", "search", "exec", "system".
+// Valid group names: "intro", "user", "file", "multi", "dir", "search", "exec", "system".
 // Passing no groups returns the full instructions.
 func ServerInstructionsForGroups(groups ...string) string {
 	if len(groups) == 0 {
@@ -92,7 +92,7 @@ func ServerInstructionsForGroups(groups ...string) string {
 
 // ServerInstructionsExcludingGroups returns server instructions with the
 // specified groups removed. The "intro" section is always kept.
-// Valid group names: "user", "file", "dir", "search", "exec", "system".
+// Valid group names: "user", "file", "multi", "dir", "search", "exec", "system".
 // Passing no groups returns the full instructions.
 func ServerInstructionsExcludingGroups(groups ...string) string {
 	if len(groups) == 0 {

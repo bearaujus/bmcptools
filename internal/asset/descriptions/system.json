@@ -1,59 +1,59 @@
 {
   "clipboard_write": {
-    "desc": "Write text to the system clipboard (macOS/Linux/Windows).",
+    "desc": "Write text to the system clipboard. Use for content the user explicitly wants available outside the chat. Returns only a compact byte/line confirmation.",
     "params": {
       "text": "Text to copy to the clipboard."
     }
   },
   "clipboard_read": {
-    "desc": "Read the current text from the system clipboard (macOS/Linux/Windows). Output is capped by default so a large clipboard cannot flood AI context; raise max_bytes only when pasted content is intentionally needed.",
+    "desc": "Read text from the system clipboard. Output is capped by default to avoid flooding context; empty clipboard returns a short empty message.",
     "params": {
-      "max_bytes": "Maximum clipboard bytes to return. Default: 262144 (256 KB). Set 0 for unlimited."
+      "max_bytes": "Maximum clipboard bytes to return. Default: 262144 (256 KB); set 0 for unlimited. Negative values use the default."
     }
   },
   "http_request": {
-    "desc": "Make an HTTP request and return status code, timing, and a capped response body. JSON is compacted by default to save context. Use body_filter to return only regex/literal matches from large pages or API responses; use download_file for binary files or large downloads.",
+    "desc": "Make an HTTP request and return status, timing, size, optional headers, and a rendered text body. JSON bodies are compacted by default; binary responses are omitted with a hint to use download_file. Use body_filter to avoid returning huge pages or API responses.",
     "params": {
       "url": "Full URL to request.",
-      "method": "HTTP method: GET (default), POST, PUT, PATCH, DELETE, HEAD, OPTIONS.",
-      "headers": "Request headers as a JSON object, e.g. {\"Authorization\": \"Bearer token\"}.",
-      "body": "Request body string. Pass a JSON string for JSON APIs.",
-      "basic_auth": "Basic auth credentials in \"username:password\" format.",
-      "timeout_seconds": "Request timeout in seconds. Default: 30. Max: 300.",
-      "follow_redirects": "Follow HTTP redirects. Default: true.",
-      "include_response_headers": "Include response headers in output. Default: false.",
-      "max_response_bytes": "Maximum response body bytes to read before rendering/filtering. Default: 262144 (256 KB). Max: 10485760 (10 MB). Set 0 for unlimited.",
-      "json_format": "How to render valid JSON response bodies: \"compact\" (default), \"pretty\", or \"raw\".",
-      "body_filter": "Optional literal text or regex pattern used to filter the rendered response body before returning it. Filtering is applied after reading up to max_response_bytes. When set, only filtered results are returned instead of the full body.",
+      "method": "HTTP method. Default: GET. Common values include GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS.",
+      "headers": "Request headers as an object. Values are stringified, for example {\"Authorization\": \"Bearer ...\"}.",
+      "body": "Request body string. If Content-Type is omitted, valid JSON bodies are sent as application/json; other bodies are sent as text/plain.",
+      "basic_auth": "Basic auth credentials as \"username:password\". Ignored unless both parts are present.",
+      "timeout_seconds": "Request timeout in seconds. Default: 30; maximum: 300. Non-positive values use the default.",
+      "follow_redirects": "Follow HTTP redirects. Default: true; set false to inspect redirect responses.",
+      "include_response_headers": "Include response headers in the result. Default: false.",
+      "max_response_bytes": "Maximum response body bytes to read before rendering/filtering. Default: 262144 (256 KB). Positive values above 10485760 (10 MB) are clamped; set 0 for unlimited.",
+      "json_format": "Rendering for valid JSON responses: \"compact\" (default), \"pretty\", or \"raw\".",
+      "body_filter": "Optional literal text or regex pattern applied after body rendering. When set, only matches/lines/counts are returned instead of the full body.",
       "body_filter_regex": "Treat body_filter as a Go regular expression. Default: false.",
-      "body_filter_case_insensitive": "Case-insensitive body_filter matching. Default: false.",
-      "body_filter_mode": "\"matches\" (default) returns matched snippets with byte offsets, \"lines\" returns matching lines with optional context, \"count\" returns only the number of matches.",
-      "body_filter_context_bytes": "Bytes of context around each match in body_filter_mode=\"matches\" and around trimmed long lines. Default: 120. Max: 4096.",
-      "body_filter_context_lines": "Lines before and after each matching line when body_filter_mode=\"lines\". Default: 0. Max: 20.",
-      "body_filter_max_matches": "Maximum matches or matching lines to return. Default: 20. Set 0 for unlimited within max_response_bytes."
+      "body_filter_case_insensitive": "Match body_filter case-insensitively. Works for literal and regex filters. Default: false.",
+      "body_filter_mode": "\"matches\" (default) returns snippets with byte offsets; \"lines\" returns matching lines with optional context; \"count\" returns only the match count.",
+      "body_filter_context_bytes": "Context bytes around each match in matches mode and around trimmed long lines. Default: 120; maximum: 4096.",
+      "body_filter_context_lines": "Context lines before/after each matching line in lines mode. Default: 0; maximum: 20.",
+      "body_filter_max_matches": "Maximum matches or matching lines to return. Default: 20; set 0 for unlimited within the rendered body."
     }
   },
   "list_processes": {
-    "desc": "List running processes with PID, name, CPU/memory usage, and command. Prefer this over ps/tasklist via run_command. Use filter to inspect servers/watchers started with run_command detach=true. CPU and MEM units differ by OS; column headers reflect this.",
+    "desc": "List running processes with PID, name, CPU/memory columns, and command line. Use to inspect local services, detached commands, or resource-heavy processes without shelling out to ps/tasklist.",
     "params": {
-      "filter": "Case-insensitive substring to filter by process name or command. Omit to list all.",
-      "sort_by": "Sort by \"pid\" (default), \"cpu\", or \"mem\".",
-      "limit": "Maximum processes to return. Default: 50. Set 0 for unlimited.",
-      "command_width": "Maximum command column width before truncation. Default: 80, max: 500."
+      "filter": "Case-insensitive substring matched against process name or command. Omit to list all.",
+      "sort_by": "Sort by \"pid\" (default), \"cpu\", or \"mem\". Invalid values fall back to pid.",
+      "limit": "Maximum processes to show. Default: 50; set 0 for all. Negative values use the default.",
+      "command_width": "Maximum command-column width before truncation. Default: 80; minimum effective value: 4; maximum: 500."
     }
   },
   "get_system_info": {
-    "desc": "Return a compact system resource snapshot: CPU model/core count, memory usage, and disk usage.",
+    "desc": "Return a compact local system snapshot: OS/architecture, hostname, logical CPU count, CPU model when available, memory usage, and disk usage.",
     "params": {}
   },
   "download_file": {
-    "desc": "Download a file from a URL and save it to a local path. Uses streaming — no memory buffering — so it handles large files without OOM. Creates parent directories automatically. Prefer this over http_request + write_file for binary files or large downloads.",
+    "desc": "Download a URL directly to a local file using streaming. Use for binary files or large downloads instead of http_request plus write_file. Parent directories are created; non-2xx HTTP status is treated as an error.",
     "params": {
-      "url": "URL to download from.",
-      "path": "Local file path to save to. Parent directories created automatically.",
-      "headers": "Optional request headers as a JSON object, e.g. {\"Authorization\": \"Bearer token\"}.",
-      "timeout_seconds": "Request timeout in seconds. Default: 300. Max: 600.",
-      "overwrite": "Overwrite if file already exists. Default: false."
+      "url": "URL to download with HTTP GET.",
+      "path": "Local file path to create. Parent directories are created automatically.",
+      "headers": "Optional request headers as an object. Values are stringified, for example {\"Authorization\": \"Bearer ...\"}.",
+      "timeout_seconds": "Download timeout in seconds. Default: 300; maximum: 600. Non-positive values use the default.",
+      "overwrite": "Replace the file if it already exists. Default: false."
     }
   }
 }

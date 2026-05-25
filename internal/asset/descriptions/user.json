@@ -1,54 +1,54 @@
 {
   "notify_user": {
-    "desc": "Fire-and-forget desktop notification — never blocks, never returns a reply, and returns only delivery metadata to avoid echoing long messages. Use freely for progress milestones: task start, completion, errors, phase changes. Do NOT use when you need the user's answer — use ask_user for that.",
+    "desc": "Send a fire-and-forget desktop notification and return immediately. Use for progress milestones, completion, or errors that do not require a reply. Do not use when you need an answer; use ask_user instead.",
     "params": {
-      "message": "Notification body text.",
-      "title": "Notification title. Default: \"AI Assistant\".",
-      "level": "\"info\" (default), \"warning\", or \"error\".",
-      "duration_seconds": "How long the toast stays visible (Windows/Linux only). Default: 5."
+      "message": "Notification body text. Required and must not be blank.",
+      "title": "Notification title. Default: \"AI Assistant\"; blank values fall back to the default.",
+      "level": "\"info\" (default), \"warning\", or \"error\". Invalid values fall back to info.",
+      "duration_seconds": "Requested display duration. Default: 5 seconds; maximum: 60. Some platforms may ignore duration."
     }
   },
   "ask_user": {
-    "desc": "Open a browser dialog to ask the user a question. Returns a token immediately — the dialog is non-blocking. Call get_user_response(token=...) right after to wait for the answer. Use ONLY when you genuinely need a human decision before continuing. The browser dialog is the user-visible prompt: put all decision context in details, not in ordinary chat/CLI output. Ask exactly one question; keep it short. Avoid vague prompts like \"What should I do next?\" unless details gives concrete options and enough context. Providing choices adds quick-reply chips, but the user can always type a free reply too, including pasted or dropped images.",
+    "desc": "Open a browser dialog asking the user one focused question. Returns a PENDING JSON object with a token; then poll get_user_response until the answer is not PENDING. Use only when a human decision/input is required. Details is required because the dialog is the user-visible prompt.",
     "params": {
-      "question": "One short, focused question. No reasoning, code, or explanations here — those belong in details.",
-      "details": "Required markdown context shown below the question: summaries, findings, diffs, concrete options, recommendations, and relevant background. This is where the substance belongs; do not rely on separate chat/CLI output.",
-      "title": "Dialog window title. Default: \"AI Assistant\".",
-      "subtitle": "Subtitle shown under the title — e.g. your agent or model name.",
-      "choices": "Optional quick-reply chip buttons (array of strings). User can tap a chip and/or type a custom reply.",
-      "timeout_seconds": "Auto-cancel after this many idle seconds. Default: 600. Max: 3600.",
-      "notify": "Send a desktop notification when the dialog opens to alert the user. Default: true."
+      "question": "One short, focused question. Put reasoning, options, diffs, and context in details.",
+      "details": "Required markdown context shown below the question: findings, concrete options, tradeoffs, proposed action, and recommendation. Do not rely on separate chat/CLI output.",
+      "title": "Dialog window title. Default: \"AI Assistant\"; blank values fall back to the default.",
+      "subtitle": "Optional subtitle shown under the title.",
+      "choices": "Optional quick-reply chips. Empty strings are ignored; the user can still type a custom answer and attach images.",
+      "timeout_seconds": "Idle timeout before the dialog returns a timeout message. Default: 600; maximum: 3600. Non-positive values use the default.",
+      "notify": "Also send a desktop notification when opening the dialog. Default: true."
     }
   },
   "get_user_response": {
-    "desc": "Wait for a pending ask_user or rest dialog to be answered. Blocks up to wait_seconds per call, then returns. You MUST keep calling this in a loop until the result is NOT a PENDING string — the user may take a long time to reply. User replies are returned in full by default so the user's typed effort is not silently lost. If the user attached images, the answer includes saved local file paths and metadata instead of inline base64. Possible non-PENDING results: the user's reply text; \"[User dismissed the dialog — no reply was sent]\"; \"[Dialog cancelled by AI]\"; \"[User did not respond within the allotted time]\".",
+    "desc": "Wait for a pending ask_user or rest token. Each call long-polls, then returns either a PENDING status message or the final user/rest response. Keep calling until the result is not PENDING. User replies are uncapped by default.",
     "params": {
-      "token": "Token returned by ask_user or rest. Required.",
-      "wait_seconds": "Seconds to block per poll. Default: 55. Max: 115.",
-      "max_response_bytes": "Optional compatibility cap for returned reply bytes. Default: 0 (unlimited). Only set this if you explicitly accept truncating the user's reply."
+      "token": "Token returned by ask_user or rest.",
+      "wait_seconds": "Seconds to wait in this poll. Default: 55; maximum: 115. Non-positive values use the default.",
+      "max_response_bytes": "Optional cap for final reply bytes. Default: 0 (unlimited). Only set when truncation is acceptable."
     }
   },
   "update_dialog": {
-    "desc": "Push a live message into an open ask_user dialog while waiting for the user's reply. Appears instantly in a timestamped updates panel — no page refresh. Use this to share intermediate findings or thinking while the user is still deciding. Non-blocking. Has no effect after the dialog is answered or dismissed.",
+    "desc": "Push a live markdown update into an open ask_user dialog while the user is deciding. Use for new findings or progress related to the pending question. Returns an error if the token is unknown, expired, answered, or unsupported.",
     "params": {
-      "token": "Token returned by ask_user. Required.",
-      "message": "Message to display. Rendered as full markdown — headings, lists, code blocks, tables all work.",
-      "replace_last": "Replace the previous update instead of appending a new one. Useful for live-updating a progress counter. Default: false."
+      "token": "Token returned by ask_user.",
+      "message": "Markdown message to display in the dialog updates panel. Required and must not be blank.",
+      "replace_last": "Replace the previous update instead of appending a new one. Useful for progress counters. Default: false."
     }
   },
   "cancel_ask_user": {
-    "desc": "Dismiss an open ask_user dialog immediately. The browser page closes and the next get_user_response call returns \"[Dialog cancelled by AI]\". Use when the question is no longer relevant — e.g. you already have the answer, the task was aborted, or you are replacing it with a new ask_user call.",
+    "desc": "Cancel an open ask_user dialog. Use when the question is no longer relevant, the task was aborted, or you are replacing it with a better question. The next get_user_response call returns a cancellation message.",
     "params": {
-      "token": "Token returned by ask_user. Required."
+      "token": "Token returned by ask_user."
     }
   },
   "rest": {
-    "desc": "Put the AI into a resting state: opens a browser page with a wake-up button and waits for the user to resume. IMPORTANT: call this — do NOT end the conversation — whenever the user says 'take a rest', 'wait', 'stand by', 'I'll review', or any equivalent pause phrase. macOS and Windows only. Workflow: (1) call rest() — it returns a JSON object with status, token, and instructions; (2) parse the token from the JSON; (3) loop get_user_response(token=...) indefinitely until you receive a non-PENDING result.",
+    "desc": "Put the AI into a resting state by opening a browser wake-up page for the user. Returns a RESTING JSON object with a token; poll get_user_response until the user resumes or the rest timeout fires. Use when the user asks you to wait, stand by, take a rest, or review.",
     "params": {
-      "notes": "Message shown to the user while the AI is resting. Rendered as markdown — summarize where you left off.",
-      "title": "Name shown in the resting UI. Default: \"AI Assistant\".",
-      "subtitle": "Optional subtitle — e.g. your model name.",
-      "timeout_seconds": "Auto-wake if user does not respond within this many seconds. Default: 3600. Max: 86400."
+      "notes": "Optional markdown notes shown on the rest page. Summarize where work paused and what should happen next.",
+      "title": "Name/title shown in the rest UI. Default: \"AI Assistant\"; blank values fall back to the default.",
+      "subtitle": "Optional subtitle shown under the title.",
+      "timeout_seconds": "Auto-wake timeout. Default: 3600; maximum: 86400. Non-positive values use the default."
     }
   }
 }

@@ -1,39 +1,39 @@
 {
   "list_directory": {
-    "desc": "List directory contents with sizes and modification timestamps. Use for detailed one-level listings or bounded recursive listings; use directory_tree for a structural overview. Output is capped by max_entries by default. In large projects, narrow with glob/exclude_patterns before raising limits.",
+    "desc": "List entries in one directory, or a bounded recursive listing when recursive=true. Use for detailed inventory with sizes and modified times; use directory_tree for a compact structural overview. Output is capped by max_entries, so narrow with glob/exclude_patterns before raising caps.",
     "params": {
       "path": "Directory to list. Defaults to the server's current working directory.",
-      "show_hidden": "Include hidden entries (names starting with '.'). Default: false.",
-      "recursive": "List subdirectories recursively. Default: false.",
-      "max_depth": "Max recursion depth when recursive=true. Default: 3.",
-      "sort_by": "Sort by \"name\" (default) or \"size\" (largest first).",
-      "glob": "Only show files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Applies to files only; directories are still shown/traversed. Default: all files.",
-      "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). Useful with recursive=true to skip noisy directories such as node_modules, .git, vendor, dist, or generated logs.",
-      "max_entries": "Maximum number of file/directory entries to output before truncating. Default: 500. Set 0 for unlimited."
+      "show_hidden": "Include names starting with '.'. Default: false; hidden directories are skipped recursively unless true.",
+      "recursive": "Descend into subdirectories. Default: false.",
+      "max_depth": "Maximum recursion depth when recursive=true. Default: 3; 0 lists only the root level.",
+      "sort_by": "Sort siblings by \"name\" (default) or file \"size\" descending. Directories remain grouped before files.",
+      "glob": "Optional file-name glob such as *.go or *.{ts,tsx}. Applies to files only; directories may still be shown/traversed.",
+      "exclude_patterns": "Optional basename globs to prune before listing, such as node_modules, .git, dist, or *.log. Matching directories are skipped with their contents.",
+      "max_entries": "Maximum entries to return. Default: 500; set 0 for unlimited. Negative values use the default."
     }
   },
   "create_directory": {
-    "desc": "Create a directory and all missing parents (equivalent to mkdir -p). No-op if the directory already exists.",
+    "desc": "Create a directory and any missing parent directories. Succeeds without changing anything if the directory already exists.",
     "params": {
       "path": "Directory path to create."
     }
   },
   "delete_directory": {
-    "desc": "Delete a directory. IRREVERSIBLE. Must be empty unless force=true — which deletes the entire tree recursively. Confirm with the user before using force=true on directories that may contain important files.",
+    "desc": "Delete a directory. Without force, the directory must be empty. With force=true, deletes the entire directory tree irreversibly.",
     "params": {
-      "path": "Directory path to delete.",
-      "force": "Delete non-empty directories recursively. IRREVERSIBLE. Default: false."
+      "path": "Directory path to delete. Files are rejected; use delete_file for a single file.",
+      "force": "Delete non-empty directories recursively. Default: false. Treat true as destructive."
     }
   },
   "directory_tree": {
-    "desc": "Print a recursive visual tree of files and directories with sizes. Best for understanding project structure at a glance. Output is capped by max_entries by default. Use exclude_patterns to skip large irrelevant subtrees before raising limits.",
+    "desc": "Render a recursive visual tree with file sizes and summary counts. Best for understanding project structure at a glance. Output is capped by max_entries; use exclude_patterns and glob to keep large trees readable.",
     "params": {
       "path": "Root directory to display.",
-      "max_depth": "Maximum recursion depth. Default: 3.",
-      "show_hidden": "Include hidden files/directories. Default: false.",
-      "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). \"node_modules\" excludes any directory with that name at any depth; \"*.log\" excludes files like error.log.",
-      "glob": "Only show files matching this glob pattern (e.g. *.go). Directories without matching descendants are pruned. Default: all files.",
-      "max_entries": "Maximum number of file/directory entries to output before truncating. Default: 500. Set 0 for unlimited."
+      "max_depth": "Maximum depth to display. Default: 3; deeper directories are summarized with ellipses.",
+      "show_hidden": "Include hidden files/directories whose names start with '.'. Default: false.",
+      "exclude_patterns": "Optional basename globs to prune, such as node_modules, .git, dist, or *.log. Matching directories are skipped with their contents.",
+      "glob": "Optional file-name glob such as *.go. Directories are shown only when they contain matching descendants within max_depth.",
+      "max_entries": "Maximum entries to return. Default: 500; set 0 for unlimited. Negative values use the default."
     }
   }
 }

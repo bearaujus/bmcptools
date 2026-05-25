@@ -68,8 +68,22 @@ func TestServerInstructionsForGroups(t *testing.T) {
 	if strings.Contains(fileOnly, "User interaction") {
 		t.Error("file-group instructions should NOT contain 'User interaction'")
 	}
+	if strings.Contains(fileOnly, "read_multiple_files") || strings.Contains(fileOnly, "Batch file operations") {
+		t.Error("file-group instructions should NOT contain multi-file tools")
+	}
 	if strings.Contains(fileOnly, "[[group:") || strings.Contains(fileOnly, "<!--") {
 		t.Fatal("scoped instructions should not expose internal group markers")
+	}
+
+	multiOnly := asset.ServerInstructionsForGroups("multi")
+	if !strings.Contains(multiOnly, "Batch file operations") {
+		t.Error("multi-group instructions should contain 'Batch file operations'")
+	}
+	if !strings.Contains(multiOnly, "read_multiple_files") {
+		t.Error("multi-group instructions should contain 'read_multiple_files'")
+	}
+	if strings.Contains(multiOnly, "read_file:") {
+		t.Error("multi-group instructions should NOT contain single-file tool details")
 	}
 
 	noGroups := asset.ServerInstructionsForGroups()
