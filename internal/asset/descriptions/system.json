@@ -24,7 +24,7 @@
       "include_response_headers": "Include response headers in output. Default: false.",
       "max_response_bytes": "Maximum response body bytes to read before rendering/filtering. Default: 262144 (256 KB). Max: 10485760 (10 MB). Set 0 for unlimited.",
       "json_format": "How to render valid JSON response bodies: \"compact\" (default), \"pretty\", or \"raw\".",
-      "body_filter": "Optional literal text or regex pattern used to filter the rendered response body before returning it. When set, only filtered results are returned instead of the full body.",
+      "body_filter": "Optional literal text or regex pattern used to filter the rendered response body before returning it. Filtering is applied after reading up to max_response_bytes. When set, only filtered results are returned instead of the full body.",
       "body_filter_regex": "Treat body_filter as a Go regular expression. Default: false.",
       "body_filter_case_insensitive": "Case-insensitive body_filter matching. Default: false.",
       "body_filter_mode": "\"matches\" (default) returns matched snippets with byte offsets, \"lines\" returns matching lines with optional context, \"count\" returns only the number of matches.",

@@ -148,6 +148,12 @@ func ExistingFilePerm(path string, fallback os.FileMode) os.FileMode {
 // When dryRun=true the file is never modified; diff is still produced if produceDiff=true.
 // When the file contains binary content, skippedBinary=true and all other values are zero.
 func ApplyReplaceToFile(filePath, oldStr, newStr string, useRegex, dryRun, produceDiff bool) (int, string, bool, error) {
+	if !dryRun {
+		absPath, _ := filepath.Abs(filePath)
+		unlock := LockFile(absPath)
+		defer unlock()
+	}
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return 0, "", false, err
@@ -175,13 +181,10 @@ func ApplyReplaceToFile(filePath, oldStr, newStr string, useRegex, dryRun, produ
 	}
 
 	if !dryRun {
-		absPath, _ := filepath.Abs(filePath)
-		unlock := LockFile(absPath)
 		if hasCRLF {
 			modified = RestoreCRLF(modified)
 		}
 		wErr := AtomicWriteFile(filePath, []byte(modified), ExistingFilePerm(filePath, 0o644))
-		unlock()
 		if wErr != nil {
 			return count, diff, false, wErr
 		}

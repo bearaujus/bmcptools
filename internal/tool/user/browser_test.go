@@ -103,6 +103,38 @@ func TestSaveDialogAttachmentsSkipsDuplicateImageData(t *testing.T) {
 	}
 }
 
+func TestReadLimitedBodyRejectsOversizedResponse(t *testing.T) {
+	_, err := readLimitedBody(strings.NewReader("abcd"), 3, "test response")
+	if err == nil {
+		t.Fatal("expected oversized response to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSaveDialogAttachmentsRejectsTooManyFiles(t *testing.T) {
+	payloads := make([]dialogAttachmentPayload, maxDialogAttachmentCount+1)
+	for i := range payloads {
+		payloads[i] = dialogAttachmentPayload{
+			Name: "image.png",
+			MIME: "image/png",
+			Data: "data:image/png;base64,aGVsbG8=",
+		}
+	}
+
+	files, err := saveDialogAttachments(payloads)
+	if len(files) > 0 {
+		defer os.RemoveAll(filepath.Dir(files[0].Path))
+	}
+	if err == nil {
+		t.Fatal("expected too many attachments to return an error")
+	}
+	if !strings.Contains(err.Error(), "too many attachments") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestFormatDialogAnswerIncludesAttachmentPaths(t *testing.T) {
 	answer := formatDialogAnswer("Use this", "With the screenshot.", []dialogAttachmentFile{{
 		Name: "screenshot.png",

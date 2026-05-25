@@ -27,6 +27,13 @@ import (
 // to suppress real browser windows.
 var openBrowserFn = browser.Open
 
+const (
+	maxDialogAnswerBytes          int64 = 16 * 1024 * 1024
+	maxDialogAttachmentCount            = 10
+	maxDialogAttachmentBytes            = 10 * 1024 * 1024
+	maxDialogAttachmentTotalBytes       = 16 * 1024 * 1024
+)
+
 type dialogAttachmentPayload struct {
 	Name string `json:"name"`
 	MIME string `json:"mime"`
@@ -73,7 +80,15 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		body, _ := io.ReadAll(r.Body)
+		body, readErr := readLimitedDialogBody(r.Body)
+		if readErr != nil {
+			http.Error(w, readErr.Error(), http.StatusRequestEntityTooLarge)
+			select {
+			case resultCh <- "[Dialog response rejected: " + readErr.Error() + "]":
+			default:
+			}
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 
@@ -204,9 +219,29 @@ func formatDialogAnswer(choice, notes string, attachments []dialogAttachmentFile
 	return strings.Join(parts, "\n\n")
 }
 
+func readLimitedDialogBody(r io.Reader) ([]byte, error) {
+	return readLimitedBody(r, maxDialogAnswerBytes, "dialog response")
+}
+
+func readLimitedBody(r io.Reader, maxBytes int64, label string) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", label, err)
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds maximum size of %d bytes", label, maxBytes)
+	}
+	return body, nil
+}
+
 func saveDialogAttachments(payloads []dialogAttachmentPayload) ([]dialogAttachmentFile, error) {
 	if len(payloads) == 0 {
 		return nil, nil
+	}
+	var errs []string
+	if len(payloads) > maxDialogAttachmentCount {
+		errs = append(errs, fmt.Sprintf("too many attachments: got %d, maximum is %d", len(payloads), maxDialogAttachmentCount))
+		payloads = payloads[:maxDialogAttachmentCount]
 	}
 	dir, err := os.MkdirTemp("", "bmcptools-ask-user-*")
 	if err != nil {
@@ -214,13 +249,17 @@ func saveDialogAttachments(payloads []dialogAttachmentPayload) ([]dialogAttachme
 	}
 
 	var files []dialogAttachmentFile
-	var errs []string
 	usedNames := make(map[string]struct{}, len(payloads))
 	seenData := make(map[[sha256.Size]byte]struct{}, len(payloads))
+	totalBytes := 0
 	for i, p := range payloads {
 		mimeType, raw, err := decodeImageDataURL(p.MIME, p.Data)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", fallbackAttachmentName(p.Name, i+1, ".png"), err))
+			continue
+		}
+		if len(raw) > maxDialogAttachmentBytes {
+			errs = append(errs, fmt.Sprintf("%s: image is %d bytes; maximum is %d bytes", fallbackAttachmentName(p.Name, i+1, extensionForImageMIME(mimeType)), len(raw), maxDialogAttachmentBytes))
 			continue
 		}
 		digest := sha256.Sum256(raw)
@@ -228,6 +267,11 @@ func saveDialogAttachments(payloads []dialogAttachmentPayload) ([]dialogAttachme
 			continue
 		}
 		seenData[digest] = struct{}{}
+		if totalBytes+len(raw) > maxDialogAttachmentTotalBytes {
+			errs = append(errs, fmt.Sprintf("%s: total attachment bytes would exceed %d bytes", fallbackAttachmentName(p.Name, i+1, extensionForImageMIME(mimeType)), maxDialogAttachmentTotalBytes))
+			continue
+		}
+		totalBytes += len(raw)
 		name := uniqueAttachmentName(fallbackAttachmentName(p.Name, i+1, extensionForImageMIME(mimeType)), usedNames)
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, raw, 0o600); err != nil {
@@ -242,6 +286,9 @@ func saveDialogAttachments(payloads []dialogAttachmentPayload) ([]dialogAttachme
 		})
 	}
 	if len(errs) > 0 {
+		if len(files) == 0 {
+			_ = os.RemoveAll(dir)
+		}
 		return files, errors.New(strings.Join(errs, "; "))
 	}
 	return files, nil
@@ -489,7 +536,15 @@ func makeRestHandler(htmlSource string) func(context.Context, mcp.CallToolReques
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
-			body, _ := io.ReadAll(r.Body)
+			body, readErr := readLimitedDialogBody(r.Body)
+			if readErr != nil {
+				http.Error(w, readErr.Error(), http.StatusRequestEntityTooLarge)
+				select {
+				case resultCh <- "[Rest response rejected: " + readErr.Error() + "]":
+				default:
+				}
+				return
+			}
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprint(w, "ok")
 

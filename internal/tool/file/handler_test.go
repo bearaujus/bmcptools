@@ -1,8 +1,11 @@
 package file
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -2116,6 +2119,43 @@ func TestCompressFilesZip(t *testing.T) {
 	r.Close()
 }
 
+func TestCompressFilesZipOutputInsideSourceSkipsArchive(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "hello.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(srcDir, "out.zip")
+	result, err := compressFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":  []any{srcDir},
+		"output": output,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+
+	r, err := zip.OpenReader(output)
+	if err != nil {
+		t.Fatalf("invalid zip archive: %v", err)
+	}
+	defer r.Close()
+	for _, entry := range r.File {
+		if entry.Name == "src/out.zip" {
+			t.Fatalf("archive included itself: entries=%v", r.File)
+		}
+	}
+	if len(r.File) != 1 || r.File[0].Name != "src/hello.txt" {
+		t.Fatalf("unexpected zip entries: %+v", r.File)
+	}
+}
+
 func TestCompressFilesTarGz(t *testing.T) {
 	dir := t.TempDir()
 
@@ -2149,6 +2189,60 @@ func TestCompressFilesTarGz(t *testing.T) {
 	}
 	if info.Size() == 0 {
 		t.Fatal("output archive is empty")
+	}
+}
+
+func TestCompressFilesTarGzOutputInsideSourceSkipsArchive(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "hello.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(srcDir, "out.tar.gz")
+	result, err := compressFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":  []any{srcDir},
+		"output": output,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+
+	f, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gr.Close()
+	tr := tar.NewReader(gr)
+	var names []string
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, header.Name)
+	}
+	for _, name := range names {
+		if name == "src/out.tar.gz" {
+			t.Fatalf("archive included itself: entries=%v", names)
+		}
+	}
+	if len(names) != 1 || names[0] != "src/hello.txt" {
+		t.Fatalf("unexpected tar entries: %v", names)
 	}
 }
 
@@ -2219,6 +2313,55 @@ func TestExtractArchiveZip(t *testing.T) {
 		if string(data) != content {
 			t.Errorf("file %s content = %q, want %q", name, string(data), content)
 		}
+	}
+}
+
+func TestExtractArchiveRejectsSymlinkParent(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "evil.zip")
+	zf, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(zf)
+	w, err := zw.Create("link/pwn.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("owned")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zf.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := filepath.Join(dir, "dest")
+	outside := filepath.Join(dir, "outside")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dest, "link")); err != nil {
+		t.Skipf("symlinks unavailable on this platform/user: %v", err)
+	}
+
+	result, err := extractArchiveHandler(nil, newTestRequest(map[string]any{
+		"archive": archivePath,
+		"output":  dest,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected extraction error for symlink parent, got: %s", resultText(result))
+	}
+	if _, err := os.Stat(filepath.Join(outside, "pwn.txt")); !os.IsNotExist(err) {
+		t.Fatalf("archive escaped through symlink; outside file stat err=%v", err)
 	}
 }
 

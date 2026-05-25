@@ -341,6 +341,8 @@ func (f *httpBodyFilter) applyMatches(body string) string {
 	findLimit := limit
 	if limit > 0 {
 		findLimit = limit + 1
+	} else if limit == 0 {
+		findLimit = -1
 	}
 	locs := f.findAll(body, findLimit)
 	limited := limit > 0 && len(locs) > limit

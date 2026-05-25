@@ -714,6 +714,28 @@ func TestHTTPRequestBodyFilterCountMode(t *testing.T) {
 	}
 }
 
+// Reason: body_filter_max_matches=0 is documented as unlimited, so matches mode
+// should not treat it as "return zero matches".
+func TestHTTPRequestBodyFilterZeroMaxMatchesMeansUnlimited(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "needle one needle two")
+	}))
+	defer srv.Close()
+
+	result, err := httpRequestHandler(context.Background(), newTestRequest(map[string]any{
+		"url":                     srv.URL,
+		"body_filter":             "needle",
+		"body_filter_max_matches": float64(0),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Body filter matched 2 occurrences") {
+		t.Errorf("expected unlimited matches when body_filter_max_matches=0: %q", text)
+	}
+}
+
 // Reason: A malformed regex should be rejected before making the request,
 // saving network work and returning a clear tool error to the agent.
 func TestHTTPRequestBodyFilterInvalidRegex(t *testing.T) {
