@@ -265,6 +265,7 @@ func TestApplyEditRegex(t *testing.T) {
 		{"regex first", "foo123bar foo456bar", `foo\d+bar`, "X", false, "X foo456bar", 1, false},
 		{"regex all", "foo123bar foo456bar", `foo\d+bar`, "X", true, "X X", 2, false},
 		{"backreference", "2024-01-15", `(\d{4})-(\d{2})-(\d{2})`, "$3/$2/$1", true, "15/01/2024", 1, false},
+		{"backreference first only", "name: alpha", `name: (\w+)`, "name=$1", false, "name=alpha", 1, false},
 		{"not found", "hello", `xyz\d+`, "x", false, "hello", 0, false},
 		{"invalid regex", "hello", "[invalid", "x", false, "", 0, true},
 	}

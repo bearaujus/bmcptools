@@ -82,7 +82,7 @@ For Claude Desktop / Cursor configs:
 | `read_file` | Read a file with encoding auto-detection. Defaults to a 256 KB context cap. Supports `start_line`/`end_line`, multi-range (`ranges` param), `head`/`tail`, `show_line_numbers`, and byte limits. Binary → base64. |
 | `write_file` | Create or overwrite a file. Auto-creates parent dirs. Returns a capped unified diff when overwriting (configurable via `show_diff`). |
 | `append_to_file` | Append content to a file (creates if absent). Returns new file size. |
-| `edit_file` | Surgical find-and-replace. Batch mode, Go regex, CRLF-transparent, capped diff, near-miss probe, dry-run. **Preferred for editing.** |
+| `edit_file` | Surgical find-and-replace. Batch mode, Go regex with backreferences, CRLF-transparent, capped diff, near-miss probe, dry-run. **Preferred for editing.** |
 | `delete_file` | Delete a single file. |
 | `copy_file` | Copy a file. Auto-creates destination parent dirs. |
 | `move_file` | Move or rename a file/directory. Cross-device safe. |
@@ -117,7 +117,7 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `search_files` | Find files/dirs by **name** (glob patterns: `*.go`, `**/*.json`, `{a,b}`). Concise relative paths by default, with details/absolute modes. |
+| `search_files` | Find files/dirs by **name** (glob patterns or Go regex with `use_regex`). Concise relative paths by default, with details/absolute modes and case-insensitive matching. |
 | `grep_files` | Find files by **content** (literal or regex). Auto/content/files/count output modes, pagination, multiline, glob/exclude filters, relative paths by default. |
 
 ### User interaction tools (6)
@@ -136,7 +136,7 @@ For Claude Desktop / Cursor configs:
 | Tool | Description |
 |------|-------------|
 | `get_working_directory` | CWD, OS, hostname, and compact key env summary. **Call first** to orient. |
-| `run_command` | Shell execution (`sh -c` / `cmd /C`). Timeout max 600 s. Supports detach, raw output, stdin, env vars, and default 256 KB output capping. |
+| `run_command` | Shell execution with selectable shell (`default`, `sh`, `bash`, `cmd`, `powershell`, `pwsh`). Timeout max 600 s. Supports detach, raw output, stdin, env vars, heredoc/here-string friendly command bodies, and default 256 KB output capping. |
 | `open_in_app` | Open file/dir/URL in default app. Cross-platform, non-blocking. |
 | `http_request` | HTTP client (all methods). JSON auto-pretty-print. Response body defaults to a 256 KB cap. Timeout max 300 s. |
 | `list_processes` | Running processes with PID, name, CPU/memory. Filter, sort, tune limit and command width. |

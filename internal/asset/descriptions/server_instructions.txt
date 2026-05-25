@@ -78,7 +78,7 @@ Both listing tools cap output at max_entries=500 by default. If output is trunca
 <!-- group:search -->
 ─── Search ────────────────────────────────────────────────────────────────────
 
-search_files — find files/dirs by NAME (glob patterns: *.go, **/*.json); concise relative paths by default
+search_files — find files/dirs by NAME (glob patterns: *.go, **/*.json, or Go regex with use_regex=true); concise relative paths by default
 grep_files   — find files by CONTENT (literal text or regex with use_regex=true); relative paths by default
 
 When to use which:
@@ -90,13 +90,17 @@ grep_files notes:
   • output_mode "auto" (default) shows matching lines when results fit within max_results (default 50); switches to file-path list when results are capped. Use "content" to force matching lines.
   • Use glob to include only relevant file types and exclude_patterns to prune noisy basenames such as node_modules, .git, dist, build, or generated files.
   • Use path_format="absolute" only when relative paths are ambiguous.
+search_files notes:
+  • Set use_regex=true for basename/path matching with ^, $, |, character classes, or start/end constraints.
+  • Regex patterns without / match only basenames; regex patterns with / match relative paths.
+  • Set case_insensitive=true when filesystem casing is unknown or irrelevant.
 
 <!-- group:exec -->
 ─── Shell ─────────────────────────────────────────────────────────────────────
 
 get_working_directory — OS, hostname, cwd, compact PATH summary (call first to orient)
-run_command           — execute shell commands (sh -c on Unix, cmd /C on Windows); output is capped at 256 KB by default, set max_output_bytes=0 only when you truly need unlimited output
-                        Platform note: cmd /C does NOT understand Unix syntax (`;`, heredocs, `$VAR`, single-quoted strings) — wrap in `powershell -NoProfile -Command "..."` for Windows.
+run_command           — execute shell commands; defaults to sh -c on Unix and cmd /C on Windows; set shell=sh/bash/powershell/pwsh when command syntax needs that shell. Output is capped at 256 KB by default; set max_output_bytes=0 only when you truly need unlimited output.
+                        Platform note: cmd /C does NOT understand Unix syntax (`;`, heredocs, `$VAR`, single-quoted strings). Use shell=sh/bash for heredocs and Unix syntax, or shell=powershell/pwsh for PowerShell here-strings.
 open_in_app           — open file/URL in default app
 
 <!-- group:system -->

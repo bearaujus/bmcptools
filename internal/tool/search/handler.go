@@ -34,6 +34,8 @@ func searchFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	recursive := req.GetBool("recursive", true)
 	showHidden := req.GetBool("show_hidden", false)
 	excludePatterns := req.GetStringSlice("exclude_patterns", nil)
+	useRegex := req.GetBool("use_regex", false)
+	caseInsensitive := req.GetBool("case_insensitive", false)
 	outputMode := req.GetString("output_mode", "paths")
 	if outputMode != "details" {
 		outputMode = "paths"
@@ -57,6 +59,11 @@ func searchFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	}
 	if !rootInfo.IsDir() {
 		return mcp.NewToolResultError("path must be a directory"), nil
+	}
+
+	matchPath, err := makeNameMatcher(pattern, useRegex, caseInsensitive)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	var matches []string
@@ -99,7 +106,7 @@ func searchFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 		}
 		relPath = strings.ReplaceAll(relPath, "\\", "/")
 
-		matched, matchErr := matchGlobPath(pattern, relPath)
+		matched, matchErr := matchPath(relPath)
 		if matchErr != nil {
 			return matchErr
 		}
@@ -148,6 +155,41 @@ func searchFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func makeNameMatcher(pattern string, useRegex, caseInsensitive bool) (func(string) (bool, error), error) {
+	if useRegex {
+		regexPattern := pattern
+		if caseInsensitive {
+			regexPattern = "(?i)" + regexPattern
+		}
+		re, err := regexp.Compile(regexPattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regex %q: %w", pattern, err)
+		}
+		matchRelativePath := strings.Contains(pattern, "/")
+		return func(relPath string) (bool, error) {
+			target := relPath
+			if !matchRelativePath {
+				if idx := strings.LastIndexByte(relPath, '/'); idx >= 0 {
+					target = relPath[idx+1:]
+				}
+			}
+			return re.MatchString(target), nil
+		}, nil
+	}
+
+	globPattern := pattern
+	if caseInsensitive {
+		globPattern = strings.ToLower(globPattern)
+	}
+	return func(relPath string) (bool, error) {
+		target := relPath
+		if caseInsensitive {
+			target = strings.ToLower(target)
+		}
+		return matchGlobPath(globPattern, target)
+	}, nil
 }
 
 func normalizePathFormat(value string) string {

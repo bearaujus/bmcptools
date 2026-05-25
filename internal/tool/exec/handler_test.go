@@ -3,6 +3,7 @@ package exec
 import (
 	"fmt"
 	"os"
+	osexec "os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -204,6 +205,60 @@ func TestRunCommandStdin(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "hello from stdin") {
 		t.Errorf("expected stdin content in output: %q", text)
+	}
+}
+
+func TestRunCommandShellInvalid(t *testing.T) {
+	result, err := runCommandHandler(nil, newTestRequest(map[string]any{
+		"command": "echo hello",
+		"shell":   "definitely-not-a-shell",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatal("expected error for unsupported shell")
+	}
+	if !strings.Contains(resultText(result), "unsupported shell") {
+		t.Errorf("expected unsupported shell message, got: %q", resultText(result))
+	}
+}
+
+func TestRunCommandShellSHHereDoc(t *testing.T) {
+	if _, err := osexec.LookPath("sh"); err != nil {
+		t.Skip("sh is not available")
+	}
+	result, err := runCommandHandler(nil, newTestRequest(map[string]any{
+		"command": "cat <<'EOF'\nhello heredoc\nEOF",
+		"shell":   "sh",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "hello heredoc") {
+		t.Errorf("expected heredoc output, got: %q", resultText(result))
+	}
+}
+
+func TestRunCommandShellPowerShellHereString(t *testing.T) {
+	if _, err := osexec.LookPath("powershell"); err != nil {
+		t.Skip("powershell is not available")
+	}
+	result, err := runCommandHandler(nil, newTestRequest(map[string]any{
+		"command": "@'\nhello here-string\n'@",
+		"shell":   "powershell",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "hello here-string") {
+		t.Errorf("expected here-string output, got: %q", resultText(result))
 	}
 }
 

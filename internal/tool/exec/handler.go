@@ -98,13 +98,12 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	detachFlag := req.GetBool("detach", false)
 	rawOutput := req.GetBool("raw_output", false)
 	extraEnv := req.GetStringSlice("env", nil)
+	shellName := req.GetString("shell", "")
 
 	if detachFlag {
-		var cmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			cmd = exec.Command("cmd", "/C", command)
-		} else {
-			cmd = exec.Command("sh", "-c", command)
+		cmd, shellLabel, shellErr := newShellCommand(nil, shellName, command)
+		if shellErr != nil {
+			return mcp.NewToolResultError(shellErr.Error()), nil
 		}
 		if cwd != "" {
 			cmd.Dir = cwd
@@ -134,6 +133,7 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		fmt.Fprintf(&sb, "Detached process started.\n")
 		fmt.Fprintf(&sb, "PID:     %d\n", pid)
 		fmt.Fprintf(&sb, "Command: %s\n", command)
+		fmt.Fprintf(&sb, "Shell:   %s\n", shellLabel)
 		fmt.Fprintf(&sb, "cwd:     %s\n", resolvedCWD)
 		fmt.Fprintf(&sb, "\nOutput is not captured. Use list_processes(filter=%q) to check status.", command[:min(30, len(command))])
 		return mcp.NewToolResultText(sb.String()), nil
@@ -142,11 +142,9 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(cmdCtx, "cmd", "/C", command)
-	} else {
-		cmd = exec.CommandContext(cmdCtx, "sh", "-c", command)
+	cmd, shellLabel, shellErr := newShellCommand(cmdCtx, shellName, command)
+	if shellErr != nil {
+		return mcp.NewToolResultError(shellErr.Error()), nil
 	}
 	if cwd != "" {
 		cmd.Dir = cwd
@@ -197,6 +195,7 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 
 	fmt.Fprintf(&sb, "$ %s\n", command)
 	fmt.Fprintf(&sb, "cwd: %s\n", resolvedCWD)
+	fmt.Fprintf(&sb, "shell: %s\n", shellLabel)
 	fmt.Fprintf(&sb, "exit: %d  elapsed: %s\n\n", exitCode, elapsed.Round(time.Millisecond))
 	sb.WriteString(capture.String())
 
@@ -204,6 +203,43 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError(sb.String()), nil
 	}
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func newShellCommand(ctx context.Context, shell, command string) (*exec.Cmd, string, error) {
+	exe, args, label, err := shellCommandParts(shell, command)
+	if err != nil {
+		return nil, "", err
+	}
+	if ctx != nil {
+		return exec.CommandContext(ctx, exe, args...), label, nil
+	}
+	return exec.Command(exe, args...), label, nil
+}
+
+func shellCommandParts(shell, command string) (string, []string, string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(shell))
+	if normalized == "" || normalized == "default" {
+		if runtime.GOOS == "windows" {
+			normalized = "cmd"
+		} else {
+			normalized = "sh"
+		}
+	}
+
+	switch normalized {
+	case "cmd", "cmd.exe":
+		return "cmd", []string{"/C", command}, "cmd", nil
+	case "powershell", "powershell.exe":
+		return "powershell", []string{"-NoProfile", "-NonInteractive", "-Command", command}, "powershell", nil
+	case "pwsh", "pwsh.exe":
+		return "pwsh", []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}, "pwsh", nil
+	case "bash":
+		return "bash", []string{"-lc", command}, "bash", nil
+	case "sh":
+		return "sh", []string{"-c", command}, "sh", nil
+	default:
+		return "", nil, "", fmt.Errorf("unsupported shell %q; use default, sh, bash, cmd, powershell, or pwsh", shell)
+	}
 }
 
 type outputCapture struct {

@@ -21,11 +21,12 @@ func ApplyEdit(original, oldStr, newStr string, useRegex, replaceAll bool) (stri
 			count := len(re.FindAllString(original, -1))
 			return re.ReplaceAllString(original, newStr), count, nil
 		}
-		loc := re.FindStringIndex(original)
+		loc := re.FindStringSubmatchIndex(original)
 		if loc == nil {
 			return original, 0, nil
 		}
-		result := original[:loc[0]] + newStr + original[loc[1]:]
+		replacement := re.ExpandString(nil, newStr, original, loc)
+		result := original[:loc[0]] + string(replacement) + original[loc[1]:]
 		return result, 1, nil
 	}
 

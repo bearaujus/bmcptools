@@ -1,12 +1,14 @@
 {
   "search_files": {
-    "desc": "Find files and directories by NAME using glob patterns. Use when you know (part of) the name but not the location. Returns concise relative paths by default to conserve AI context. Patterns without / match filename only; patterns with / or ** match the full relative path. For searching file CONTENTS, use grep_files instead.",
+    "desc": "Find files and directories by NAME using glob patterns or Go regex (use_regex=true). Use when you know (part of) the name but not the location. Returns concise relative paths by default to conserve AI context. Patterns without / match filename only; patterns with / or ** match the full relative path. For searching file CONTENTS, use grep_files instead.",
     "params": {
       "path": "Root directory to search from. Defaults to the server's current working directory.",
       "pattern": "Glob pattern (e.g. *.go, **/*.json, {src,lib}/**/*.ts). Required.",
       "recursive": "Search subdirectories recursively. Default: true.",
       "max_results": "Maximum results to return. Default: 100.",
       "show_hidden": "Include hidden files/directories. Default: false.",
+      "use_regex": "Treat pattern as a Go regular expression instead of a glob. If the regex contains no /, it is matched against each basename; otherwise it is matched against the relative path. Default: false.",
+      "case_insensitive": "Case-insensitive name matching for glob or regex mode. Default: false.",
       "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). Matching directories are pruned. Use to skip node_modules, .git, vendor, dist, build, or generated files.",
       "output_mode": "\"paths\" (default) returns one path per line. \"details\" includes type, size, and modification time.",
       "path_format": "\"relative\" (default) returns paths relative to the search root. \"absolute\" returns absolute paths.",

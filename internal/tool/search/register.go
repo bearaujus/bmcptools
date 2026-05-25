@@ -17,6 +17,8 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("recursive", mcp.Description(asset.ParamDesc(toolname.SearchFiles, "recursive"))),
 		mcp.WithNumber("max_results", mcp.Description(asset.ParamDesc(toolname.SearchFiles, "max_results"))),
 		mcp.WithBoolean("show_hidden", mcp.Description(asset.ParamDesc(toolname.SearchFiles, "show_hidden"))),
+		mcp.WithBoolean("use_regex", mcp.Description(asset.ParamDesc(toolname.SearchFiles, "use_regex"))),
+		mcp.WithBoolean("case_insensitive", mcp.Description(asset.ParamDesc(toolname.SearchFiles, "case_insensitive"))),
 		mcp.WithArray("exclude_patterns",
 			mcp.Description(asset.ParamDesc(toolname.SearchFiles, "exclude_patterns")),
 			mcp.Items(map[string]any{"type": "string"}),

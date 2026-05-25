@@ -235,6 +235,33 @@ func TestEditFileHandlerReplaceAll(t *testing.T) {
 	}
 }
 
+func TestEditFileHandlerRegexBackreferenceFirstOnly(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "version.txt")
+	if err := os.WriteFile(f, []byte("version = 1.2.3\nversion = 4.5.6\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := newTestRequest(map[string]any{
+		"path":      f,
+		"old_str":   `version = (\d+)\.(\d+)\.(\d+)`,
+		"new_str":   "version = $3.$2.$1",
+		"use_regex": true,
+	})
+	result, err := editFileHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	data, _ := os.ReadFile(f)
+	got := string(data)
+	want := "version = 3.2.1\nversion = 4.5.6\n"
+	if got != want {
+		t.Errorf("regex first replacement = %q, want %q", got, want)
+	}
+}
+
 // ── delete_file ──────────────────────────────────────────────────────────────
 
 func TestDeleteFileHandler(t *testing.T) {

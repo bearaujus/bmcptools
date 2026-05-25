@@ -513,6 +513,103 @@ func TestSearchFilesPathGlob(t *testing.T) {
 	}
 }
 
+func TestSearchFilesRegexBasenameAndPath(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	docs := filepath.Join(dir, "docs")
+	if err := os.Mkdir(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(docs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "report_2026.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "report_2026.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "report_old.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	basenameResult, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   `^report_\d+\.md$`,
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	basenameText := resultText(basenameResult)
+	if !strings.Contains(basenameText, "src/report_2026.md") || !strings.Contains(basenameText, "docs/report_2026.md") {
+		t.Errorf("basename regex should match files in any directory: %q", basenameText)
+	}
+	if strings.Contains(basenameText, "report_old.md") {
+		t.Errorf("basename regex should exclude non-matching basename: %q", basenameText)
+	}
+
+	pathResult, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   `^src/report_\d+\.md$`,
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathText := resultText(pathResult)
+	if !strings.Contains(pathText, "src/report_2026.md") {
+		t.Errorf("path regex should match src/report_2026.md: %q", pathText)
+	}
+	if strings.Contains(pathText, "docs/report_2026.md") {
+		t.Errorf("path regex should not match docs/report_2026.md: %q", pathText)
+	}
+}
+
+func TestSearchFilesCaseInsensitiveGlob(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Report.TXT"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	caseSensitive, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"pattern": "*.txt",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(resultText(caseSensitive), "Report.TXT") {
+		t.Errorf("case-sensitive glob should not match Report.TXT: %q", resultText(caseSensitive))
+	}
+
+	caseInsensitive, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":             dir,
+		"pattern":          "*.txt",
+		"case_insensitive": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resultText(caseInsensitive), "Report.TXT") {
+		t.Errorf("case-insensitive glob should match Report.TXT: %q", resultText(caseInsensitive))
+	}
+}
+
+func TestSearchFilesInvalidRegex(t *testing.T) {
+	result, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      t.TempDir(),
+		"pattern":   "[unclosed",
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected invalid regex to return tool error, got: %q", resultText(result))
+	}
+}
+
 // ── matchGlobPath additional cases ───────────────────────────────────────────
 
 func TestMatchGlobPathDeep(t *testing.T) {

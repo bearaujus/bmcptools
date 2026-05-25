@@ -4,7 +4,7 @@
     "params": {}
   },
   "run_command": {
-    "desc": "Execute a shell command and return combined stdout+stderr. Runs via sh -c on Unix, cmd /C on Windows. IMPORTANT: cmd /C does NOT understand Unix shell syntax — `;`, heredocs, single-quoted strings, and `$VAR` expansion do not work; use `powershell -NoProfile -Command \"...\"` or `bash -c \"...\"` for Unix-style scripting on Windows. Output is captured with a default cap to avoid flooding AI context. detach=true for fire-and-forget processes: returns the PID immediately with no captured output — use list_processes to check status. Timeout default: 60 s, max: 600 s.",
+    "desc": "Execute a shell command and return combined stdout+stderr. Defaults to sh -c on Unix and cmd /C on Windows, but shell can be set to sh, bash, cmd, powershell, or pwsh for quoting/heredoc-heavy scripts. Output is captured with a default cap to avoid flooding AI context. detach=true for fire-and-forget processes: returns the PID immediately with no captured output — use list_processes to check status. Timeout default: 60 s, max: 600 s.",
     "params": {
       "command": "Command string to execute. Chain with && / ; / | as needed. Quote arguments containing spaces.",
       "cwd": "Working directory. Defaults to server's working directory.",
@@ -12,6 +12,7 @@
       "env": "Extra environment variables as [\"KEY=value\", ...]. Merged with current env.",
       "max_output_bytes": "Truncate output to this many bytes. Default: 262144 (256 KB). Set 0 for unlimited.",
       "stdin": "Content piped to the command's standard input.",
+      "shell": "Shell wrapper to use: default, sh, bash, cmd, powershell, or pwsh. Use bash/sh for heredocs and Unix syntax; use powershell/pwsh for PowerShell here-strings on Windows.",
       "allow_nonzero_exit": "Return non-zero exit codes as success instead of raising an error. Default: false.",
       "raw_output": "Omit metadata header (command echo, cwd, exit code) — return only stdout/stderr. Use when parsing programmatic output (e.g. JSON). Default: false.",
       "detach": "Start the process detached (new session via setsid on Unix). Returns immediately with the PID; output is not captured. Use list_processes to monitor. Ignores timeout_seconds, stdin, and max_output_bytes. Default: false."
