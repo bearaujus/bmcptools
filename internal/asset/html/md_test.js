@@ -1,15 +1,7 @@
 // md_test.js — automated tests for mdRender
 // Run: node md_test.js
 
-// Mock browser globals so md.js can attach to "window"
-var window = {};
-
-// Load md.js via eval so it binds to our mock window
-var fs = require('fs');
-var path = require('path');
-eval(fs.readFileSync(path.join(__dirname, 'md.js'), 'utf8'));
-
-var mdRender = window.mdRender;
+var mdRender = require('./md.js').mdRender;
 var passed = 0, failed = 0;
 
 function assert(name, condition, detail) {
@@ -140,8 +132,8 @@ function assertNotContains(name, html, substr) {
 })();
 
 (function() {
-  var html = mdRender('[text](https://example.com)');
-  assertContains('link href', html, 'href="https://example.com"');
+  var html = mdRender('[text](/docs)');
+  assertContains('link href', html, 'href="/docs"');
   assertContains('link text', html, '>text</a>');
 })();
 
@@ -250,7 +242,7 @@ function assertNotContains(name, html, substr) {
 
 (function() {
   // Link opens in new tab
-  var html = mdRender('[click](http://x.com)');
+  var html = mdRender('[click](/target)');
   assertContains('link target blank', html, 'target="_blank"');
   assertContains('link noopener', html, 'rel="noopener noreferrer"');
 })();

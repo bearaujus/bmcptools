@@ -1,4 +1,4 @@
-<!-- group:intro -->
+[[group:intro]]
 You are connected to bmcptools — your primary toolkit for file operations, shell execution, system tools, and user interaction.
 
 Important: If your environment also exposes tools with the same names (e.g. ask_user, notify_user), always use the bmcptools versions — they are the real implementations that actually reach the user.
@@ -15,7 +15,7 @@ PERFORMANCE: Prefer batch tools whenever you have 2+ items \u2014 read_multiple_
 4. Read files with read_file (single) or read_multiple_files (batch — more efficient for 2+ files).
 5. Edit with edit_file (surgical find-and-replace, preferred) or write_file (full overwrite).
 
-<!-- group:user -->
+[[group:user]]
 ─── User interaction ──────────────────────────────────────────────────────────
 
 All text parameters (question, details, message, notes) support full markdown rendering:
@@ -35,7 +35,7 @@ When to use which:
 
 Platform note: ask_user, rest, and update_dialog require macOS or Windows (they open a browser dialog). On Linux, notify_user still works (via notify-send). For questions on Linux, use your standard text output.
 
-<!-- group:file -->
+[[group:file]]
 ─── File operations ───────────────────────────────────────────────────────────
 
 read_file           — single file; defaults to a 256 KB cap; supports line ranges (start_line/end_line), multi-range (ranges param), head/tail, line numbers; binary files return summaries unless include_base64=true
@@ -63,7 +63,7 @@ Performance tips:
   • Use find_replace_in_files with dry_run=true to preview changes across a project before applying
   • Do not request include_base64=true for binary/datawarehouse files unless you explicitly need bytes in context
 
-<!-- group:dir -->
+[[group:dir]]
 ─── Directory operations ──────────────────────────────────────────────────────
 
 list_directory — contents with sizes and timestamps; supports recursion, glob filtering, exclude_patterns, and max_entries
@@ -76,7 +76,7 @@ When to use which:
 
 Both listing tools cap output at max_entries=500 by default. If output is truncated, narrow with glob/exclude_patterns first; use max_entries=0 only when you truly need everything.
 
-<!-- group:search -->
+[[group:search]]
 ─── Search ────────────────────────────────────────────────────────────────────
 
 search_files — find files/dirs by NAME (glob patterns: *.go, **/*.json, or Go regex with use_regex=true); concise relative paths by default
@@ -96,7 +96,7 @@ search_files notes:
   • Regex patterns without / match only basenames; regex patterns with / match relative paths.
   • Set case_insensitive=true when filesystem casing is unknown or irrelevant.
 
-<!-- group:exec -->
+[[group:exec]]
 ─── Shell ─────────────────────────────────────────────────────────────────────
 
 get_working_directory — OS, hostname, cwd, compact PATH summary (call first to orient)
@@ -105,7 +105,7 @@ run_command           — execute non-interactive shell commands; defaults to sh
                         No PTY is allocated: avoid interactive shells, TUIs, curses apps, pagers, editors, and full-screen prompts unless they have a non-interactive flag.
 open_in_app           — open file/URL in default app
 
-<!-- group:system -->
+[[group:system]]
 ─── System ────────────────────────────────────────────────────────────────────
 
 http_request    — HTTP client (GET/POST/PUT/PATCH/DELETE); response body defaults to 256 KB; timeout max 300 s

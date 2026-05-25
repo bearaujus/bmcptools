@@ -57,6 +57,9 @@ func TestServerInstructionsForGroups(t *testing.T) {
 	if full == "" {
 		t.Fatal("full instructions are empty")
 	}
+	if strings.Contains(full, "[[group:") || strings.Contains(full, "<!--") {
+		t.Fatal("full instructions should not expose internal group markers")
+	}
 
 	fileOnly := asset.ServerInstructionsForGroups("file")
 	if !strings.Contains(fileOnly, "File operations") {
@@ -64,6 +67,9 @@ func TestServerInstructionsForGroups(t *testing.T) {
 	}
 	if strings.Contains(fileOnly, "User interaction") {
 		t.Error("file-group instructions should NOT contain 'User interaction'")
+	}
+	if strings.Contains(fileOnly, "[[group:") || strings.Contains(fileOnly, "<!--") {
+		t.Fatal("scoped instructions should not expose internal group markers")
 	}
 
 	noGroups := asset.ServerInstructionsForGroups()

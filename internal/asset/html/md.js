@@ -147,13 +147,10 @@ function mdRender(raw) {
   // yields real markdown. Iterates the same regex used by the renderer below
   // in the same order, so indices line up.
   var rawTables = [];
-  (function() {
-    var re = /((?:^\|.+\|[ \t]*\n?)+)/gm;
-    var m;
-    while ((m = re.exec(s)) !== null) {
-      rawTables.push(m[1].trim());
-    }
-  })();
+  var tableMatches = s.match(/(?:^\|.+\|[ \t]*\n?)+/gm) || [];
+  for (var tableMatchIndex = 0; tableMatchIndex < tableMatches.length; tableMatchIndex++) {
+    rawTables.push(tableMatches[tableMatchIndex].trim());
+  }
 
   // Now HTML-escape the rest
   s = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -392,4 +389,16 @@ global.fmtSec = fmtSec;
 global.clipCopy = clipCopy;
 global.DoubleConfirm = DoubleConfirm;
 
-})(window);
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    mdRender: mdRender,
+    copyCode: copyCode,
+    copyTable: copyTable,
+    toggleCode: toggleCode,
+    fmtSec: fmtSec,
+    clipCopy: clipCopy,
+    DoubleConfirm: DoubleConfirm
+  };
+}
+
+})(typeof window !== 'undefined' ? window : globalThis);

@@ -125,10 +125,10 @@ type groupSection struct {
 	content string
 }
 
-// parseGroupSections splits the instruction text by <!-- group:xxx --> markers.
+// parseGroupSections splits the instruction text by [[group:xxx]] markers.
 func parseGroupSections(text string) []groupSection {
-	const prefix = "<!-- group:"
-	const suffix = " -->"
+	const prefix = "[[group:"
+	const suffix = "]]"
 	lines := strings.Split(text, "\n")
 
 	var sections []groupSection
@@ -155,9 +155,9 @@ func parseGroupSections(text string) []groupSection {
 	return sections
 }
 
-// stripGroupMarkers removes <!-- group:xxx --> lines from the text.
+// stripGroupMarkers removes [[group:xxx]] lines from the text.
 func stripGroupMarkers(text string) string {
-	const prefix = "<!-- group:"
+	const prefix = "[[group:"
 	lines := strings.Split(text, "\n")
 	var out []string
 	for _, line := range lines {

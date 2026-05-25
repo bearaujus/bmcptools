@@ -39,7 +39,7 @@ If your tool lives in a brand-new `internal/tool/<group>/` package (i.e. not one
 
 1. Add a `Group<Name>` constant in `server.go` and append it to `AllGroups()`.
 2. Wrap the new `xxx.Register(reg)` call in `Register()` with `if !cfg.disableGroups[Group<Name>] { ... }`.
-3. Add a `<!-- group:<name> -->` marker line in `internal/asset/descriptions/server_instructions.txt` immediately above your section so `ServerInstructionsExcludingGroups` can strip it.
+3. Add a `[[group:<name>]]` marker line in `internal/asset/descriptions/server_instructions.txt` immediately above your section so `ServerInstructionsExcludingGroups` can strip it.
 
 ## Architecture overview
 
