@@ -100,8 +100,9 @@ search_files notes:
 ─── Shell ─────────────────────────────────────────────────────────────────────
 
 get_working_directory — OS, hostname, cwd, compact PATH summary (call first to orient)
-run_command           — execute shell commands; defaults to sh -c on Unix and cmd /C on Windows; set shell=sh/bash/powershell/pwsh when command syntax needs that shell. Output is capped at 256 KB by default; set max_output_bytes=0 only when you truly need unlimited output.
+run_command           — execute non-interactive shell commands; defaults to sh -c on Unix and cmd /C on Windows; set shell=sh/bash/powershell/pwsh when command syntax needs that shell. Output is capped at 256 KB by default; set max_output_bytes=0 only when you truly need unlimited output. Use short timeout_seconds for risky commands; timeout attempts to kill the process tree. Use stdin for scripted prompts and detach=true for long-running services/watchers.
                         Platform note: cmd /C does NOT understand Unix syntax (`;`, heredocs, `$VAR`, single-quoted strings). Use shell=sh/bash for heredocs and Unix syntax, or shell=powershell/pwsh for PowerShell here-strings.
+                        No PTY is allocated: avoid interactive shells, TUIs, curses apps, pagers, editors, and full-screen prompts unless they have a non-interactive flag.
 open_in_app           — open file/URL in default app
 
 <!-- group:system -->

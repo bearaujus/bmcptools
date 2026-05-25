@@ -136,7 +136,7 @@ For Claude Desktop / Cursor configs:
 | Tool | Description |
 |------|-------------|
 | `get_working_directory` | CWD, OS, hostname, and compact key env summary. **Call first** to orient. |
-| `run_command` | Shell execution with selectable shell (`default`, `sh`, `bash`, `cmd`, `powershell`, `pwsh`). Timeout max 600 s. Supports detach, raw output, stdin, env vars, heredoc/here-string friendly command bodies, and default 256 KB output capping. |
+| `run_command` | Non-interactive shell execution with selectable shell (`default`, `sh`, `bash`, `cmd`, `powershell`, `pwsh`). Timeout max 600 s with process-tree termination, fractional seconds, detach for long-running services, raw output, stdin, env vars, heredoc/here-string friendly command bodies, and default 256 KB output capping. No PTY/TUI support. |
 | `open_in_app` | Open file/dir/URL in default app. Cross-platform, non-blocking. |
 | `http_request` | HTTP client (all methods). JSON auto-pretty-print. Response body defaults to a 256 KB cap. Timeout max 300 s. |
 | `list_processes` | Running processes with PID, name, CPU/memory. Filter, sort, tune limit and command width. |

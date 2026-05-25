@@ -415,6 +415,57 @@ func TestRunCommandTimeoutZeroClamped(t *testing.T) {
 	}
 }
 
+func TestRunCommandFractionalTimeoutAllowsFastCommand(t *testing.T) {
+	req := newTestRequest(map[string]any{
+		"command":         "echo ok",
+		"timeout_seconds": 0.5,
+	})
+	result, err := runCommandHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("fractional timeout should not truncate to zero: %s", resultText(result))
+	}
+}
+
+func TestRunCommandTimeoutKillsCommand(t *testing.T) {
+	var command, shell string
+	if runtime.GOOS == "windows" {
+		if _, err := osexec.LookPath("powershell"); err != nil {
+			t.Skip("powershell is not available")
+		}
+		shell = "powershell"
+		command = "Write-Output before; Start-Sleep -Milliseconds 500; Write-Output after"
+	} else {
+		shell = "sh"
+		command = "echo before; sleep 1; echo after"
+	}
+
+	result, err := runCommandHandler(nil, newTestRequest(map[string]any{
+		"command":         command,
+		"shell":           shell,
+		"timeout_seconds": 0.1,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected timeout error, got: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "command timed out") {
+		t.Errorf("expected timeout message: %q", text)
+	}
+	partial := text
+	if idx := strings.Index(text, "Partial output:"); idx >= 0 {
+		partial = text[idx:]
+	}
+	if strings.Contains(partial, "after") {
+		t.Errorf("command appears to have continued after timeout: %q", text)
+	}
+}
+
 // Reason: timeout_seconds > 600 should clamp to 600. A rogue LLM calling
 // run_command with timeout=99999 would otherwise tie up the worker indefinitely.
 func TestRunCommandTimeoutAboveMaxClamped(t *testing.T) {

@@ -139,13 +139,18 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultText(sb.String()), nil
 	}
 
-	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	timeout := time.Duration(timeoutSec * float64(time.Second))
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd, shellLabel, shellErr := newShellCommand(cmdCtx, shellName, command)
 	if shellErr != nil {
 		return mcp.NewToolResultError(shellErr.Error()), nil
 	}
+	configureTimeoutCommand(cmd)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
