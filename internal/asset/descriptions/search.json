@@ -1,11 +1,11 @@
 {
   "search_files": {
-    "desc": "Find files and directories by NAME using glob patterns or Go regex (use_regex=true). Use when you know (part of) the name but not the location. Returns concise relative paths by default to conserve AI context. Patterns without / match filename only; patterns with / or ** match the full relative path. For searching file CONTENTS, use grep_files instead.",
+    "desc": "Find files and directories by NAME using glob patterns or Go regex (use_regex=true). Use when you know all or part of a filename/path but not its location. Returns concise relative paths by default. Patterns without / match basenames; patterns with / or ** match relative paths. For file CONTENTS, use grep_files instead.",
     "params": {
       "path": "Root directory to search from. Defaults to the server's current working directory.",
       "pattern": "Glob pattern (e.g. *.go, **/*.json, {src,lib}/**/*.ts). Required.",
       "recursive": "Search subdirectories recursively. Default: true.",
-      "max_results": "Maximum results to return. Default: 100.",
+      "max_results": "Maximum results to return. Default: 100. Narrow with pattern/exclude_patterns before raising this.",
       "show_hidden": "Include hidden files/directories. Default: false.",
       "use_regex": "Treat pattern as a Go regular expression instead of a glob. If the regex contains no /, it is matched against each basename; otherwise it is matched against the relative path. Default: false.",
       "case_insensitive": "Case-insensitive name matching for glob or regex mode. Default: false.",
@@ -16,7 +16,7 @@
     }
   },
   "grep_files": {
-    "desc": "Search file CONTENTS for a pattern. Returns matching lines with file path and line number. Uses relative paths by default to conserve AI context. For finding files by NAME, use search_files instead. output_mode 'auto' (default) shows matching lines when results fit within max_results, then falls back to file-path-only when capped — use 'content' or 'files_with_matches' for predictable output. Supports Go regex, context lines, pagination via offset, glob/exclude filtering, and cross-line multiline patterns.",
+    "desc": "Search file CONTENTS for a pattern. Use for code/content search; use search_files for names. Relative paths are returned by default. output_mode=\"auto\" shows matching lines when results fit, then falls back to a file list when capped. Supports literal or Go regex search, context lines, pagination via offset, glob/exclude filtering, multiline mode, and max_file_size for large/generated/data files.",
     "params": {
       "path": "File or directory to search. Defaults to the server's current working directory.",
       "pattern": "Literal text or regular expression to search for. Required.",
@@ -26,11 +26,11 @@
       "context_lines": "Lines before and after each match to include. Default: 0. Max: 50.",
       "max_results": "Max matches per page (content mode). Default: 50.",
       "offset": "Skip the first N matches for pagination. Default: 0.",
-      "glob": "Only search files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Default: all files.",
+      "glob": "Only search files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Strongly prefer setting this in large projects. Default: all files.",
       "output_mode": "\"auto\" (default) — adapts based on result count. \"content\" — always show matching lines. \"files_with_matches\" — only file paths. \"count\" — match counts per file.",
       "show_hidden": "Include hidden files. Default: false.",
       "multiline": "Enable patterns that span multiple lines. Default: false.",
-      "max_file_size": "Skip files larger than this many bytes. Default: 0 (no limit).",
+      "max_file_size": "Skip files larger than this many bytes. Default: 0 (no limit). Set this when searching large repos with logs, exports, databases, or generated files.",
       "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). Matching directories are pruned before searching. Use to skip node_modules, .git, vendor, dist, build, or generated files.",
       "path_format": "\"relative\" (default) returns paths relative to the search root. \"absolute\" returns absolute paths."
     }

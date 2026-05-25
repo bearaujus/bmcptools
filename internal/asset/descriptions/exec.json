@@ -4,17 +4,17 @@
     "params": {}
   },
   "run_command": {
-    "desc": "Execute a shell command and return combined stdout+stderr. Defaults to sh -c on Unix and cmd /C on Windows, but shell can be set to sh, bash, cmd, powershell, or pwsh for quoting/heredoc-heavy scripts. This is non-interactive and does not allocate a PTY, so TUI/full-screen prompts may fail or hang until timeout; use stdin for scripted input and detach=true for long-running services. Output is captured with a default cap to avoid flooding AI context. Timeout default: 60 s, max: 600 s.",
+    "desc": "Execute a non-interactive shell command and return combined stdout+stderr. Defaults to sh -c on Unix and cmd /C on Windows; set shell to sh, bash, cmd, powershell, or pwsh when syntax requires it. This is standard bounded exec, not a terminal: no PTY, no TUI/full-screen apps, no interactive prompts unless they can read scripted stdin. Use detach=true for long-running servers/watchers. Output is capped by default and timeout attempts to kill the process tree.",
     "params": {
-      "command": "Command string to execute. Chain with && / ; / | as needed. Quote arguments containing spaces.",
+      "command": "Command string executed by the selected shell. Keep it non-interactive; use stdin for scripted input and detach=true for servers/watchers.",
       "cwd": "Working directory. Defaults to server's working directory.",
-      "timeout_seconds": "Seconds before killing the command, including fractional seconds. Default: 60, max: 600. Timeout attempts to terminate the process tree.",
+      "timeout_seconds": "Seconds before killing the command, including fractional seconds. Default: 60, max: 600. Use short values for risky commands; timeout attempts to terminate the process tree.",
       "env": "Extra environment variables as [\"KEY=value\", ...]. Merged with current env.",
       "max_output_bytes": "Truncate output to this many bytes. Default: 262144 (256 KB). Set 0 for unlimited.",
       "stdin": "Content piped to the command's standard input. Use this for scripted input; interactive prompts/TUIs are not supported because no PTY is allocated.",
       "shell": "Shell wrapper to use: default, sh, bash, cmd, powershell, or pwsh. Use bash/sh for heredocs and Unix syntax; use powershell/pwsh for PowerShell here-strings on Windows.",
       "allow_nonzero_exit": "Return non-zero exit codes as success instead of raising an error. Default: false.",
-      "raw_output": "Omit metadata header (command echo, cwd, exit code) — return only stdout/stderr. Use when parsing programmatic output (e.g. JSON). Default: false.",
+      "raw_output": "Omit metadata header (command echo, cwd, shell, exit code) — return only stdout/stderr. Use when parsing programmatic output (e.g. JSON). Default: false.",
       "detach": "Start the process detached for long-running services or watchers. Returns immediately with the PID; output is not captured. Use list_processes to monitor. Ignores timeout_seconds, stdin, and max_output_bytes. Default: false."
     }
   },
