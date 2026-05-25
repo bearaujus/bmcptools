@@ -1,122 +1,122 @@
 {
   "read_file": {
-    "desc": "Read file contents. Text files are returned as UTF-8; binary files return a compact summary by default and only include base64 when include_base64=true. For large files, use head/tail or start_line/end_line to read only what you need — call get_file_info first to learn the line count. Precedence when multiple narrowing params are set: ranges > head/tail > start_line/end_line.",
+    "desc": "Read one file as text, with optional line ranges or byte caps. Text is returned as UTF-8 with invalid bytes replaced; binary files return a compact summary unless include_base64=true. For large files, prefer head/tail, ranges, or start_line/end_line over reading the whole file.",
     "params": {
       "path": "Path to the file.",
-      "start_line": "First line to read (1-indexed).",
-      "end_line": "Last line to read (inclusive).",
-      "max_bytes": "Maximum bytes to return. Default: 262144 (256 KB). Raise only when you truly need more context.",
-      "include_base64": "For binary files, include capped base64 bytes. Default: false to protect context.",
-      "head": "Return only the first N lines.",
-      "tail": "Return only the last N lines.",
-      "show_line_numbers": "Prefix every line with its line number. Default: false.",
-      "ranges": "Array of [start_line, end_line] pairs for multiple non-contiguous ranges in one call (e.g. [[1,10],[50,60]]). Supersedes start_line/end_line."
+      "start_line": "First line to read, 1-indexed. Used when ranges/head/tail are not set.",
+      "end_line": "Last line to read, inclusive. If omitted with start_line, reads through the end of the file.",
+      "max_bytes": "Maximum bytes to return for this read. Default: 262144 (256 KB). Non-positive values keep the default.",
+      "include_base64": "For binary files, include capped base64 bytes in addition to metadata. Default: false.",
+      "head": "Return only the first N lines. Takes precedence over start_line/end_line.",
+      "tail": "Return only the last N lines. Used after head if both are provided.",
+      "show_line_numbers": "Prefix text output lines with line numbers. Default: false.",
+      "ranges": "Array of [start_line, end_line] pairs for several non-contiguous snippets. Takes precedence over head/tail/start_line/end_line."
     }
   },
   "write_file": {
-    "desc": "Write content to a file, creating or fully overwriting it. Creates parent directories automatically and preserves existing file permissions on overwrite. Returns a capped unified diff when overwriting by default. For modifying specific sections, prefer edit_file — it is surgical and sends only the diff back.",
+    "desc": "Create or fully overwrite a file atomically, creating parent directories by default and preserving existing file permissions when overwriting. Existing readable files include a diff by default; new files do not. Prefer edit_file for targeted changes.",
     "params": {
-      "path": "Path to the file.",
-      "content": "Content to write.",
-      "create_dirs": "Create missing parent directories. Default: true.",
-      "show_diff": "Return a unified diff of changes when overwriting. Default: true for existing files, false for new files.",
-      "max_diff_bytes": "Maximum diff bytes to return when show_diff is enabled. Default: 262144 (256 KB). Set 0 for unlimited."
+      "path": "Path to create or overwrite.",
+      "content": "Complete file content to write. Provide an explicit empty string to create an empty file.",
+      "create_dirs": "Create missing parent directories before writing. Default: true.",
+      "show_diff": "Include a unified diff. Default: true for existing readable files, false for new files. If true and the old file cannot be read, the tool errors.",
+      "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB); set 0 for unlimited. Negative values use the default."
     }
   },
   "append_to_file": {
-    "desc": "Append content to a file, creating the file and any missing parent directories if needed. Use for additive writes only; use edit_file or write_file when existing content must change. Returns the new file size.",
+    "desc": "Append text to a file, creating the file and parent directories if needed. Use only for additive writes; use edit_file or write_file when existing content must change.",
     "params": {
-      "path": "Path to the file.",
-      "content": "Content to append."
+      "path": "Path to append to.",
+      "content": "Content to append. Provide an explicit empty string if intentionally appending nothing."
     }
   },
   "edit_file": {
-    "desc": "Surgical find-and-replace in a file. Prefer this over write_file for modifying existing files because it returns only a capped diff. Two modes: single edit (old_str + new_str) or batch edits array; use batch for multiple changes to the same file. If old_str appears multiple times, only the first match is replaced unless replace_all=true, so add context when uniqueness matters. If pattern is not found, a near-miss probe shows surrounding context. Supports Go regex with $1/$2 back-references, preserves existing permissions, and handles CRLF transparently.",
+    "desc": "Surgically replace text in one existing file and return a focused diff. Supports exact text or Go regex, single-edit mode or edits[] batch mode, dry runs, CRLF preservation, and a near-miss hint when a single exact pattern is not found.",
     "params": {
-      "path": "Path to the file.",
-      "old_str": "Text (or regex) to find — single-edit mode.",
-      "new_str": "Replacement text — single-edit mode.",
-      "use_regex": "Treat old_str as a Go regular expression. Default: false.",
-      "replace_all": "Replace every match, not just the first. Default: false; add surrounding context instead when only one occurrence should change.",
-      "dry_run": "Preview changes without writing. Default: false.",
-      "context_lines": "Context lines shown around each change in the diff. Default: 3.",
-      "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB). Set 0 for unlimited.",
-      "edits": "Batch mode: array of {old_str, new_str, use_regex?, replace_all?} edits applied sequentially."
+      "path": "Path to the existing file to edit.",
+      "old_str": "Text or Go regex to replace in single-edit mode. Add enough surrounding context to identify the intended occurrence.",
+      "new_str": "Replacement text for single-edit mode. May be an empty string to delete the match.",
+      "use_regex": "Treat old_str as a Go regular expression. Default: false. Regex replacements may use $1/$2 style captures.",
+      "replace_all": "Replace every match. Default: false, which replaces only the first match; prefer unique context when changing one occurrence.",
+      "dry_run": "Preview the replacement and diff without writing the file. Default: false.",
+      "context_lines": "Context lines in the returned diff. Default: 3; maximum: 50.",
+      "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB); set 0 for unlimited. Negative values use the default.",
+      "edits": "Batch mode: array of {old_str, new_str, use_regex?, replace_all?} edits applied sequentially to the same file. Top-level dry_run/context/max_diff settings still apply."
     }
   },
   "delete_file": {
-    "desc": "Delete a single file. IRREVERSIBLE. For directories, use delete_directory instead.",
+    "desc": "Delete a single non-directory filesystem entry irreversibly. Directories are rejected.",
     "params": {
-      "path": "Path to the file."
+      "path": "Path to the file or symlink to delete."
     }
   },
   "copy_file": {
-    "desc": "Copy a single file (not directories). Creates parent directories of the destination automatically and refuses same-file copies. To duplicate a directory tree, use compress_files + extract_archive, or call copy_file per file.",
+    "desc": "Copy one regular file to a destination path, creating parent directories and preserving source permissions. Directories are rejected. Existing destination files require overwrite=true.",
     "params": {
-      "source": "Source file path.",
-      "destination": "Destination file path.",
-      "overwrite": "Overwrite if destination exists. Default: false."
+      "source": "Source file path. Must not be a directory.",
+      "destination": "Destination file path. Must not be an existing directory.",
+      "overwrite": "Replace destination if it already exists. Default: false."
     }
   },
   "move_file": {
-    "desc": "Move or rename a file or directory. Cross-device file moves fall back to copy+delete. Refuses same-file moves. IRREVERSIBLE if destination exists and overwrite=true.",
+    "desc": "Move or rename a file or directory. Same-filesystem moves use rename; cross-device fallback is supported for files only, not directories. Existing destinations require overwrite=true.",
     "params": {
-      "source": "Source path.",
+      "source": "Source path to move or rename.",
       "destination": "Destination path.",
-      "overwrite": "Overwrite if destination exists. Default: false."
+      "overwrite": "Replace destination if it already exists. Default: false. Treat true as destructive."
     }
   },
   "get_file_info": {
-    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, symlink target, and line count for text files. Compact one-line output is returned by default; set output_mode=details for expanded labeled fields. Check line count here before using start_line/end_line in read_file.",
+    "desc": "Return metadata for one file, directory, or symlink: type, size, mode, modified time, symlink target, and line count for text files. Use before targeted reads in large files or when deciding whether a path is safe to modify.",
     "params": {
-      "path": "Path to the file or directory.",
-      "output_mode": "\"compact\" (default) returns one line. \"details\" returns expanded labeled metadata fields."
+      "path": "Path to inspect.",
+      "output_mode": "\"compact\" (default) returns one line; \"details\" returns expanded labeled fields including absolute path."
     }
   },
   "path_exists": {
-    "desc": "Lightweight check: does this path exist and what is its type (file/directory/symlink)? Also returns size. Faster than read_file or get_file_info when you only need to confirm existence — use this to branch before read/write operations.",
+    "desc": "Cheap existence/type check for one path. Returns false for missing paths; returns type and size for files, directories, and symlinks. Prefer over read_file/get_file_info when you only need to branch on existence.",
     "params": {
       "path": "Path to check."
     }
   },
   "diff_files": {
-    "desc": "Compare two text files and return a unified diff. Refuses binary files and guards large inputs by default. Returns a short identical-files message when unchanged. Cross-platform — prefer this over running diff via run_command.",
+    "desc": "Compare two text files and return a unified diff with size and modified-time headers. Binary files are refused and large files are guarded by max_file_bytes. Use instead of shell diff for cross-platform behavior.",
     "params": {
-      "path_a": "First file (before / original).",
-      "path_b": "Second file (after / modified).",
-      "context_lines": "Context lines around each change. Default: 3.",
-      "max_file_bytes": "Maximum size for each input file before refusing to diff. Default: 2097152 (2 MB). Set 0 for unlimited.",
-      "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB). Set 0 for unlimited."
+      "path_a": "Original/before file path.",
+      "path_b": "Modified/after file path.",
+      "context_lines": "Context lines around each diff hunk. Default: 3; negative values become 0.",
+      "max_file_bytes": "Maximum size for each input file before refusing to diff. Default: 2097152 (2 MB); set 0 for unlimited.",
+      "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB); set 0 for unlimited."
     }
   },
   "calculate_checksum": {
-    "desc": "Calculate MD5, SHA1, or SHA256 checksum of one or more files. Cross-platform — prefer this over md5sum/shasum/sha256sum via run_command.",
+    "desc": "Calculate checksums for one or more files. Use to verify identity, integrity, or post-copy results without shelling out to platform-specific checksum commands.",
     "params": {
-      "paths": "Array of file paths to checksum.",
-      "algorithm": "Hash algorithm: \"md5\", \"sha1\", or \"sha256\". Default: \"sha256\"."
+      "paths": "Array of file paths to hash.",
+      "algorithm": "Hash algorithm: \"sha256\" (default), \"sha1\", or \"md5\"."
     }
   },
   "create_symlink": {
-    "desc": "Create a symbolic link. Cross-platform. On Windows, creating symlinks may require elevated privileges or Developer Mode to be enabled.",
+    "desc": "Create a symbolic link. The target path is not prevalidated, so dangling links are possible. On Windows this may require Developer Mode or elevated privileges.",
     "params": {
-      "source": "The path that the symlink points to (the target file or directory).",
-      "link": "The path of the symlink to create."
+      "source": "Target path the symlink should point to.",
+      "link": "Path of the symlink to create."
     }
   },
   "compress_files": {
-    "desc": "Compress files or directories into an archive. Supports zip and tar.gz. Format is auto-detected from the output file extension. Each input is stored by its basename and subpaths — e.g. compressing /foo/bar/baz creates entries baz/... (not foo/bar/baz/...). Empty directories are skipped.",
+    "desc": "Create a zip or tar.gz archive from files/directories. Each input is stored by basename with descendants under it; empty directories are skipped. Output parent directories are created and the output path cannot be one of the inputs.",
     "params": {
-      "paths": "Array of file/directory paths to include in the archive.",
-      "output": "Output archive path (e.g. backup.zip, archive.tar.gz).",
-      "format": "Archive format: \"zip\" or \"tar.gz\". Default: auto-detected from output extension."
+      "paths": "Files or directories to include in the archive.",
+      "output": "Archive path to create, such as backup.zip or archive.tar.gz.",
+      "format": "Archive format: \"zip\" or \"tar.gz\". Defaults to detection from output extension (.zip, .tar.gz, or .tgz)."
     }
   },
   "extract_archive": {
-    "desc": "Extract a zip or tar.gz archive to a directory. Format is auto-detected from file extension. Path-traversal protected — entries that resolve outside the output directory are rejected.",
+    "desc": "Extract a zip or tar.gz archive to a directory, creating the output directory if needed. Entries are path-traversal protected so archive contents cannot escape the output directory.",
     "params": {
-      "archive": "Path to the archive file (zip or tar.gz).",
-      "output": "Directory to extract into. Default: current working directory.",
-      "format": "Archive format: \"zip\" or \"tar.gz\". Default: auto-detected from archive extension."
+      "archive": "Archive file path (.zip, .tar.gz, or .tgz unless format is provided).",
+      "output": "Directory to extract into. Defaults to the server's current working directory.",
+      "format": "Archive format: \"zip\" or \"tar.gz\". Defaults to detection from archive extension."
     }
   }
 }

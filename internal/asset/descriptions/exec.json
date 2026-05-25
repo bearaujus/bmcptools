@@ -1,39 +1,39 @@
 {
   "get_working_directory": {
-    "desc": "Return the server's current working directory, OS, hostname, and a compact environment summary. Call this first to orient yourself before navigating the filesystem — most other tools default to the server's current working directory.",
+    "desc": "Return the server's current working directory, OS/architecture, hostname, and a compact environment summary. Call this early when local path or OS assumptions matter; most tools default to this cwd.",
     "params": {}
   },
   "run_command": {
-    "desc": "Execute a non-interactive shell command and return combined stdout+stderr. Defaults to sh -c on Unix and cmd /C on Windows; set shell to sh, bash, cmd, powershell, or pwsh when syntax requires it. This is standard bounded exec, not a terminal: no PTY, no TUI/full-screen apps, no interactive prompts unless they can read scripted stdin. Use detach=true for long-running servers/watchers. Output is capped by default and timeout attempts to kill the process tree.",
+    "desc": "Run a bounded non-interactive shell command and return combined stdout/stderr. Use for project scripts, tests, build tools, version-control inspection, or local operations not covered by purpose-built tools. This is not a terminal: no PTY, no full-screen apps, and no interactive prompts unless scripted through stdin.",
     "params": {
-      "command": "Command string executed by the selected shell. Keep it non-interactive; use stdin for scripted input and detach=true for servers/watchers.",
-      "cwd": "Working directory. Defaults to server's working directory.",
-      "timeout_seconds": "Seconds before killing the command, including fractional seconds. Default: 60, max: 600. Use short values for risky commands; timeout attempts to terminate the process tree.",
-      "env": "Extra environment variables as [\"KEY=value\", ...]. Merged with current env.",
-      "max_output_bytes": "Truncate output to this many bytes. Default: 262144 (256 KB). Set 0 for unlimited.",
-      "stdin": "Content piped to the command's standard input. Use this for scripted input; interactive prompts/TUIs are not supported because no PTY is allocated.",
-      "shell": "Shell wrapper to use: default, sh, bash, cmd, powershell, or pwsh. Use bash/sh for heredocs and Unix syntax; use powershell/pwsh for PowerShell here-strings on Windows.",
-      "allow_nonzero_exit": "Return non-zero exit codes as success instead of raising an error. Default: false.",
-      "raw_output": "Omit metadata header (command echo, cwd, shell, exit code) — return only stdout/stderr. Use when parsing programmatic output (e.g. JSON). Default: false.",
-      "detach": "Start the process detached for long-running services or watchers. Returns immediately with the PID; output is not captured. Use list_processes to monitor. Ignores timeout_seconds, stdin, and max_output_bytes. Default: false."
+      "command": "Command string executed by the selected shell. Keep it non-interactive; pass scripted input with stdin when needed.",
+      "cwd": "Working directory for the command. Defaults to the server's current working directory.",
+      "timeout_seconds": "Seconds before timeout. Default: 60; maximum: 600. Non-positive values use the default.",
+      "env": "Extra environment variables as [\"KEY=value\", ...], merged with the current environment for this command only.",
+      "max_output_bytes": "Maximum combined stdout/stderr bytes to return. Omitted default: 262144 (256 KB). Set explicitly to 0 for unlimited output.",
+      "stdin": "String piped to standard input. Ignored when detach=true. Use for scripted prompts, not interactive TUIs.",
+      "shell": "Shell wrapper: default, sh, bash, cmd, powershell, or pwsh. Default is cmd on Windows and sh elsewhere; choose powershell/pwsh for PowerShell syntax and bash/sh for Unix syntax.",
+      "allow_nonzero_exit": "Return non-zero exit output as a normal result instead of a tool error. Default: false.",
+      "raw_output": "Return only stdout/stderr without command/cwd/shell/exit metadata. Useful for parseable JSON or machine-readable command output. Default: false.",
+      "detach": "Start a long-running process and return immediately with its PID. Output is not captured; timeout_seconds, stdin, and max_output_bytes are ignored. Default: false."
     }
   },
   "open_in_app": {
-    "desc": "Open a file, directory, or URL in the default system application. Non-blocking — returns immediately. Uses open on macOS, xdg-open on Linux, start on Windows. Prefer this over running open/xdg-open/start via run_command.",
+    "desc": "Open a local file, directory, or URL in the user's default system application. Non-blocking; prefer this over shelling out to open/start/xdg-open.",
     "params": {
       "target": "File path, directory path, or URL to open.",
-      "app": "Specific application to use (macOS only)."
+      "app": "Optional application name to use on macOS. Ignored on other platforms."
     }
   },
   "get_env": {
-    "desc": "Read environment variables. With key, returns that variable's value (secret-like names redacted by default). With filter, returns matching variables. Without key/filter, returns names only by default to avoid flooding context or leaking secrets.",
+    "desc": "Inspect environment variables without using the shell. With key, returns one variable; with filter, returns matching names; with neither, lists names only by default to avoid leaking secrets.",
     "params": {
-      "key": "Exact variable name. Returns its value.",
-      "filter": "Case-insensitive substring. Returns matching variables by name.",
+      "key": "Exact variable name to inspect. Values are shown by default for key lookups unless include_values=false.",
+      "filter": "Case-insensitive substring matched against variable names. Values are shown by default for filtered lookups unless include_values=false.",
       "include_values": "Include variable values. Default: true when key or filter is set, false when listing all variables.",
-      "limit": "Maximum variables to return for list/filter modes. Default: 100. Set 0 for unlimited.",
-      "value_max_bytes": "Maximum bytes per value when values are included. Default: 4096. Set 0 for full values.",
-      "redact_secrets": "Redact values for secret-like variable names. Default: true."
+      "limit": "Maximum variables to show for list/filter modes. Default: 100; set 0 for all. Negative values use the default.",
+      "value_max_bytes": "Maximum bytes per displayed value. Default: 4096; set 0 for full values. Negative values use the default.",
+      "redact_secrets": "Redact values for secret-like names containing markers such as TOKEN, PASSWORD, API_KEY, SECRET, or AUTH. Default: true."
     }
   }
 }

@@ -142,8 +142,8 @@ func listProcessesPosix() ([]processInfo, error) {
 }
 
 func listProcessesWindows() ([]processInfo, error) {
-	out, err := exec.Command("powershell", "-Command",
-		"Get-Process | Select-Object Id,Name,CPU,WorkingSet | ConvertTo-Csv -NoTypeInformation").Output()
+	out, err := exec.Command("powershell", "-NoProfile", "-Command",
+		"Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine,WorkingSetSize,KernelModeTime,UserModeTime | ConvertTo-Csv -NoTypeInformation").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -154,14 +154,20 @@ func listProcessesWindows() ([]processInfo, error) {
 	}
 	var procs []processInfo
 	for _, fields := range records[1:] { // skip header row
-		if len(fields) < 4 {
+		if len(fields) < 6 {
 			continue
 		}
 		pid, _ := strconv.Atoi(fields[0])
 		name := fields[1]
-		cpu, _ := strconv.ParseFloat(fields[2], 64)
+		command := strings.TrimSpace(fields[2])
+		if command == "" {
+			command = name
+		}
 		memBytes, _ := strconv.ParseFloat(fields[3], 64)
-		procs = append(procs, processInfo{PID: pid, Name: name, CPU: cpu, Mem: memBytes / 1024 / 1024, Command: name})
+		kernelTime, _ := strconv.ParseFloat(fields[4], 64)
+		userTime, _ := strconv.ParseFloat(fields[5], 64)
+		cpuSeconds := (kernelTime + userTime) / 10_000_000
+		procs = append(procs, processInfo{PID: pid, Name: name, CPU: cpuSeconds, Mem: memBytes / 1024 / 1024, Command: command})
 	}
 	return procs, nil
 }

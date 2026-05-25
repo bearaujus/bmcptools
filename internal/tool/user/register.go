@@ -45,6 +45,7 @@ func Register(s toolreg.ToolRegistrar, opts ...Option) {
 				mcp.Description(asset.ParamDesc(toolname.AskUser, "question")),
 			),
 			mcp.WithString("details",
+				mcp.Required(),
 				mcp.Description(asset.ParamDesc(toolname.AskUser, "details")),
 			),
 			mcp.WithString("title",

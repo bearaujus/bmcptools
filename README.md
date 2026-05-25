@@ -13,7 +13,7 @@ Communication happens over **stdio** using the [`mark3labs/mcp-go`](https://gith
 - **41 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, and user interaction
   Disable any tool group you don't need with `--disable=user,system,...` (see [Disabling tool groups](#disabling-tool-groups)).
 - **Built-in server instructions** — the AI receives a categorized guide on when and how to use each tool
-- **Interactive dialogs** — `ask_user` opens a browser dialog with choices, markdown, live updates, and typing indicators
+- **Interactive dialogs** — `ask_user` opens a browser dialog with choices, markdown, pasted/dropped images, live updates, and typing indicators
 - **Cross-platform** — macOS, Windows, and Linux (user dialogs require macOS/Windows; `notify_user` works everywhere)
 - **Surgical editing** — `edit_file` with near-miss probe, CRLF transparency, batch mode, and regex support
 - **Performance-first** — batch tools (`read_multiple_files`, `write_multiple_files`, `path_exists_batch`, `get_multiple_file_info`, `edit_file` batch mode) reduce round-trips
@@ -125,8 +125,8 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Platform | Description |
 |------|----------|-------------|
-| `ask_user` | macOS, Windows | Browser dialog with choices, markdown details, live updates, typing detection. Returns token → poll with `get_user_response`. |
-| `get_user_response` | macOS, Windows | Long-poll for `ask_user`/`rest` response. Returns capped answer text or detailed PENDING status (typing, idle, heartbeat). |
+| `ask_user` | macOS, Windows | Browser dialog with choices, required markdown details, pasted/dropped images, live updates, typing detection. Returns token → poll with `get_user_response`. |
+| `get_user_response` | macOS, Windows | Long-poll for `ask_user`/`rest` response. Returns full answer text by default, plus local paths for attached images, or detailed PENDING status (typing, idle, heartbeat). |
 | `update_dialog` | macOS, Windows | Push live markdown updates into an open `ask_user` dialog. `replace_last` for streaming progress. |
 | `cancel_ask_user` | macOS, Windows | Dismiss a pending dialog by token. |
 | `notify_user` | **All platforms** | Fire-and-forget toast notification. Returns concise delivery metadata. `level`: info/warning/error. |
@@ -139,7 +139,7 @@ For Claude Desktop / Cursor configs:
 | `get_working_directory` | CWD, OS, hostname, and compact key env summary. **Call first** to orient. |
 | `run_command` | Non-interactive shell execution with selectable shell (`default`, `sh`, `bash`, `cmd`, `powershell`, `pwsh`). Timeout max 600 s with process-tree termination, fractional seconds, detach for long-running services, raw output, stdin, env vars, heredoc/here-string friendly command bodies, and default 256 KB output capping. No PTY/TUI support. |
 | `open_in_app` | Open file/dir/URL in default app. Cross-platform, non-blocking. |
-| `http_request` | HTTP client (all methods). JSON auto-pretty-print. Response body defaults to a 256 KB cap. Timeout max 300 s. |
+| `http_request` | HTTP client (all methods). JSON compacts by default, `json_format="pretty"` opt-in, response body defaults to a 256 KB cap, and `body_filter` can return only literal/regex matches, lines, or counts from large responses. Timeout max 300 s. |
 | `list_processes` | Running processes with PID, name, CPU/memory. Filter, sort, tune limit and command width. |
 | `get_system_info` | CPU, memory, and disk usage snapshot. |
 | `get_env` | Read environment variables. Specific key, filter by name substring, or list names by default with values capped/redacted. |

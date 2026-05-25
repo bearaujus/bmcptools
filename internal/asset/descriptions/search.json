@@ -1,38 +1,38 @@
 {
   "search_files": {
-    "desc": "Find files and directories by NAME using glob patterns or Go regex (use_regex=true). Use when you know all or part of a filename/path but not its location. Returns concise relative paths by default. Patterns without / match basenames; patterns with / or ** match relative paths. For file CONTENTS, use grep_files instead.",
+    "desc": "Find files or directories by name/path using glob patterns or Go regex. Use when you know part of a filename, extension, or relative path; use grep_files when you need to search file contents.",
     "params": {
-      "path": "Root directory to search from. Defaults to the server's current working directory.",
-      "pattern": "Glob pattern (e.g. *.go, **/*.json, {src,lib}/**/*.ts). Required.",
+      "path": "Root directory to search. Defaults to the server's current working directory. Must be a directory.",
+      "pattern": "Glob or regex pattern. Glob patterns without / match basenames; patterns with / or ** match relative paths.",
       "recursive": "Search subdirectories recursively. Default: true.",
-      "max_results": "Maximum results to return. Default: 100. Narrow with pattern/exclude_patterns before raising this.",
-      "show_hidden": "Include hidden files/directories. Default: false.",
-      "use_regex": "Treat pattern as a Go regular expression instead of a glob. If the regex contains no /, it is matched against each basename; otherwise it is matched against the relative path. Default: false.",
-      "case_insensitive": "Case-insensitive name matching for glob or regex mode. Default: false.",
-      "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). Matching directories are pruned. Use to skip node_modules, .git, vendor, dist, build, or generated files.",
-      "output_mode": "\"paths\" (default) returns one path per line. \"details\" includes type, size, and modification time.",
-      "path_format": "\"relative\" (default) returns paths relative to the search root. \"absolute\" returns absolute paths.",
-      "entry_type": "\"any\" (default), \"file\", or \"dir\". Filter matches by filesystem entry type."
+      "max_results": "Maximum matching paths to return. Default: 100. Non-positive values keep the default.",
+      "show_hidden": "Include hidden files/directories whose names start with '.'. Default: false.",
+      "use_regex": "Treat pattern as a Go regular expression. Regex patterns without / match basenames; regex patterns with / match relative paths. Default: false.",
+      "case_insensitive": "Case-insensitive matching for glob or regex mode. Default: false.",
+      "exclude_patterns": "Basename globs to prune before matching, such as node_modules, .git, vendor, dist, build, or generated files.",
+      "output_mode": "\"paths\" (default) returns concise paths; \"details\" adds entry type, size, and modified time.",
+      "path_format": "\"relative\" (default) returns paths relative to the search root; \"absolute\" returns absolute paths.",
+      "entry_type": "\"any\" (default), \"file\", or \"dir\". Invalid values fall back to any."
     }
   },
   "grep_files": {
-    "desc": "Search file CONTENTS for a pattern. Use for code/content search; use search_files for names. Relative paths are returned by default. output_mode=\"auto\" shows matching lines when results fit, then falls back to a file list when capped. Supports literal or Go regex search, context lines, pagination via offset, glob/exclude filtering, multiline mode, and max_file_size for large/generated/data files.",
+    "desc": "Search text file contents for literal text or Go regex. Use for symbols, strings, config keys, and errors. Binary files are skipped and reported; output_mode controls whether you get matching lines, files, or counts.",
     "params": {
       "path": "File or directory to search. Defaults to the server's current working directory.",
-      "pattern": "Literal text or regular expression to search for. Required.",
-      "use_regex": "Treat pattern as a Go regular expression. Required for | (alternation), . (wildcard), +, *, ^, $, and character classes (\\w, \\d). Default: false.",
+      "pattern": "Literal text by default, or a Go regular expression when use_regex=true. Required.",
+      "use_regex": "Treat pattern as a Go regular expression. Required for regex operators such as |, ., *, +, ^, $, groups, or character classes. Default: false.",
       "case_insensitive": "Case-insensitive matching. Default: false.",
-      "recursive": "Search subdirectories recursively. Default: true.",
-      "context_lines": "Lines before and after each match to include. Default: 0. Max: 50.",
-      "max_results": "Max matches per page (content mode). Default: 50.",
-      "offset": "Skip the first N matches for pagination. Default: 0.",
-      "glob": "Only search files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Strongly prefer setting this in large projects. Default: all files.",
-      "output_mode": "\"auto\" (default) — adapts based on result count. \"content\" — always show matching lines. \"files_with_matches\" — only file paths. \"count\" — match counts per file.",
-      "show_hidden": "Include hidden files. Default: false.",
-      "multiline": "Enable patterns that span multiple lines. Default: false.",
-      "max_file_size": "Skip files larger than this many bytes. Default: 0 (no limit). Set this when searching large repos with logs, exports, databases, or generated files.",
-      "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). Matching directories are pruned before searching. Use to skip node_modules, .git, vendor, dist, build, or generated files.",
-      "path_format": "\"relative\" (default) returns paths relative to the search root. \"absolute\" returns absolute paths."
+      "recursive": "Search subdirectories when path is a directory. Default: true.",
+      "context_lines": "Lines before and after each match in content/auto modes. Default: 0; maximum: 50.",
+      "max_results": "Maximum matches per page for content/auto modes. Default: 50. Non-positive values keep the default.",
+      "offset": "Skip this many collected matches in content/auto modes for pagination. Default: 0.",
+      "glob": "Only search files whose basename matches this glob, such as *.go or *.{ts,tsx}. Strongly prefer setting this in large projects.",
+      "output_mode": "\"auto\" (default) shows matching lines when uncapped, then falls back to file list when capped; \"content\" always shows lines; \"files_with_matches\" returns paths; \"count\" returns per-file counts.",
+      "show_hidden": "Include hidden files and directories. Default: false.",
+      "multiline": "Allow matches to span lines. Uses full-file reads for eligible text files, so combine with glob/max_file_size on large trees. Default: false.",
+      "max_file_size": "Skip files larger than this many bytes. Default: 0 (no size limit). Use this for large repos with logs, exports, databases, or generated files.",
+      "exclude_patterns": "Basename globs to prune before searching, such as node_modules, .git, vendor, dist, build, logs, or generated files.",
+      "path_format": "\"relative\" (default) returns paths relative to the search root; \"absolute\" returns absolute paths."
     }
   }
 }

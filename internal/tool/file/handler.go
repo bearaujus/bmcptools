@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -958,6 +959,50 @@ func detectArchiveFormat(path, explicit string) string {
 	}
 }
 
+func sameCleanPath(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func isSubpath(base, target string) bool {
+	base = filepath.Clean(base)
+	target = filepath.Clean(target)
+	if runtime.GOOS == "windows" {
+		base = strings.ToLower(base)
+		target = strings.ToLower(target)
+	}
+	return target == base || strings.HasPrefix(target, base+string(filepath.Separator))
+}
+
+func validateCompressSources(sources []string, output string) error {
+	outputAbs, err := filepath.Abs(output)
+	if err != nil {
+		return fmt.Errorf("invalid output path: %w", err)
+	}
+	outputInfo, outputStatErr := os.Stat(output)
+	for _, src := range sources {
+		srcInfo, err := os.Stat(src)
+		if err != nil {
+			return fmt.Errorf("cannot stat source %q: %w", src, err)
+		}
+		srcAbs, err := filepath.Abs(src)
+		if err != nil {
+			return fmt.Errorf("invalid source path %q: %w", src, err)
+		}
+		if sameCleanPath(srcAbs, outputAbs) {
+			return fmt.Errorf("output path %q is also an input source", output)
+		}
+		if outputStatErr == nil && os.SameFile(srcInfo, outputInfo) {
+			return fmt.Errorf("output path %q refers to the same file as input source %q", output, src)
+		}
+	}
+	return nil
+}
+
 func compressFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	paths := req.GetStringSlice("paths", nil)
 	if len(paths) == 0 {
@@ -974,6 +1019,9 @@ func compressFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 	if format != "zip" && format != "tar.gz" {
 		return mcp.NewToolResultError(fmt.Sprintf("unsupported format %q; use \"zip\" or \"tar.gz\"", format)), nil
+	}
+	if err := validateCompressSources(paths, output); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	if dir := filepath.Dir(output); dir != "" {
@@ -1003,14 +1051,16 @@ func compressFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 }
 
 func compressZip(sources []string, output string) (int, error) {
+	outputAbs, err := filepath.Abs(output)
+	if err != nil {
+		return 0, err
+	}
 	f, err := os.Create(output)
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
 
 	w := zip.NewWriter(f)
-	defer w.Close()
 
 	var count int
 	for _, src := range sources {
@@ -1019,6 +1069,13 @@ func compressZip(sources []string, output string) (int, error) {
 		err := filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
+			}
+			pathAbs, err := filepath.Abs(path)
+			if err != nil {
+				return err
+			}
+			if sameCleanPath(pathAbs, outputAbs) {
+				return nil
 			}
 			if info.IsDir() {
 				return nil
@@ -1046,33 +1103,47 @@ func compressZip(sources []string, output string) (int, error) {
 			if err != nil {
 				return err
 			}
-			defer file.Close()
 
-			if _, err := io.Copy(writer, file); err != nil {
-				return err
+			_, copyErr := io.Copy(writer, file)
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
 			}
 			count++
 			return nil
 		})
 		if err != nil {
+			_ = w.Close()
+			_ = f.Close()
 			return count, err
 		}
+	}
+	if err := w.Close(); err != nil {
+		_ = f.Close()
+		return count, err
+	}
+	if err := f.Close(); err != nil {
+		return count, err
 	}
 	return count, nil
 }
 
 func compressTarGz(sources []string, output string) (int, error) {
+	outputAbs, err := filepath.Abs(output)
+	if err != nil {
+		return 0, err
+	}
 	f, err := os.Create(output)
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
 
 	gw := gzip.NewWriter(f)
-	defer gw.Close()
 
 	tw := tar.NewWriter(gw)
-	defer tw.Close()
 
 	var count int
 	for _, src := range sources {
@@ -1081,6 +1152,13 @@ func compressTarGz(sources []string, output string) (int, error) {
 		err := filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
+			}
+			pathAbs, err := filepath.Abs(path)
+			if err != nil {
+				return err
+			}
+			if sameCleanPath(pathAbs, outputAbs) {
+				return nil
 			}
 			if info.IsDir() {
 				return nil
@@ -1106,17 +1184,36 @@ func compressTarGz(sources []string, output string) (int, error) {
 			if err != nil {
 				return err
 			}
-			defer file.Close()
 
-			if _, err := io.Copy(tw, file); err != nil {
-				return err
+			_, copyErr := io.Copy(tw, file)
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
 			}
 			count++
 			return nil
 		})
 		if err != nil {
+			_ = tw.Close()
+			_ = gw.Close()
+			_ = f.Close()
 			return count, err
 		}
+	}
+	if err := tw.Close(); err != nil {
+		_ = gw.Close()
+		_ = f.Close()
+		return count, err
+	}
+	if err := gw.Close(); err != nil {
+		_ = f.Close()
+		return count, err
+	}
+	if err := f.Close(); err != nil {
+		return count, err
 	}
 	return count, nil
 }
@@ -1147,14 +1244,17 @@ func extractArchiveHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	if err := os.MkdirAll(output, 0o755); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create output directory: %v", err)), nil
 	}
+	resolvedOutput, err := filepath.EvalSymlinks(output)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to resolve output directory: %v", err)), nil
+	}
 
 	var count int
-	var err error
 	switch format {
 	case "zip":
-		count, err = extractZip(archive, output)
+		count, err = extractZip(archive, resolvedOutput)
 	case "tar.gz":
-		count, err = extractTarGz(archive, output)
+		count, err = extractTarGz(archive, resolvedOutput)
 	}
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("extraction failed: %v", err)), nil
@@ -1173,10 +1273,91 @@ func safeJoin(dest, name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid destination: %w", err)
 	}
-	if !strings.HasPrefix(absTarget, absDest+string(filepath.Separator)) && absTarget != absDest {
+	if !isSubpath(absDest, absTarget) {
 		return "", fmt.Errorf("path %q escapes output directory", name)
 	}
 	return absTarget, nil
+}
+
+func ensureNoSymlinkAncestors(base, target string, includeTarget bool) error {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return fmt.Errorf("invalid extraction base: %w", err)
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("invalid extraction target: %w", err)
+	}
+	if !isSubpath(absBase, absTarget) {
+		return fmt.Errorf("path %q escapes output directory", target)
+	}
+
+	rel, err := filepath.Rel(absBase, absTarget)
+	if err != nil {
+		return err
+	}
+	if rel == "." {
+		return nil
+	}
+
+	parts := strings.Split(rel, string(filepath.Separator))
+	if !includeTarget && len(parts) > 0 {
+		parts = parts[:len(parts)-1]
+	}
+	cur := absBase
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		cur = filepath.Join(cur, part)
+		info, err := os.Lstat(cur)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to extract through symlink %q", cur)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%q exists and is not a directory", cur)
+		}
+	}
+	return nil
+}
+
+func mkdirAllExtractSafe(base, dir string) error {
+	if err := ensureNoSymlinkAncestors(base, dir, true); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return ensureNoSymlinkAncestors(base, dir, true)
+}
+
+func createExtractFile(base, target string, perm os.FileMode) (*os.File, error) {
+	if err := mkdirAllExtractSafe(base, filepath.Dir(target)); err != nil {
+		return nil, err
+	}
+	if err := ensureNoSymlinkAncestors(base, target, false); err != nil {
+		return nil, err
+	}
+	if info, err := os.Lstat(target); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("refusing to overwrite symlink %q", target)
+		}
+		if info.IsDir() {
+			return nil, fmt.Errorf("refusing to overwrite directory %q with file", target)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if perm == 0 {
+		perm = 0o644
+	}
+	return os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 }
 
 func extractZip(archive, dest string) (int, error) {
@@ -1193,7 +1374,7 @@ func extractZip(archive, dest string) (int, error) {
 			if err != nil {
 				return count, err
 			}
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := mkdirAllExtractSafe(dest, target); err != nil {
 				return count, err
 			}
 			continue
@@ -1204,16 +1385,12 @@ func extractZip(archive, dest string) (int, error) {
 			return count, err
 		}
 
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return count, err
-		}
-
 		rc, err := f.Open()
 		if err != nil {
 			return count, err
 		}
 
-		out, err := os.Create(target)
+		out, err := createExtractFile(dest, target, f.FileInfo().Mode().Perm())
 		if err != nil {
 			rc.Close()
 			return count, err
@@ -1262,14 +1439,11 @@ func extractTarGz(archive, dest string) (int, error) {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := mkdirAllExtractSafe(dest, target); err != nil {
 				return count, err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return count, err
-			}
-			out, err := os.Create(target)
+			out, err := createExtractFile(dest, target, header.FileInfo().Mode().Perm())
 			if err != nil {
 				return count, err
 			}

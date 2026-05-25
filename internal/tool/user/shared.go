@@ -1,8 +1,8 @@
 package user
 
 import (
-	cryptorand "crypto/rand"
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
 	"sync"
 	"time"
@@ -34,8 +34,19 @@ type dialogActivity struct {
 	typing       bool
 	idleSec      float64
 	lastBeat     time.Time
-	outboundSubs []chan string
+	outboundSubs []chan dialogEvent
 }
+
+type dialogEvent struct {
+	Type    string `json:"type"`
+	Message string `json:"message,omitempty"`
+	Replace bool   `json:"replace,omitempty"`
+}
+
+const (
+	dialogEventUpdate  = "update"
+	dialogEventDismiss = "dismiss"
+)
 
 func (a *dialogActivity) update(typing bool, idleSec float64) {
 	a.mu.Lock()
@@ -46,8 +57,8 @@ func (a *dialogActivity) update(typing bool, idleSec float64) {
 	a.mu.Unlock()
 }
 
-func (a *dialogActivity) subscribe() (chan string, func()) {
-	ch := make(chan string, 8)
+func (a *dialogActivity) subscribe() (chan dialogEvent, func()) {
+	ch := make(chan dialogEvent, 8)
 	a.mu.Lock()
 	a.outboundSubs = append(a.outboundSubs, ch)
 	a.mu.Unlock()
@@ -63,15 +74,23 @@ func (a *dialogActivity) subscribe() (chan string, func()) {
 	}
 }
 
-func (a *dialogActivity) broadcast(msg string) {
+func (a *dialogActivity) broadcast(evt dialogEvent) {
 	a.mu.Lock()
 	for _, ch := range a.outboundSubs {
 		select {
-		case ch <- msg:
+		case ch <- evt:
 		default:
 		}
 	}
 	a.mu.Unlock()
+}
+
+func (a *dialogActivity) broadcastUpdate(msg string, replace bool) {
+	a.broadcast(dialogEvent{Type: dialogEventUpdate, Message: msg, Replace: replace})
+}
+
+func (a *dialogActivity) broadcastDismiss() {
+	a.broadcast(dialogEvent{Type: dialogEventDismiss})
 }
 
 type pendingDialogState struct {

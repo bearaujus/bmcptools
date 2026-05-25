@@ -29,8 +29,7 @@ var Version = "dev"
 
 // Group identifiers for selective registration. Each constant matches the
 // directory name under internal/tool/ AND the marker used in
-// internal/asset/descriptions/server_instructions.txt (except "multi", which
-// is documented inside the file group).
+// internal/asset/descriptions/server_instructions.txt.
 const (
 	GroupUser   = "user"
 	GroupFile   = "file"
@@ -75,8 +74,8 @@ func ValidateGroups(names []string) error {
 func ServerInstructions() string { return asset.ServerInstructions() }
 
 // ServerInstructionsForGroups returns server instructions filtered to only
-// the specified groups. Valid group names: "user", "file", "dir", "search",
-// "exec", "system". The intro section is always included.
+// the specified groups. Valid group names: "user", "file", "multi", "dir",
+// "search", "exec", "system". The intro section is always included.
 // Passing no groups returns the full instructions (same as ServerInstructions).
 func ServerInstructionsForGroups(groups ...string) string {
 	return asset.ServerInstructionsForGroups(groups...)

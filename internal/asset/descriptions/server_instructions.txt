@@ -1,117 +1,160 @@
-<!-- group:intro -->
-You are connected to bmcptools — your primary toolkit for file operations, shell execution, system tools, and user interaction.
+[[group:intro]]
+bmcptools gives you direct access to the user's local workspace, shell, system utilities, and optional interactive dialogs. Use these tools when you need local facts or local side effects, not as generic prose helpers.
 
-Important: If your environment also exposes tools with the same names (e.g. ask_user, notify_user), always use the bmcptools versions — they are the real implementations that actually reach the user.
+If another provider exposes a tool with the same name, prefer the bmcptools version when you intend to act on this machine or reach the user through the bmcptools UI.
 
-RULE: Never ask questions or request confirmations via plain text. Always use ask_user so the user receives an interactive dialog. Plain-text questions are invisible to the user.
+Availability matters. These instructions are trimmed by registered tool group; only call tools that are actually exposed in the current session. If a useful tool is not available, use the nearest available bmcptools capability or explain the limitation.
 
-PERFORMANCE: Prefer batch tools whenever you have 2+ items \u2014 read_multiple_files, write_multiple_files, get_multiple_file_info, path_exists_batch. Round-trip count is the dominant cost.
+Operating principles:
+1. Orient before acting. If the exec group is available, call get_working_directory early to learn the OS, cwd, and path context.
+2. Discover narrowly. Use directory and search tools with glob/exclude filters before reading broad trees or large files.
+3. Read before changing. Inspect existing content and metadata before edits, moves, deletes, or overwrites.
+4. Prefer purpose-built tools over shell commands for files, search, archives, HTTP, clipboard, and process inspection.
+5. Keep outputs bounded. Raise byte/result caps only when the extra context is necessary.
+6. Treat destructive operations as irreversible. Confirm intent when deletion, overwrite, or recursive removal could remove important user data.
 
-─── Getting started ───────────────────────────────────────────────────────────
+PERFORMANCE: When equivalent single-item and batch tools are both available, use the batch tool for 2+ items. Round-trip count is usually the dominant cost.
 
-1. Call get_working_directory first to learn the OS, hostname, and current path.
-2. Use list_directory or directory_tree to explore the project structure.
-3. Use grep_files (content search) or search_files (filename search) to find what you need.
-4. Read files with read_file (single) or read_multiple_files (batch — more efficient for 2+ files).
-5. Edit with edit_file (surgical find-and-replace, preferred) or write_file (full overwrite).
+[[group:user]]
+--- User interaction ----------------------------------------------------------
 
-<!-- group:user -->
-─── User interaction ──────────────────────────────────────────────────────────
+Use ask_user only when you genuinely need a human decision to continue: ambiguous requirements, approval for risky/destructive work, credentials or private input, or a choice the user must make. Do not use it for routine status updates.
 
-All text parameters (question, details, message, notes) support full markdown rendering:
-headings, bold, italic, inline code, fenced code blocks with syntax highlighting,
-lists, tables, blockquotes, links, horizontal rules.
+All user-facing text parameters support markdown: headings, lists, tables, code fences, links, and inline formatting.
 
-- ask_user: Open a dialog; returns a JSON object with "status", "token", and "instructions" fields. Then call get_user_response(token=…) in a loop — each call long-polls up to 55 s and returns PENDING until answered. Keep looping indefinitely; the user may take a long time. Always populate the details param with your current reasoning and context — never send a bare question. While waiting, you may do other work (file reads, analysis) then resume polling.
-- get_user_response: Long-polls for an ask_user or rest response. Each call blocks up to wait_seconds (default 55 s) then returns PENDING if unanswered. User answers are capped by default; set max_response_bytes=0 only when you truly need a full pasted answer. If it returns a timeout/error (not PENDING and not a user answer), re-ask or proceed with a safe default.
-- update_dialog: Push a live progress update (rendered as markdown) into an open ask_user dialog while waiting for the user's reply — use this to share intermediate findings or progress without requiring a new question.
-- notify_user: Fire-and-forget toast notification. Use for background progress updates that don't require a reply. Does not block and returns concise delivery metadata. Works on all platforms (macOS, Windows, Linux).
-- cancel_ask_user: Dismiss a pending ask_user dialog when the question is no longer relevant (e.g. you already have the answer).
-- rest: Go idle while the user reviews. ALWAYS call this (never quit) when user says "take a rest / wait / stand by / I'll review". Workflow: call rest() → parse the JSON response to extract the "token" field → loop get_user_response(token=…) indefinitely until non-PENDING answer.
+ask_user:
+- Ask exactly one short question in question.
+- Put the real decision context in details: relevant findings, concrete options, tradeoffs, proposed next action, and your recommendation.
+- Prefer clear choices when there are 2-4 obvious options; the user can still type a custom answer.
+- After calling ask_user, call get_user_response with the returned token and keep polling until the response is not PENDING.
+- Do not cap user replies with max_response_bytes unless truncation is explicitly acceptable.
+- If the user attached images, inspect the returned local image paths with available image/file tools.
 
-When to use which:
-  ask_user    → single question needing a reply (short interaction)
-  notify_user → progress update, no reply needed (fire-and-forget)
+update_dialog pushes progress into an open ask_user dialog while the user is deciding. Use it for new findings that affect the pending decision, not for unrelated chatter.
 
-Platform note: ask_user, rest, and update_dialog require macOS or Windows (they open a browser dialog). On Linux, notify_user still works (via notify-send). For questions on Linux, use your standard text output.
+notify_user is fire-and-forget. Use it for progress milestones, completion, background task state, or errors that do not require a reply.
 
-<!-- group:file -->
-─── File operations ───────────────────────────────────────────────────────────
+cancel_ask_user dismisses a pending question when it is no longer relevant, such as when you discovered the answer yourself or are replacing the question.
 
-read_file           — single file; defaults to a 256 KB cap; supports line ranges (start_line/end_line), multi-range (ranges param), head/tail, line numbers; binary files return summaries unless include_base64=true
-read_multiple_files — batch read 2+ files in one call (more efficient); compact path/size headers; defaults to 256 KB per file; binary files return summaries unless include_base64=true
-write_file          — create or overwrite; returns capped diff of changes
-write_multiple_files— batch write 2+ files in one call (show_diff defaults to false for performance)
-append_to_file      — append content without overwriting
-edit_file           — surgical find-and-replace (preferred for edits); supports batch mode; returns capped unified diff; has near-miss probe
-find_replace_in_files — find-and-replace across multiple files at once; supports regex, glob, and exclude_patterns; use dry_run to preview; skips files >10 MB by default via max_file_size; unmodified files are counted but not listed unless show_unmodified=true
-delete_file, copy_file, move_file — self-explanatory
-get_file_info       — compact metadata + line count (use output_mode="details" for expanded labeled fields)
-path_exists         — lightweight existence check (faster than read_file)
-diff_files          — unified diff between two files; guards large inputs and caps diff output by default
-calculate_checksum  — MD5/SHA1/SHA256
-create_symlink      — create a symbolic link (may need elevated privileges on Windows)
-compress_files      — compress files/dirs into zip or tar.gz; auto-detects format from extension
-extract_archive     — extract zip or tar.gz archive; path-traversal protected
+rest is for pauses. When the user says to wait, stand by, take a rest, or that they will review, call rest instead of ending the conversation. Then poll get_user_response with the returned token until the user resumes or the tool returns a non-PENDING terminal response.
 
-Performance tips:
-  • Use read_multiple_files when reading 2+ files — single round-trip
-  • Use edit_file batch mode (edits array) for multiple changes to the same file
-  • Use path_exists (single) or path_exists_batch (multiple, capped by default) before read/write to branch on existence — faster than get_file_info
-  • Use get_multiple_file_info for batch metadata lookups; compact one-line entries are default; set output_mode="details" only when expanded fields are needed
-  • edit_file has a near-miss probe: if your pattern isn't found, it shows surrounding context to help you refine it
-  • Use find_replace_in_files with dry_run=true to preview changes across a project before applying
-  • Do not request include_base64=true for binary/datawarehouse files unless you explicitly need bytes in context
+Platform note: ask_user, update_dialog, and rest use a browser dialog and are intended for macOS/Windows. notify_user works across macOS, Windows, and Linux.
 
-<!-- group:dir -->
-─── Directory operations ──────────────────────────────────────────────────────
+[[group:file]]
+--- File operations -----------------------------------------------------------
 
-list_directory — contents with sizes and timestamps; supports recursion, glob filtering, exclude_patterns, and max_entries
-directory_tree — visual tree view with sizes; better for understanding project structure; supports exclude_patterns, glob, and max_entries
-create_directory, delete_directory — self-explanatory
+File operations are for individual files and local filesystem objects.
 
-When to use which:
-  list_directory → detailed file listing (sizes, dates, one level)
-  directory_tree → project structure overview (visual tree, multi-level)
+read_file:
+- Use line ranges, head/tail, or max_bytes to keep context focused.
+- Use ranges for several non-contiguous snippets from the same file.
+- Binary files return summaries by default; request base64 only when bytes are required.
 
-Both listing tools cap output at max_entries=500 by default. If output is truncated, narrow with glob/exclude_patterns first; use max_entries=0 only when you truly need everything.
+write_file creates or fully overwrites a file. Prefer edit_file for changing an existing file because it is surgical and returns a focused diff.
 
-<!-- group:search -->
-─── Search ────────────────────────────────────────────────────────────────────
+append_to_file is only for additive writes. Do not use it when existing content needs to change.
 
-search_files — find files/dirs by NAME (glob patterns: *.go, **/*.json, or Go regex with use_regex=true); concise relative paths by default
-grep_files   — find files by CONTENT (literal text or regex with use_regex=true); relative paths by default
+edit_file is the default editing tool for existing files:
+- Add enough surrounding context to old_str so the intended occurrence is unique.
+- Use batch edits for multiple replacements in the same file.
+- Use dry_run for risky replacements or unclear matches.
+- Use replace_all only when every occurrence is intentionally in scope.
 
-When to use which:
-  search_files → "find all .go files", "find files named config*"
-  grep_files   → "find files containing TODO", "find function definitions"
+delete_file deletes a single file irreversibly. For directories, use the directory deletion tool when that group is available.
 
-grep_files notes:
-  • Patterns are literal by default. Set use_regex=true for |, ., *, +, ^, $, [], etc.
-  • output_mode "auto" (default) shows matching lines when results fit within max_results (default 50); switches to file-path list when results are capped. Use "content" to force matching lines.
-  • Use glob to include only relevant file types and exclude_patterns to prune noisy basenames such as node_modules, .git, dist, build, or generated files.
-  • Use path_format="absolute" only when relative paths are ambiguous.
-search_files notes:
-  • Set use_regex=true for basename/path matching with ^, $, |, character classes, or start/end constraints.
-  • Regex patterns without / match only basenames; regex patterns with / match relative paths.
-  • Set case_insensitive=true when filesystem casing is unknown or irrelevant.
+copy_file and move_file operate on files; move_file can also rename or move directories. Be careful with overwrite=true because destination content is replaced.
 
-<!-- group:exec -->
-─── Shell ─────────────────────────────────────────────────────────────────────
+get_file_info returns metadata and line counts. Use it before targeted reads in large files or when you need size/type/permission facts.
 
-get_working_directory — OS, hostname, cwd, compact PATH summary (call first to orient)
-run_command           — execute non-interactive shell commands; defaults to sh -c on Unix and cmd /C on Windows; set shell=sh/bash/powershell/pwsh when command syntax needs that shell. Output is capped at 256 KB by default; set max_output_bytes=0 only when you truly need unlimited output. Use short timeout_seconds for risky commands; timeout attempts to kill the process tree. Use stdin for scripted prompts and detach=true for long-running services/watchers.
-                        Platform note: cmd /C does NOT understand Unix syntax (`;`, heredocs, `$VAR`, single-quoted strings). Use shell=sh/bash for heredocs and Unix syntax, or shell=powershell/pwsh for PowerShell here-strings.
-                        No PTY is allocated: avoid interactive shells, TUIs, curses apps, pagers, editors, and full-screen prompts unless they have a non-interactive flag.
-open_in_app           — open file/URL in default app
+path_exists is the cheapest existence/type check for a single path.
 
-<!-- group:system -->
-─── System ────────────────────────────────────────────────────────────────────
+diff_files compares two text files without shelling out and guards large/binary inputs.
 
-http_request    — HTTP client (GET/POST/PUT/PATCH/DELETE); response body defaults to 256 KB; timeout max 300 s
-clipboard_read  — read system clipboard; output defaults to 256 KB
-clipboard_write — write to system clipboard
-list_processes  — running processes with CPU/memory; filter/sort and tune limit/command_width
-get_system_info — CPU, memory, disk snapshot
-get_env         — read environment variables; no-arg mode lists names only; values can be capped/redacted
-download_file   — download a URL to a local file with streaming; prefer over http_request + write_file for binary/large files
+calculate_checksum verifies identity or integrity for one or more files.
+
+create_symlink creates symbolic links; on Windows it may require Developer Mode or elevated privileges.
+
+compress_files and extract_archive handle zip/tar.gz archives. Use them instead of shell archivers for cross-platform behavior.
+
+[[group:multi]]
+--- Batch file operations -----------------------------------------------------
+
+Multi-file tools exist to reduce round trips and avoid flooding context.
+
+read_multiple_files reads 2+ files in one call. Use it for related small/medium files; set per-file caps when files may be large.
+
+write_multiple_files writes 2+ files in one call. Leave show_diff=false for broad generated writes unless per-file diffs are important.
+
+find_replace_in_files performs project-wide or directory-wide replacement:
+- Always run with dry_run=true first.
+- Narrow scope with glob and exclude_patterns.
+- Use show_diff=false for very broad mechanical changes when a changed-file summary is enough.
+- Use show_unmodified only when you need an audit trail; otherwise it creates noise.
+
+path_exists_batch checks many paths at once. Prefer it over repeated single-path checks.
+
+get_multiple_file_info returns metadata for many paths. Use count_lines=false when line counts are unnecessary.
+
+[[group:dir]]
+--- Directory operations ------------------------------------------------------
+
+list_directory returns detailed directory entries with sizes and modification times. Use it for one-level inspection or bounded recursive listings.
+
+directory_tree returns a compact visual structure. Use it to understand a project layout before selecting files to inspect.
+
+create_directory creates missing parent directories and is a no-op if the target already exists.
+
+delete_directory removes directories. Empty deletion is straightforward; force=true recursively deletes the entire tree and should be treated as destructive.
+
+Listing tools cap output by default. If output is truncated, narrow with max_depth, glob, and exclude_patterns before raising max_entries. Use max_entries=0 only when you truly need everything.
+
+[[group:search]]
+--- Search --------------------------------------------------------------------
+
+search_files finds paths by name. Use it when you know a filename, extension, glob, or partial path.
+
+grep_files searches file contents. Use it for symbols, function names, TODOs, errors, strings, and config keys.
+
+Search defaults are intentionally conservative:
+- Patterns are literal by default. Set use_regex=true for Go regex syntax such as |, ., *, +, ^, $, or character classes.
+- Use glob to include relevant file types.
+- Use exclude_patterns to prune noisy basenames such as .git, node_modules, dist, build, vendor, logs, or generated output.
+- Use output_mode="files_with_matches" or "count" when matching lines would be too noisy.
+- Use path_format="absolute" only when relative paths are ambiguous.
+
+[[group:exec]]
+--- Shell and environment -----------------------------------------------------
+
+get_working_directory returns OS, hostname, cwd, and a compact environment summary. Call it early when local path or OS assumptions matter.
+
+run_command is a bounded, non-interactive command runner:
+- Use it for build/test/lint commands, project scripts, version control inspection, or operations not covered by purpose-built tools.
+- Set cwd explicitly when the command must run in a specific project directory.
+- Pick the shell that matches the syntax: sh/bash for Unix syntax and heredocs; powershell/pwsh for PowerShell syntax; cmd for simple Windows cmd commands.
+- cmd /C does not understand Unix syntax, heredocs, $VAR, or single-quoted strings.
+- No PTY is allocated. Avoid interactive shells, TUIs, pagers, editors, curses apps, and full-screen prompts unless they have a non-interactive mode.
+- Use stdin for scripted input.
+- Use raw_output=true when you need parseable stdout/stderr without command metadata.
+- Use allow_nonzero_exit=true when non-zero status is expected and you still need the output.
+- Use detach=true for long-running servers or watchers; monitor them with process tools if available.
+
+open_in_app opens a file, directory, or URL in the default system app. Use it instead of shell-specific open/start/xdg-open commands.
+
+get_env reads environment variables. Without key/filter it lists names only to avoid leaking secrets. Secret-like values are redacted by default.
+
+[[group:system]]
+--- System --------------------------------------------------------------------
+
+http_request is for HTTP APIs and small/medium text responses:
+- It supports common HTTP methods, headers, basic auth, request bodies, redirects, and timeouts.
+- JSON is compact by default; use json_format when you need pretty or raw JSON.
+- Use body_filter for large text responses when you only need matches, matching lines, or counts.
+- Use download_file instead for binary files or large downloads.
+
+download_file streams a URL directly to disk and creates parent directories. Prefer it over http_request plus write_file for large or binary content.
+
+clipboard_read and clipboard_write access the system clipboard. Clipboard reads are capped by default so large clipboard contents do not flood context.
+
+list_processes inspects running processes. Use filter to find servers/watchers you started and command_width when commands are truncated.
+
+get_system_info returns a compact CPU, memory, and disk snapshot.

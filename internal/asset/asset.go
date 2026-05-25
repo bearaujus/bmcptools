@@ -65,7 +65,7 @@ func ServerInstructions() string {
 
 // ServerInstructionsForGroups returns server instructions filtered to only
 // the specified groups. The "intro" section is always included.
-// Valid group names: "intro", "user", "file", "dir", "search", "exec", "system".
+// Valid group names: "intro", "user", "file", "multi", "dir", "search", "exec", "system".
 // Passing no groups returns the full instructions.
 func ServerInstructionsForGroups(groups ...string) string {
 	if len(groups) == 0 {
@@ -92,7 +92,7 @@ func ServerInstructionsForGroups(groups ...string) string {
 
 // ServerInstructionsExcludingGroups returns server instructions with the
 // specified groups removed. The "intro" section is always kept.
-// Valid group names: "user", "file", "dir", "search", "exec", "system".
+// Valid group names: "user", "file", "multi", "dir", "search", "exec", "system".
 // Passing no groups returns the full instructions.
 func ServerInstructionsExcludingGroups(groups ...string) string {
 	if len(groups) == 0 {
@@ -125,10 +125,10 @@ type groupSection struct {
 	content string
 }
 
-// parseGroupSections splits the instruction text by <!-- group:xxx --> markers.
+// parseGroupSections splits the instruction text by [[group:xxx]] markers.
 func parseGroupSections(text string) []groupSection {
-	const prefix = "<!-- group:"
-	const suffix = " -->"
+	const prefix = "[[group:"
+	const suffix = "]]"
 	lines := strings.Split(text, "\n")
 
 	var sections []groupSection
@@ -155,9 +155,9 @@ func parseGroupSections(text string) []groupSection {
 	return sections
 }
 
-// stripGroupMarkers removes <!-- group:xxx --> lines from the text.
+// stripGroupMarkers removes [[group:xxx]] lines from the text.
 func stripGroupMarkers(text string) string {
-	const prefix = "<!-- group:"
+	const prefix = "[[group:"
 	lines := strings.Split(text, "\n")
 	var out []string
 	for _, line := range lines {

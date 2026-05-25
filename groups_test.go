@@ -110,4 +110,14 @@ func TestServerInstructionsExcludingGroups(t *testing.T) {
 	if !strings.Contains(noSystem, "File operations") {
 		t.Fatal("file section should remain when only system excluded")
 	}
+
+	noMulti := ServerInstructionsExcludingGroups(GroupMulti)
+	if strings.Contains(noMulti, "read_multiple_files") || strings.Contains(noMulti, "Batch file operations") {
+		t.Fatal("excluding multi group should remove batch-file instructions")
+	}
+
+	noExec := ServerInstructionsExcludingGroups(GroupExec)
+	if strings.Contains(noExec, "get_env") {
+		t.Fatal("excluding exec group should remove environment instructions")
+	}
 }
