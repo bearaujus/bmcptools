@@ -9,61 +9,63 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+const defaultUserResponseMaxBytes = 256 * 1024
+
 func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	question := req.GetString("question", "")
-	if strings.TrimSpace(question) == "" {
-		return mcp.NewToolResultError("question is required"), nil
-	}
-
-	details := req.GetString("details", "")
-	title := req.GetString("title", "AI Assistant")
-	if title == "" {
-		title = "AI Assistant"
-	}
-	subtitle := req.GetString("subtitle", "")
-
-	choices := req.GetStringSlice("choices", nil)
-	// Strip empty strings — empty chip choices produce unclickable buttons
-	// and cause silent empty-answer retry loops.
-	filtered := choices[:0]
-	for _, c := range choices {
-		if strings.TrimSpace(c) != "" {
-			filtered = append(filtered, c)
+		question := req.GetString("question", "")
+		if strings.TrimSpace(question) == "" {
+			return mcp.NewToolResultError("question is required"), nil
 		}
-	}
-	choices = filtered
-	timeoutSec := req.GetFloat("timeout_seconds", 600)
-	if timeoutSec <= 0 {
-		timeoutSec = 600
-	}
-	if timeoutSec > 3600 {
-		timeoutSec = 3600
-	}
-	timeout := time.Duration(timeoutSec) * time.Second
 
-	notify := req.GetBool("notify", true)
+		details := req.GetString("details", "")
+		title := req.GetString("title", "AI Assistant")
+		if title == "" {
+			title = "AI Assistant"
+		}
+		subtitle := req.GetString("subtitle", "")
 
-	token := newDialogToken()
-	act := &dialogActivity{}
-	ctx, cancel := context.WithCancel(context.Background())
-	state := &pendingDialogState{
-		responseCh: make(chan string, 1),
-		activity:   act,
-		cancelFn:   cancel,
-	}
-	storePendingDialog(token, state)
+		choices := req.GetStringSlice("choices", nil)
+		// Strip empty strings — empty chip choices produce unclickable buttons
+		// and cause silent empty-answer retry loops.
+		filtered := choices[:0]
+		for _, c := range choices {
+			if strings.TrimSpace(c) != "" {
+				filtered = append(filtered, c)
+			}
+		}
+		choices = filtered
+		timeoutSec := req.GetFloat("timeout_seconds", 600)
+		if timeoutSec <= 0 {
+			timeoutSec = 600
+		}
+		if timeoutSec > 3600 {
+			timeoutSec = 3600
+		}
+		timeout := time.Duration(timeoutSec) * time.Second
 
-	go func() {
+		notify := req.GetBool("notify", true)
+
+		token := newDialogToken()
+		act := &dialogActivity{}
+		ctx, cancel := context.WithCancel(context.Background())
+		state := &pendingDialogState{
+			responseCh: make(chan string, 1),
+			activity:   act,
+			cancelFn:   cancel,
+		}
+		storePendingDialog(token, state)
+
+		go func() {
 			answer := runDialogBlocking(ctx, htmlSource, question, details, title, subtitle, choices, notify, timeout, act)
-		cancel() // release context resources
-		select {
-		case state.responseCh <- answer:
-		default:
-		}
-		time.Sleep(5 * time.Minute)
-		deletePendingDialog(token)
-	}()
+			cancel() // release context resources
+			select {
+			case state.responseCh <- answer:
+			default:
+			}
+			time.Sleep(5 * time.Minute)
+			deletePendingDialog(token)
+		}()
 
 		return mcp.NewToolResultText(
 			"{\n" +
@@ -123,6 +125,10 @@ func getUserResponseHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Ca
 	if waitSec > 115 {
 		waitSec = 115
 	}
+	maxResponseBytes := int(req.GetFloat("max_response_bytes", defaultUserResponseMaxBytes))
+	if maxResponseBytes < 0 {
+		maxResponseBytes = defaultUserResponseMaxBytes
+	}
 
 	state := loadPendingDialog(token)
 	if state == nil {
@@ -134,10 +140,18 @@ func getUserResponseHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Ca
 	select {
 	case answer := <-state.responseCh:
 		deletePendingDialog(token)
-		return mcp.NewToolResultText(answer), nil
+		return mcp.NewToolResultText(limitUserResponse(answer, maxResponseBytes)), nil
 	case <-time.After(time.Duration(waitSec) * time.Second):
 		return mcp.NewToolResultText(buildPendingMessage(token, state.activity)), nil
 	}
+}
+
+func limitUserResponse(answer string, maxBytes int) string {
+	if maxBytes <= 0 || len(answer) <= maxBytes {
+		return answer
+	}
+	return fmt.Sprintf("%s\n\n[User response truncated at %d/%d bytes. Increase max_response_bytes or set max_response_bytes=0 for unlimited.]",
+		answer[:maxBytes], maxBytes, len(answer))
 }
 
 func buildPendingMessage(token string, act *dialogActivity) string {

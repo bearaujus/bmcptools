@@ -12,7 +12,8 @@ import (
 )
 
 // DefaultMaxReadBytes is the default limit for reading a single file as text.
-const DefaultMaxReadBytes = 10 * 1024 * 1024
+// Keep this conservative: tool output goes directly into model context.
+const DefaultMaxReadBytes = 256 * 1024
 
 // ReadBinaryFile reads a binary file and returns a base64-encoded text summary.
 func ReadBinaryFile(f *os.File, info os.FileInfo, contentType string, limit int) (string, error) {

@@ -1,6 +1,8 @@
 package exec
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -107,6 +109,36 @@ func TestRunCommandMaxOutputBytes(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "truncated") {
 		t.Errorf("expected 'truncated' in output when max_output_bytes exceeded: %q", text)
+	}
+}
+
+func TestRunCommandDefaultOutputCap(t *testing.T) {
+	dir := t.TempDir()
+	program := filepath.Join(dir, "main.go")
+	source := fmt.Sprintf(`package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Print(strings.Repeat("A", %d))
+}
+`, defaultMaxCommandOutputBytes+1024)
+	if err := os.WriteFile(program, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runCommandHandler(nil, newTestRequest(map[string]any{
+		"command": "go run main.go",
+		"cwd":     dir,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Output truncated") {
+		t.Errorf("expected default output cap truncation notice: %q", text)
 	}
 }
 
@@ -419,12 +451,32 @@ func TestGetWorkingDirectoryContainsPath(t *testing.T) {
 	}
 }
 
+func TestGetWorkingDirectorySummarizesLongPath(t *testing.T) {
+	parts := make([]string, 20)
+	for i := range parts {
+		parts[i] = fmt.Sprintf("C:\\tool%d", i)
+		if runtime.GOOS != "windows" {
+			parts[i] = fmt.Sprintf("/tool%d", i)
+		}
+	}
+	t.Setenv("PATH", strings.Join(parts, string(os.PathListSeparator)))
+
+	result, err := getWorkingDirectoryHandler(nil, newTestRequest(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "use get_env key=PATH") {
+		t.Errorf("expected compact PATH hint in output: %q", text)
+	}
+}
+
 // ── get_env ──────────────────────────────────────────────────────────────────
 
 func TestGetEnvSpecificKey(t *testing.T) {
-	t.Setenv("BMCPTOOLS_TEST_KEY", "test_value_123")
+	t.Setenv("BMCPTOOLS_TEST_VALUE", "test_value_123")
 	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
-		"key": "BMCPTOOLS_TEST_KEY",
+		"key": "BMCPTOOLS_TEST_VALUE",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -433,7 +485,7 @@ func TestGetEnvSpecificKey(t *testing.T) {
 		t.Fatalf("unexpected error: %s", resultText(result))
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "BMCPTOOLS_TEST_KEY=test_value_123") {
+	if !strings.Contains(text, "BMCPTOOLS_TEST_VALUE=test_value_123") {
 		t.Errorf("expected key=value in output: %q", text)
 	}
 }
@@ -492,6 +544,7 @@ func TestGetEnvFilterNoMatch(t *testing.T) {
 }
 
 func TestGetEnvAll(t *testing.T) {
+	t.Setenv("BMCPTOOLS_VISIBLE_NAME_ONLY", "hidden_by_default")
 	result, err := getEnvHandler(nil, newTestRequest(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -500,7 +553,69 @@ func TestGetEnvAll(t *testing.T) {
 		t.Fatalf("unexpected error: %s", resultText(result))
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "=") {
-		t.Errorf("expected KEY=VALUE pairs in output: %q", text)
+	if !strings.Contains(text, "names only") {
+		t.Errorf("expected names-only mode in output: %q", text)
+	}
+	if strings.Contains(text, "hidden_by_default") {
+		t.Errorf("expected values to be omitted by default: %q", text)
+	}
+}
+
+func TestGetEnvRedactsSecretLikeNamesByDefault(t *testing.T) {
+	t.Setenv("BMCPTOOLS_API_KEY", "super-secret-value")
+	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
+		"key": "BMCPTOOLS_API_KEY",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if strings.Contains(text, "super-secret-value") {
+		t.Errorf("expected secret value to be redacted: %q", text)
+	}
+	if !strings.Contains(text, "redacted") {
+		t.Errorf("expected redaction notice: %q", text)
+	}
+}
+
+func TestGetEnvCanReturnUnredactedSpecificKey(t *testing.T) {
+	t.Setenv("BMCPTOOLS_API_KEY", "super-secret-value")
+	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
+		"key":            "BMCPTOOLS_API_KEY",
+		"redact_secrets": false,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "BMCPTOOLS_API_KEY=super-secret-value") {
+		t.Errorf("expected unredacted value for explicit opt-out: %q", text)
+	}
+}
+
+func TestGetEnvValueMaxBytesTruncates(t *testing.T) {
+	t.Setenv("BMCPTOOLS_LONG_VALUE", "1234567890")
+	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
+		"key":             "BMCPTOOLS_LONG_VALUE",
+		"value_max_bytes": float64(4),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "1234... [truncated") {
+		t.Errorf("expected value truncation notice: %q", text)
+	}
+	if strings.Contains(text, "1234567890") {
+		t.Errorf("expected full value to be omitted: %q", text)
 	}
 }

@@ -79,16 +79,16 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `read_file` | Read a file with encoding auto-detection. Supports `start_line`/`end_line`, multi-range (`ranges` param), `head`/`tail`, `show_line_numbers`, and byte limits. Binary → base64. |
-| `write_file` | Create or overwrite a file. Auto-creates parent dirs. Returns a unified diff when overwriting (configurable via `show_diff`). |
+| `read_file` | Read a file with encoding auto-detection. Defaults to a 256 KB context cap. Supports `start_line`/`end_line`, multi-range (`ranges` param), `head`/`tail`, `show_line_numbers`, and byte limits. Binary → base64. |
+| `write_file` | Create or overwrite a file. Auto-creates parent dirs. Returns a capped unified diff when overwriting (configurable via `show_diff`). |
 | `append_to_file` | Append content to a file (creates if absent). Returns new file size. |
-| `edit_file` | Surgical find-and-replace. Batch mode, Go regex, CRLF-transparent, near-miss probe, dry-run. **Preferred for editing.** |
+| `edit_file` | Surgical find-and-replace. Batch mode, Go regex, CRLF-transparent, capped diff, near-miss probe, dry-run. **Preferred for editing.** |
 | `delete_file` | Delete a single file. |
 | `copy_file` | Copy a file. Auto-creates destination parent dirs. |
 | `move_file` | Move or rename a file/directory. Cross-device safe. |
 | `get_file_info` | Metadata: type, size, permissions, mod time, symlink target, line count. |
 | `path_exists` | Lightweight existence check — faster than `read_file` or `get_file_info`. |
-| `diff_files` | Unified diff between two files. Cross-platform. |
+| `diff_files` | Unified diff between two files. Guards large inputs and caps diff output by default. Cross-platform. |
 | `calculate_checksum` | MD5, SHA1, or SHA256 checksum. Batch-capable. Cross-platform. |
 | `create_symlink` | Create a symbolic link. Cross-platform (may require elevated privileges on Windows). |
 | `compress_files` | Compress files/directories into a zip or tar.gz archive. Auto-detects format from extension. |
@@ -98,18 +98,18 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file`. |
+| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file`. Defaults to 256 KB per file. |
 | `write_multiple_files` | Write 2+ files in one call. `show_diff` defaults to false for performance. |
-| `find_replace_in_files` | Find-and-replace across a directory tree. Regex, glob filter, dry-run, per-file diffs. |
-| `path_exists_batch` | Check whether multiple paths exist in one call. Returns type and size for each. |
-| `get_multiple_file_info` | Return metadata (type, size, modified, permissions, line count) for multiple paths. |
+| `find_replace_in_files` | Find-and-replace across a directory tree. Regex, glob/exclude filters, dry-run, per-file diffs, compact unmodified-file summary. |
+| `path_exists_batch` | Check whether multiple paths exist in one call. Returns type and size with a summary and limit control. |
+| `get_multiple_file_info` | Return metadata (type, size, modified, permissions, optional line count) for multiple paths with limit control. |
 
 ### Directory tools (4)
 
 | Tool | Description |
 |------|-------------|
-| `list_directory` | Contents with sizes, timestamps. Recursion, glob filter, sort by name/size. |
-| `directory_tree` | Visual tree view with sizes. Best for project structure overview. |
+| `list_directory` | Contents with sizes, timestamps. Recursion, glob/exclude filters, sort by name/size, and `max_entries` cap. |
+| `directory_tree` | Visual tree view with sizes. Best for project structure overview. Supports glob/exclude filters and `max_entries` cap. |
 | `create_directory` | Create directory + parents (`mkdir -p`). Idempotent. |
 | `delete_directory` | Delete directory. `force=true` for non-empty. |
 
@@ -117,32 +117,32 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `search_files` | Find files by **name** (glob patterns: `*.go`, `**/*.json`, `{a,b}`). |
-| `grep_files` | Find files by **content** (literal or regex). Auto/content/files/count output modes, pagination, multiline, glob filter. |
+| `search_files` | Find files/dirs by **name** (glob patterns: `*.go`, `**/*.json`, `{a,b}`). Concise relative paths by default, with details/absolute modes. |
+| `grep_files` | Find files by **content** (literal or regex). Auto/content/files/count output modes, pagination, multiline, glob/exclude filters, relative paths by default. |
 
 ### User interaction tools (6)
 
 | Tool | Platform | Description |
 |------|----------|-------------|
 | `ask_user` | macOS, Windows | Browser dialog with choices, markdown details, live updates, typing detection. Returns token → poll with `get_user_response`. |
-| `get_user_response` | macOS, Windows | Long-poll for `ask_user`/`rest` response. Returns answer or detailed PENDING status (typing, idle, heartbeat). |
+| `get_user_response` | macOS, Windows | Long-poll for `ask_user`/`rest` response. Returns capped answer text or detailed PENDING status (typing, idle, heartbeat). |
 | `update_dialog` | macOS, Windows | Push live markdown updates into an open `ask_user` dialog. `replace_last` for streaming progress. |
 | `cancel_ask_user` | macOS, Windows | Dismiss a pending dialog by token. |
-| `notify_user` | **All platforms** | Fire-and-forget toast notification. `level`: info/warning/error. |
+| `notify_user` | **All platforms** | Fire-and-forget toast notification. Returns concise delivery metadata. `level`: info/warning/error. |
 | `rest` | macOS, Windows | AI goes idle with a browser "resting" page. Wake-up button. Returns token → poll with `get_user_response`. |
 
 ### System tools (10)
 
 | Tool | Description |
 |------|-------------|
-| `get_working_directory` | CWD, OS, hostname, and key env vars. **Call first** to orient. |
-| `run_command` | Shell execution (`sh -c` / `cmd /C`). Timeout max 600 s. Supports detach, raw output, stdin, env vars, output capping. |
+| `get_working_directory` | CWD, OS, hostname, and compact key env summary. **Call first** to orient. |
+| `run_command` | Shell execution (`sh -c` / `cmd /C`). Timeout max 600 s. Supports detach, raw output, stdin, env vars, and default 256 KB output capping. |
 | `open_in_app` | Open file/dir/URL in default app. Cross-platform, non-blocking. |
-| `http_request` | HTTP client (all methods). JSON auto-pretty-print. Response capped at 1 MB. Timeout max 300 s. |
-| `list_processes` | Running processes with PID, name, CPU/memory. Filter and sort. |
+| `http_request` | HTTP client (all methods). JSON auto-pretty-print. Response body defaults to a 256 KB cap. Timeout max 300 s. |
+| `list_processes` | Running processes with PID, name, CPU/memory. Filter, sort, tune limit and command width. |
 | `get_system_info` | CPU, memory, and disk usage snapshot. |
-| `get_env` | Read environment variables. Specific key, filter by name substring, or list all. |
-| `clipboard_read` | Read system clipboard. |
+| `get_env` | Read environment variables. Specific key, filter by name substring, or list names by default with values capped/redacted. |
+| `clipboard_read` | Read system clipboard with a default 256 KB output cap. |
 | `clipboard_write` | Write to system clipboard. |
 | `download_file` | Download a file from a URL to a local path. Streaming (no memory buffering). Auto-creates parent dirs. |
 

@@ -62,5 +62,9 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithDescription(asset.ToolDesc(toolname.GetEnv)),
 		mcp.WithString("key", mcp.Description(asset.ParamDesc(toolname.GetEnv, "key"))),
 		mcp.WithString("filter", mcp.Description(asset.ParamDesc(toolname.GetEnv, "filter"))),
+		mcp.WithBoolean("include_values", mcp.Description(asset.ParamDesc(toolname.GetEnv, "include_values"))),
+		mcp.WithNumber("limit", mcp.Description(asset.ParamDesc(toolname.GetEnv, "limit"))),
+		mcp.WithNumber("value_max_bytes", mcp.Description(asset.ParamDesc(toolname.GetEnv, "value_max_bytes"))),
+		mcp.WithBoolean("redact_secrets", mcp.Description(asset.ParamDesc(toolname.GetEnv, "redact_secrets"))),
 	), getEnvHandler)
 }

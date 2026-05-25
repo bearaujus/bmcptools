@@ -27,8 +27,17 @@ func listProcessesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 	filter := strings.ToLower(strings.TrimSpace(req.GetString("filter", "")))
 	sortBy := strings.ToLower(strings.TrimSpace(req.GetString("sort_by", "pid")))
 	limit := int(req.GetFloat("limit", 50))
-	if limit <= 0 {
+	if limit < 0 {
 		limit = 50
+	}
+	maxCmdLen := int(req.GetFloat("command_width", 80))
+	if maxCmdLen <= 0 {
+		maxCmdLen = 80
+	} else if maxCmdLen < 4 {
+		maxCmdLen = 4
+	}
+	if maxCmdLen > 500 {
+		maxCmdLen = 500
 	}
 
 	procs, err := listProcesses()
@@ -57,7 +66,7 @@ func listProcessesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 
 	total := len(procs)
-	if total > limit {
+	if limit > 0 && total > limit {
 		procs = procs[:limit]
 	}
 
@@ -76,7 +85,6 @@ func listProcessesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 			maxNameLen = len(p.Name)
 		}
 	}
-	maxCmdLen := 60
 	nameColFmt := fmt.Sprintf("%%-%ds", maxNameLen)
 	cpuHeader, memHeader := "CPU%", "MEM%"
 	if runtime.GOOS == "windows" {

@@ -18,6 +18,12 @@ import (
 	"github.com/bearaujus/bmcptools/internal/helper"
 )
 
+const (
+	defaultDiffMaxBytes     = 256 * 1024
+	defaultDiffFileMaxBytes = 2 * 1024 * 1024
+	scannerMaxTokenBytes    = 10 * 1024 * 1024
+)
+
 func readFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	path := req.GetString("path", "")
 	if path == "" {
@@ -118,7 +124,7 @@ func readFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 func readFileWithLineNumbers(f *os.File, info os.FileInfo, limit int) (*mcp.CallToolResult, error) {
 	scanner := bufio.NewScanner(f)
 	scanBuf := make([]byte, 64*1024)
-	scanner.Buffer(scanBuf, limit)
+	scanner.Buffer(scanBuf, scannerBufferLimit(limit))
 
 	var sb strings.Builder
 	lineNum := 0
@@ -159,12 +165,13 @@ func readFileLineRange(f *os.File, info os.FileInfo, startLine, endLine, totalLi
 
 	scanner := bufio.NewScanner(f)
 	scanBuf := make([]byte, 64*1024)
-	scanner.Buffer(scanBuf, limit)
+	scanner.Buffer(scanBuf, scannerBufferLimit(limit))
 
 	var sb strings.Builder
 	lineNum := 0
 	firstKept := -1
 	lastKept := -1
+	truncated := false
 
 	for scanner.Scan() {
 		lineNum++
@@ -185,6 +192,7 @@ func readFileLineRange(f *os.File, info os.FileInfo, startLine, endLine, totalLi
 			sb.WriteByte('\n')
 		}
 		if sb.Len() >= limit {
+			truncated = true
 			break
 		}
 	}
@@ -208,6 +216,12 @@ func readFileLineRange(f *os.File, info os.FileInfo, startLine, endLine, totalLi
 		header = fmt.Sprintf("[%s \u2014 lines %d..%d of %s]\n", info.Name(), firstKept, lastKept, helper.Pluralize(totalLines, "line"))
 	} else {
 		header = fmt.Sprintf("[%s \u2014 lines %d..%d]\n", info.Name(), firstKept, lastKept)
+	}
+	if truncated {
+		sb.WriteString(fmt.Sprintf(
+			"\n[TRUNCATED \u2014 range output reached max_bytes=%s. Use a smaller line range or raise max_bytes.]",
+			helper.HumanizeBytes(int64(limit)),
+		))
 	}
 	return mcp.NewToolResultText(header + sb.String()), nil
 }
@@ -234,12 +248,13 @@ func readFileMultiRange(f *os.File, info os.FileInfo, rawRanges []any, limit int
 
 	scanner := bufio.NewScanner(f)
 	scanBuf := make([]byte, 64*1024)
-	scanner.Buffer(scanBuf, limit)
+	scanner.Buffer(scanBuf, scannerBufferLimit(limit))
 
 	var sb strings.Builder
 	lineNum := 0
 	rangeIdx := 0
 	firstInRange := true
+	truncated := false
 
 	for scanner.Scan() {
 		lineNum++
@@ -279,6 +294,7 @@ func readFileMultiRange(f *os.File, info os.FileInfo, rawRanges []any, limit int
 			sb.WriteByte('\n')
 		}
 		if sb.Len() >= limit {
+			truncated = true
 			break
 		}
 	}
@@ -287,6 +303,12 @@ func readFileMultiRange(f *os.File, info os.FileInfo, rawRanges []any, limit int
 	}
 	if sb.Len() == 0 {
 		return mcp.NewToolResultText(fmt.Sprintf("[%s] No lines found in specified ranges", info.Name())), nil
+	}
+	if truncated {
+		sb.WriteString(fmt.Sprintf(
+			"\n[TRUNCATED \u2014 range output reached max_bytes=%s. Use fewer/smaller ranges or raise max_bytes.]",
+			helper.HumanizeBytes(int64(limit)),
+		))
 	}
 	return mcp.NewToolResultText(sb.String()), nil
 }
@@ -301,6 +323,29 @@ func toInt(v any) (int, bool) {
 		return int(n), true
 	}
 	return 0, false
+}
+
+func requestByteLimit(req mcp.CallToolRequest, name string, defaultValue int) int {
+	limit := int(req.GetFloat(name, float64(defaultValue)))
+	if limit < 0 {
+		return defaultValue
+	}
+	return limit
+}
+
+func scannerBufferLimit(outputLimit int) int {
+	if outputLimit > scannerMaxTokenBytes {
+		return outputLimit
+	}
+	return scannerMaxTokenBytes
+}
+
+func limitTextBytes(label, text string, maxBytes int) string {
+	if maxBytes <= 0 || len(text) <= maxBytes {
+		return text
+	}
+	return fmt.Sprintf("%s\n\n[%s truncated at %s. Increase the relevant max_*_bytes parameter or set it to 0 for unlimited.]",
+		text[:maxBytes], label, helper.HumanizeBytes(int64(maxBytes)))
 }
 
 func writeFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -318,16 +363,7 @@ func writeFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	createDirs := req.GetBool("create_dirs", true)
 	_, showDiffExplicit := req.GetArguments()["show_diff"]
 	showDiff := req.GetBool("show_diff", false)
-
-	var existingContent string
-	fileExisted := false
-	if existing, readErr := os.ReadFile(path); readErr == nil {
-		existingContent = string(existing)
-		fileExisted = true
-	}
-	if !showDiffExplicit {
-		showDiff = fileExisted
-	}
+	maxDiffBytes := requestByteLimit(req, "max_diff_bytes", defaultDiffMaxBytes)
 
 	if createDirs {
 		if err := helper.MkdirAllClear(filepath.Dir(path), 0o755); err != nil {
@@ -339,7 +375,25 @@ func writeFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	unlock := helper.LockFile(absPath)
 	defer unlock()
 
-	if err := helper.AtomicWriteFile(path, []byte(content), 0o644); err != nil {
+	writePerm := os.FileMode(0o644)
+	var existingContent string
+	fileExisted := false
+	existingReadable := false
+	if info, statErr := os.Stat(path); statErr == nil {
+		fileExisted = true
+		writePerm = info.Mode().Perm()
+		if existing, readErr := os.ReadFile(path); readErr == nil {
+			existingContent = string(existing)
+			existingReadable = true
+		}
+	}
+	if !showDiffExplicit {
+		showDiff = fileExisted && existingReadable
+	} else if showDiff && fileExisted && !existingReadable {
+		return mcp.NewToolResultError("cannot read existing file to produce diff"), nil
+	}
+
+	if err := helper.AtomicWriteFile(path, []byte(content), writePerm); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot write file: %v", err)), nil
 	}
 
@@ -351,7 +405,7 @@ func writeFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	msg := fmt.Sprintf("%s %s (%s) \u2192 %s", verb, helper.HumanizeBytes(int64(len(content))), helper.Pluralize(lines, "line"), path)
 
 	if showDiff {
-		diff := helper.GenerateDiff(existingContent, content, 3)
+		diff := limitTextBytes("Diff", helper.GenerateDiff(existingContent, content, 3), maxDiffBytes)
 		if diff != "" {
 			msg += "\n\n" + diff
 		}
@@ -444,6 +498,7 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	unlock := helper.LockFile(absPath)
 	defer unlock()
 
+	writePerm := helper.ExistingFilePerm(path, 0o644)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot read file: %v", err)), nil
@@ -488,6 +543,7 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 			}
 		}
 	}
+	maxDiffBytes := requestByteLimit(req, "max_diff_bytes", defaultDiffMaxBytes)
 
 	if totalCount == 0 {
 		prefix := ""
@@ -505,7 +561,7 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	}
 
 	if dryRun {
-		diff := helper.GenerateDiff(original, current, ctxLines)
+		diff := limitTextBytes("Diff", helper.GenerateDiff(original, current, ctxLines), maxDiffBytes)
 		preview := fmt.Sprintf("[DRY RUN] %s would be replaced in %s \u2014 file not modified.",
 			helper.Pluralize(totalCount, "occurrence"), path)
 		if diff != "" {
@@ -518,7 +574,7 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	if hasCRLF {
 		writeCurrent = helper.RestoreCRLF(current)
 	}
-	if err := helper.AtomicWriteFile(path, []byte(writeCurrent), 0o644); err != nil {
+	if err := helper.AtomicWriteFile(path, []byte(writeCurrent), writePerm); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot write file: %v", err)), nil
 	}
 
@@ -542,7 +598,7 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 			len(multipleMatchWarnings),
 		)
 	}
-	if diff := helper.GenerateDiff(original, current, ctxLines); diff != "" {
+	if diff := limitTextBytes("Diff", helper.GenerateDiff(original, current, ctxLines), maxDiffBytes); diff != "" {
 		msg += "\n\n" + diff
 	}
 	return mcp.NewToolResultText(msg), nil
@@ -589,19 +645,27 @@ func copyFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		return mcp.NewToolResultError("source is a directory; copy_file only supports files"), nil
 	}
 
-	if !overwrite {
-		if _, err := os.Stat(dst); err == nil {
+	if dstInfo, err := os.Stat(dst); err == nil {
+		if os.SameFile(srcInfo, dstInfo) {
+			return mcp.NewToolResultError("source and destination refer to the same file; refusing to copy"), nil
+		}
+		if dstInfo.IsDir() {
+			return mcp.NewToolResultError("destination is a directory; copy_file requires a file path"), nil
+		}
+		if !overwrite {
 			return mcp.NewToolResultError(
 				fmt.Sprintf("destination %q already exists; set overwrite=true to replace it", dst),
 			), nil
 		}
+	} else if !os.IsNotExist(err) {
+		return mcp.NewToolResultError(fmt.Sprintf("cannot stat destination: %v", err)), nil
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot create destination directory: %v", err)), nil
 	}
 
-	n, err := helper.CopyFileDataN(src, dst, srcInfo.Mode())
+	n, err := helper.CopyFileDataN(src, dst, srcInfo.Mode().Perm())
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("copy error: %v", err)), nil
 	}
@@ -622,16 +686,22 @@ func moveFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	}
 	overwrite := req.GetBool("overwrite", false)
 
-	if _, err := os.Stat(src); err != nil {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot stat source: %v", err)), nil
 	}
 
-	if !overwrite {
-		if _, err := os.Stat(dst); err == nil {
+	if dstInfo, err := os.Stat(dst); err == nil {
+		if os.SameFile(srcInfo, dstInfo) {
+			return mcp.NewToolResultError("source and destination refer to the same file; no move performed"), nil
+		}
+		if !overwrite {
 			return mcp.NewToolResultError(
 				fmt.Sprintf("destination %q already exists; set overwrite=true to replace it", dst),
 			), nil
 		}
+	} else if !os.IsNotExist(err) {
+		return mcp.NewToolResultError(fmt.Sprintf("cannot stat destination: %v", err)), nil
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -648,7 +718,7 @@ func moveFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		return mcp.NewToolResultText(fmt.Sprintf("Moved %s \u2192 %s%s", src, dst, sizeStr)), nil
 	}
 
-	srcInfo, err := os.Stat(src)
+	srcInfo, err = os.Stat(src)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot stat source: %v", err)), nil
 	}
@@ -658,7 +728,7 @@ func moveFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		), nil
 	}
 
-	if err := helper.CopyFileData(src, dst, srcInfo.Mode()); err != nil {
+	if err := helper.CopyFileData(src, dst, srcInfo.Mode().Perm()); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("copy error during cross-device move: %v", err)), nil
 	}
 	if err := os.Remove(src); err != nil {
@@ -761,6 +831,8 @@ func diffFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	if ctxLines < 0 {
 		ctxLines = 0
 	}
+	maxFileBytes := requestByteLimit(req, "max_file_bytes", defaultDiffFileMaxBytes)
+	maxDiffBytes := requestByteLimit(req, "max_diff_bytes", defaultDiffMaxBytes)
 
 	readText := func(p string) (string, os.FileInfo, error) {
 		f, info, _, binary, err := helper.SniffAndOpen(p)
@@ -770,6 +842,10 @@ func diffFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		defer f.Close()
 		if binary {
 			return "", info, fmt.Errorf("file is binary")
+		}
+		if maxFileBytes > 0 && info.Size() > int64(maxFileBytes) {
+			return "", info, fmt.Errorf("file is %s, which exceeds max_file_bytes=%s; raise max_file_bytes or set it to 0 for unlimited",
+				helper.HumanizeBytes(info.Size()), helper.HumanizeBytes(int64(maxFileBytes)))
 		}
 		raw, err := io.ReadAll(f)
 		if err != nil {
@@ -788,7 +864,7 @@ func diffFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		return mcp.NewToolResultError(fmt.Sprintf("path_b: %v", errB)), nil
 	}
 
-	diff := helper.GenerateDiff(textA, textB, ctxLines)
+	diff := limitTextBytes("Diff", helper.GenerateDiff(textA, textB, ctxLines), maxDiffBytes)
 	if diff == "" {
 		return mcp.NewToolResultText(fmt.Sprintf(
 			"Files are identical.\n  a: %s (%s, modified %s)\n  b: %s (%s, modified %s)",

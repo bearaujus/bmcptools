@@ -12,6 +12,11 @@ import (
 	"github.com/bearaujus/bmcptools/internal/helper"
 )
 
+const (
+	defaultPathExistsBatchLimit      = 500
+	defaultMultipleFileInfoPathLimit = 100
+)
+
 func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	rawPaths := req.GetStringSlice("paths", nil)
 	if len(rawPaths) == 0 {
@@ -124,6 +129,9 @@ func writeMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 			}
 		}
 
+		absPath, _ := filepath.Abs(path)
+		unlock := helper.LockFile(absPath)
+		writePerm := helper.ExistingFilePerm(path, 0o644)
 		var existingContent string
 		if showDiff {
 			if data, readErr := os.ReadFile(path); readErr == nil {
@@ -131,9 +139,7 @@ func writeMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 			}
 		}
 
-		absPath, _ := filepath.Abs(path)
-		unlock := helper.LockFile(absPath)
-		wErr := helper.AtomicWriteFile(path, []byte(content), 0o644)
+		wErr := helper.AtomicWriteFile(path, []byte(content), writePerm)
 		unlock()
 
 		if wErr != nil {
@@ -188,6 +194,8 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	dryRun := req.GetBool("dry_run", false)
 	showDiff := req.GetBool("show_diff", true)
 	showHidden := req.GetBool("show_hidden", false)
+	excludePatterns := req.GetStringSlice("exclude_patterns", nil)
+	showUnmodified := req.GetBool("show_unmodified", false)
 
 	if useRegex {
 		if _, _, err := helper.ApplyEdit("test", oldStr, newStr, true, false); err != nil {
@@ -195,7 +203,7 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		}
 	}
 
-	files, err := helper.CollectFiles(root, recursive, globPattern, showHidden)
+	files, err := helper.CollectFiles(root, recursive, globPattern, showHidden, excludePatterns)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -263,18 +271,39 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	}
 	if len(skipped) > 0 {
 		fmt.Fprintf(&sb, "\nSkipped %s (binary):\n", helper.Pluralize(len(skipped), "file"))
-		for _, s := range skipped {
-			fmt.Fprintf(&sb, "  %s\n", s)
-		}
+		writeLimitedPathList(&sb, skipped, 20)
 	}
 	if len(unmodified) > 0 {
-		fmt.Fprintf(&sb, "\nNo match in %s:\n", helper.Pluralize(len(unmodified), "file"))
-		for _, u := range unmodified {
-			fmt.Fprintf(&sb, "  %s\n", u)
+		if showUnmodified {
+			fmt.Fprintf(&sb, "\nNo match in %s:\n", helper.Pluralize(len(unmodified), "file"))
+			writeLimitedPathList(&sb, unmodified, 50)
+		} else {
+			fmt.Fprintf(&sb, "\nNo match in %s. Set show_unmodified=true to list them.", helper.Pluralize(len(unmodified), "file"))
 		}
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func writeLimitedPathList(sb *strings.Builder, paths []string, limit int) {
+	if limit <= 0 || len(paths) <= limit {
+		for _, p := range paths {
+			fmt.Fprintf(sb, "  %s\n", p)
+		}
+		return
+	}
+	for _, p := range paths[:limit] {
+		fmt.Fprintf(sb, "  %s\n", p)
+	}
+	fmt.Fprintf(sb, "  ... and %s more\n", helper.Pluralize(len(paths)-limit, "path"))
+}
+
+func batchLimit(req mcp.CallToolRequest, defaultLimit int) int {
+	limit := int(req.GetFloat("limit", float64(defaultLimit)))
+	if limit < 0 {
+		return defaultLimit
+	}
+	return limit
 }
 
 func pathExistsBatchHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -283,7 +312,17 @@ func pathExistsBatchHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Ca
 		return mcp.NewToolResultError("paths is required (array of file/directory paths)"), nil
 	}
 
+	limit := batchLimit(req, defaultPathExistsBatchLimit)
+	total := len(paths)
+	truncated := false
+	if limit > 0 && len(paths) > limit {
+		paths = paths[:limit]
+		truncated = true
+	}
+
 	var sb strings.Builder
+	existsCount := 0
+	missingCount := 0
 	for i, p := range paths {
 		if i > 0 {
 			sb.WriteString("\n")
@@ -291,8 +330,10 @@ func pathExistsBatchHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Ca
 		info, err := os.Lstat(p)
 		if err != nil {
 			fmt.Fprintf(&sb, "%s: false", p)
+			missingCount++
 			continue
 		}
+		existsCount++
 		kind := "file"
 		if info.IsDir() {
 			kind = "directory"
@@ -301,6 +342,11 @@ func pathExistsBatchHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Ca
 			kind = "symlink"
 		}
 		fmt.Fprintf(&sb, "%s: %s (%s)", p, kind, helper.HumanizeBytes(info.Size()))
+	}
+	fmt.Fprintf(&sb, "\n\nSummary: checked %d of %d path(s); %d exist, %d missing/inaccessible.",
+		len(paths), total, existsCount, missingCount)
+	if truncated {
+		fmt.Fprintf(&sb, " Output truncated after %d paths; increase limit or set limit=0 for all.", limit)
 	}
 	return mcp.NewToolResultText(sb.String()), nil
 }
@@ -311,7 +357,20 @@ func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mc
 		return mcp.NewToolResultError("paths is required (array of file/directory paths)"), nil
 	}
 
+	limit := batchLimit(req, defaultMultipleFileInfoPathLimit)
+	total := len(paths)
+	truncated := false
+	if limit > 0 && len(paths) > limit {
+		paths = paths[:limit]
+		truncated = true
+	}
+	countLines := req.GetBool("count_lines", true)
+
 	var sb strings.Builder
+	fileCount := 0
+	dirCount := 0
+	symlinkCount := 0
+	errorCount := 0
 	for i, p := range paths {
 		if i > 0 {
 			sb.WriteString("\n\n")
@@ -320,15 +379,20 @@ func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mc
 		linfo, err := os.Lstat(p)
 		if err != nil {
 			fmt.Fprintf(&sb, "Path:        %s\n[ERROR] %v", p, err)
+			errorCount++
 			continue
 		}
 
 		kind := "file"
 		if linfo.IsDir() {
 			kind = "directory"
+			dirCount++
 		}
 		if linfo.Mode()&os.ModeSymlink != 0 {
 			kind = "symlink"
+			symlinkCount++
+		} else if !linfo.IsDir() {
+			fileCount++
 		}
 
 		abs, _ := filepath.Abs(p)
@@ -353,7 +417,7 @@ func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mc
 			}
 		}
 
-		if !linfo.IsDir() {
+		if countLines && !linfo.IsDir() {
 			if f, _, _, binary, sniffErr := helper.SniffAndOpen(p); sniffErr == nil {
 				if !binary {
 					if n, countErr := helper.CountLines(f); countErr == nil {
@@ -363,6 +427,11 @@ func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mc
 				f.Close()
 			}
 		}
+	}
+	fmt.Fprintf(&sb, "\n\nSummary: shown %d of %d path(s); files=%d directories=%d symlinks=%d errors=%d.",
+		len(paths), total, fileCount, dirCount, symlinkCount, errorCount)
+	if truncated {
+		fmt.Fprintf(&sb, " Output truncated after %d paths; increase limit or set limit=0 for all.", limit)
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil

@@ -172,6 +172,12 @@ func TestSearchFilesHandler(t *testing.T) {
 	if strings.Contains(text, "bar.ts") {
 		t.Errorf("did not expect bar.ts in results: %q", text)
 	}
+	if strings.Contains(text, "[file]") {
+		t.Errorf("default search_files output should be concise paths, got: %q", text)
+	}
+	if !strings.Contains(text, "\n  foo.go\n") {
+		t.Errorf("default search_files output should use root-relative paths, got: %q", text)
+	}
 }
 
 func TestGrepFilesHandler(t *testing.T) {
@@ -386,8 +392,6 @@ func TestGrepFilesExplicitFilesWithMatchesModeUnchanged(t *testing.T) {
 	}
 }
 
-
-
 func TestGrepFilesGlobFilter(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "match.go"), []byte("hello world\n"), 0o644); err != nil {
@@ -412,6 +416,68 @@ func TestGrepFilesGlobFilter(t *testing.T) {
 	}
 	if strings.Contains(text, "skip.txt") {
 		t.Errorf("skip.txt should be excluded by glob filter: %q", text)
+	}
+}
+
+func TestGrepFilesExcludePatternsAndRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	skip := filepath.Join(dir, "node_modules")
+	if err := os.MkdirAll(skip, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skip, "dep.txt"), []byte("needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.txt"), []byte("needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":             dir,
+		"pattern":          "needle",
+		"exclude_patterns": []any{"node_modules"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "app.txt") {
+		t.Errorf("expected app.txt in grep output: %q", text)
+	}
+	if strings.Contains(text, "dep.txt") || strings.Contains(text, "node_modules") {
+		t.Errorf("excluded subtree should not appear in grep output: %q", text)
+	}
+	if strings.Contains(text, dir) {
+		t.Errorf("default grep_files output should use relative paths, got: %q", text)
+	}
+}
+
+func TestSearchFilesDetailsAbsoluteAndEntryType(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "pkg")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "*",
+		"entry_type":  "dir",
+		"output_mode": "details",
+		"path_format": "absolute",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "[dir ]") || !strings.Contains(text, sub) {
+		t.Errorf("expected absolute directory detail in output: %q", text)
+	}
+	if strings.Contains(text, "main.go") {
+		t.Errorf("entry_type=dir should exclude files: %q", text)
 	}
 }
 
@@ -599,8 +665,6 @@ func TestGrepFileContextAdjacentMatches(t *testing.T) {
 		t.Errorf("second match after-context = %v, want [c]", matches[1].after)
 	}
 }
-
-
 
 // ── grep_files case_insensitive ───────────────────────────────────────────────
 // Reason: The case_insensitive flag is a documented parameter of grep_files

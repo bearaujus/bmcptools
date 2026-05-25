@@ -1,16 +1,16 @@
 {
   "get_working_directory": {
-    "desc": "Return the server's current working directory, OS, and hostname. Call this first to orient yourself before navigating the filesystem — most other tools default to 'server's current working directory' and this tells you what that is.",
+    "desc": "Return the server's current working directory, OS, hostname, and a compact environment summary. Call this first to orient yourself before navigating the filesystem — most other tools default to the server's current working directory.",
     "params": {}
   },
   "run_command": {
-    "desc": "Execute a shell command and return combined stdout+stderr. Runs via sh -c on Unix, cmd /C on Windows. IMPORTANT: cmd /C does NOT understand Unix shell syntax — `;`, heredocs, single-quoted strings, and `$VAR` expansion do not work; use `powershell -NoProfile -Command \"...\"` or `bash -c \"...\"` for Unix-style scripting on Windows. Use max_output_bytes to cap large output and avoid flooding context. detach=true for fire-and-forget processes: returns the PID immediately with no captured output — use list_processes to check status. Timeout default: 60 s, max: 600 s.",
+    "desc": "Execute a shell command and return combined stdout+stderr. Runs via sh -c on Unix, cmd /C on Windows. IMPORTANT: cmd /C does NOT understand Unix shell syntax — `;`, heredocs, single-quoted strings, and `$VAR` expansion do not work; use `powershell -NoProfile -Command \"...\"` or `bash -c \"...\"` for Unix-style scripting on Windows. Output is captured with a default cap to avoid flooding AI context. detach=true for fire-and-forget processes: returns the PID immediately with no captured output — use list_processes to check status. Timeout default: 60 s, max: 600 s.",
     "params": {
       "command": "Command string to execute. Chain with && / ; / | as needed. Quote arguments containing spaces.",
       "cwd": "Working directory. Defaults to server's working directory.",
       "timeout_seconds": "Seconds before killing the command. Default: 60, max: 600.",
       "env": "Extra environment variables as [\"KEY=value\", ...]. Merged with current env.",
-      "max_output_bytes": "Truncate output to this many bytes. Default: no limit.",
+      "max_output_bytes": "Truncate output to this many bytes. Default: 262144 (256 KB). Set 0 for unlimited.",
       "stdin": "Content piped to the command's standard input.",
       "allow_nonzero_exit": "Return non-zero exit codes as success instead of raising an error. Default: false.",
       "raw_output": "Omit metadata header (command echo, cwd, exit code) — return only stdout/stderr. Use when parsing programmatic output (e.g. JSON). Default: false.",
@@ -25,10 +25,14 @@
     }
   },
   "get_env": {
-    "desc": "Read environment variables. With key, returns that variable's exact value. With filter, returns all variables whose name contains the substring (case-insensitive). Without arguments, returns ALL variables — avoid: floods context with 100+ entries and may leak secrets into the conversation. Always prefer key or filter.",
+    "desc": "Read environment variables. With key, returns that variable's value (secret-like names redacted by default). With filter, returns matching variables. Without key/filter, returns names only by default to avoid flooding context or leaking secrets.",
     "params": {
       "key": "Exact variable name. Returns its value.",
-      "filter": "Case-insensitive substring. Returns all matching KEY=value pairs."
+      "filter": "Case-insensitive substring. Returns matching variables by name.",
+      "include_values": "Include variable values. Default: true when key or filter is set, false when listing all variables.",
+      "limit": "Maximum variables to return for list/filter modes. Default: 100. Set 0 for unlimited.",
+      "value_max_bytes": "Maximum bytes per value when values are included. Default: 4096. Set 0 for full values.",
+      "redact_secrets": "Redact values for secret-like variable names. Default: true."
     }
   }
 }

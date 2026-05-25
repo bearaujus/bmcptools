@@ -16,6 +16,12 @@ import (
 	"github.com/bearaujus/bmcptools/internal/helper"
 )
 
+const (
+	defaultMaxCommandOutputBytes = 256 * 1024
+	defaultEnvListLimit          = 100
+	defaultEnvValueMaxBytes      = 4096
+)
+
 func getWorkingDirectoryHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -37,7 +43,7 @@ func getWorkingDirectoryHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.
 		}
 	}
 	if pathVal := os.Getenv("PATH"); pathVal != "" {
-		envLines = append(envLines, fmt.Sprintf("  %-14s %s", "PATH:", pathVal))
+		envLines = append(envLines, fmt.Sprintf("  %-14s %s", "PATH:", summarizePathEnv(pathVal)))
 	}
 	if len(envLines) > 0 {
 		sb.WriteString("Environment:\n")
@@ -47,6 +53,18 @@ func getWorkingDirectoryHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func summarizePathEnv(pathVal string) string {
+	parts := strings.Split(pathVal, string(os.PathListSeparator))
+	const maxEntries = 12
+	if len(parts) <= maxEntries {
+		return pathVal
+	}
+	return fmt.Sprintf("%s ... (+%d more; use get_env key=PATH for full value)",
+		strings.Join(parts[:maxEntries], string(os.PathListSeparator)),
+		len(parts)-maxEntries,
+	)
 }
 
 func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -68,9 +86,12 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 
 	cwd := req.GetString("cwd", "")
 
-	maxOutputBytes := 0
-	if mob := req.GetFloat("max_output_bytes", 0); mob > 0 {
-		maxOutputBytes = int(mob)
+	maxOutputBytes := defaultMaxCommandOutputBytes
+	if _, explicit := req.GetArguments()["max_output_bytes"]; explicit {
+		maxOutputBytes = 0
+		if mob := req.GetFloat("max_output_bytes", 0); mob > 0 {
+			maxOutputBytes = int(mob)
+		}
 	}
 
 	allowNonzeroExit := req.GetBool("allow_nonzero_exit", false)
@@ -137,19 +158,17 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		cmd.Stdin = strings.NewReader(stdinContent)
 	}
 
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
+	capture := &outputCapture{limit: maxOutputBytes}
+	cmd.Stdout = capture
+	cmd.Stderr = capture
 
 	startTime := time.Now()
 	runErr := cmd.Run()
 	elapsed := time.Since(startTime)
 
-	output := buf.String()
-
 	if runErr != nil && cmdCtx.Err() == context.DeadlineExceeded {
 		return mcp.NewToolResultError(
-			fmt.Sprintf("command timed out after %.1fs: %s\n\nPartial output:\n%s", timeoutSec, command, truncateOutput(output, maxOutputBytes)),
+			fmt.Sprintf("command timed out after %.1fs: %s\n\nPartial output:\n%s", timeoutSec, command, capture.String()),
 		), nil
 	}
 
@@ -169,7 +188,7 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	}
 
 	if rawOutput {
-		body := truncateOutput(output, maxOutputBytes)
+		body := capture.String()
 		if exitCode != 0 && !allowNonzeroExit {
 			return mcp.NewToolResultError(body), nil
 		}
@@ -179,7 +198,7 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	fmt.Fprintf(&sb, "$ %s\n", command)
 	fmt.Fprintf(&sb, "cwd: %s\n", resolvedCWD)
 	fmt.Fprintf(&sb, "exit: %d  elapsed: %s\n\n", exitCode, elapsed.Round(time.Millisecond))
-	sb.WriteString(truncateOutput(output, maxOutputBytes))
+	sb.WriteString(capture.String())
 
 	if exitCode != 0 && !allowNonzeroExit {
 		return mcp.NewToolResultError(sb.String()), nil
@@ -187,12 +206,50 @@ func runCommandHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	return mcp.NewToolResultText(sb.String()), nil
 }
 
+type outputCapture struct {
+	buf       bytes.Buffer
+	limit     int
+	total     int
+	truncated bool
+}
+
+func (c *outputCapture) Write(p []byte) (int, error) {
+	c.total += len(p)
+	if c.limit <= 0 {
+		_, err := c.buf.Write(p)
+		return len(p), err
+	}
+	remaining := c.limit - c.buf.Len()
+	if remaining > 0 {
+		if len(p) > remaining {
+			_, _ = c.buf.Write(p[:remaining])
+			c.truncated = true
+			return len(p), nil
+		}
+		_, _ = c.buf.Write(p)
+		return len(p), nil
+	}
+	c.truncated = true
+	return len(p), nil
+}
+
+func (c *outputCapture) String() string {
+	output := c.buf.String()
+	if !c.truncated {
+		return output
+	}
+	return output + fmt.Sprintf(
+		"\n\n[Output truncated — showing first %s of %s. Use max_output_bytes to adjust; set max_output_bytes=0 for unlimited.]",
+		helper.HumanizeBytes(int64(c.limit)), helper.HumanizeBytes(int64(c.total)),
+	)
+}
+
 func truncateOutput(output string, maxBytes int) string {
 	if maxBytes <= 0 || len(output) <= maxBytes {
 		return output
 	}
 	return output[:maxBytes] + fmt.Sprintf(
-		"\n\n[Output truncated — showing first %s of %s. Use max_output_bytes to adjust.]",
+		"\n\n[Output truncated — showing first %s of %s. Use max_output_bytes to adjust; set max_output_bytes=0 for unlimited.]",
 		helper.HumanizeBytes(int64(maxBytes)), helper.HumanizeBytes(int64(len(output))),
 	)
 }
@@ -239,36 +296,123 @@ var openInAppFn = func(target, app string) error {
 }
 
 func getEnvHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	key := req.GetString("key", "")
-	filter := req.GetString("filter", "")
+	args := req.GetArguments()
+	key := strings.TrimSpace(req.GetString("key", ""))
+	filter := strings.TrimSpace(req.GetString("filter", ""))
+	includeValuesDefault := key != "" || filter != ""
+	includeValues := req.GetBool("include_values", includeValuesDefault)
+	redactSecrets := req.GetBool("redact_secrets", true)
+	limit := int(req.GetFloat("limit", defaultEnvListLimit))
+	if limit < 0 {
+		limit = defaultEnvListLimit
+	}
+	valueMaxBytes := int(req.GetFloat("value_max_bytes", defaultEnvValueMaxBytes))
+	if valueMaxBytes < 0 {
+		valueMaxBytes = defaultEnvValueMaxBytes
+	}
+
+	if _, ok := args["include_values"]; !ok {
+		includeValues = includeValuesDefault
+	}
 
 	if key != "" {
 		val, ok := os.LookupEnv(key)
 		if !ok {
 			return mcp.NewToolResultText(fmt.Sprintf("%s is not set", key)), nil
 		}
-		return mcp.NewToolResultText(fmt.Sprintf("%s=%s", key, val)), nil
+		if !includeValues {
+			return mcp.NewToolResultText(fmt.Sprintf("%s is set (value omitted; set include_values=true to show it)", key)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("%s=%s", key, formatEnvValue(key, val, valueMaxBytes, redactSecrets))), nil
 	}
 
-	envVars := os.Environ()
-	sort.Strings(envVars)
+	envVars := collectEnvVars()
 
 	if filter != "" {
 		filterLower := strings.ToLower(filter)
-		var matched []string
+		var matched []envVar
 		for _, e := range envVars {
-			if idx := strings.IndexByte(e, '='); idx >= 0 {
-				name := e[:idx]
-				if strings.Contains(strings.ToLower(name), filterLower) {
-					matched = append(matched, e)
-				}
+			if strings.Contains(strings.ToLower(e.Name), filterLower) {
+				matched = append(matched, e)
 			}
 		}
 		if len(matched) == 0 {
 			return mcp.NewToolResultText(fmt.Sprintf("No environment variables matching %q", filter)), nil
 		}
-		return mcp.NewToolResultText(strings.Join(matched, "\n")), nil
+		return mcp.NewToolResultText(formatEnvList(matched, includeValues, redactSecrets, valueMaxBytes, limit,
+			fmt.Sprintf("Environment variables matching %q", filter))), nil
 	}
 
-	return mcp.NewToolResultText(strings.Join(envVars, "\n")), nil
+	return mcp.NewToolResultText(formatEnvList(envVars, includeValues, redactSecrets, valueMaxBytes, limit,
+		"Environment variables")), nil
+}
+
+type envVar struct {
+	Name  string
+	Value string
+}
+
+func collectEnvVars() []envVar {
+	raw := os.Environ()
+	var vars []envVar
+	for _, e := range raw {
+		idx := strings.IndexByte(e, '=')
+		if idx < 0 {
+			vars = append(vars, envVar{Name: e})
+			continue
+		}
+		vars = append(vars, envVar{Name: e[:idx], Value: e[idx+1:]})
+	}
+	sort.Slice(vars, func(i, j int) bool { return vars[i].Name < vars[j].Name })
+	return vars
+}
+
+func formatEnvList(vars []envVar, includeValues, redactSecrets bool, valueMaxBytes, limit int, title string) string {
+	total := len(vars)
+	if limit > 0 && total > limit {
+		vars = vars[:limit]
+	}
+
+	var sb strings.Builder
+	if includeValues {
+		fmt.Fprintf(&sb, "%s (values shown; secret-like names redacted by default):\n", title)
+	} else {
+		fmt.Fprintf(&sb, "%s (names only; set include_values=true to include values):\n", title)
+	}
+	for _, e := range vars {
+		if includeValues {
+			fmt.Fprintf(&sb, "%s=%s\n", e.Name, formatEnvValue(e.Name, e.Value, valueMaxBytes, redactSecrets))
+		} else {
+			sb.WriteString(e.Name)
+			sb.WriteByte('\n')
+		}
+	}
+	fmt.Fprintf(&sb, "\nShowing %d of %d environment variable(s).", len(vars), total)
+	if total > len(vars) {
+		sb.WriteString(" Increase limit or set limit=0 for all matches.")
+	}
+	if !includeValues {
+		sb.WriteString(" Prefer key for exact values and filter for targeted searches.")
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func formatEnvValue(name, value string, maxBytes int, redactSecrets bool) string {
+	if redactSecrets && isSecretEnvName(name) {
+		return "[redacted; set redact_secrets=false with a specific key if you need this value]"
+	}
+	if maxBytes > 0 && len(value) > maxBytes {
+		return fmt.Sprintf("%s... [truncated at %d/%d bytes; set value_max_bytes=0 for full value]", value[:maxBytes], maxBytes, len(value))
+	}
+	return value
+}
+
+func isSecretEnvName(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, marker := range []string{"SECRET", "TOKEN", "PASSWORD", "PASS", "API_KEY", "PRIVATE", "CREDENTIAL", "AUTH"} {
+		if strings.Contains(upper, marker) {
+			return true
+		}
+	}
+	return false
 }

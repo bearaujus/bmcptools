@@ -33,6 +33,18 @@ func searchFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 
 	recursive := req.GetBool("recursive", true)
 	showHidden := req.GetBool("show_hidden", false)
+	excludePatterns := req.GetStringSlice("exclude_patterns", nil)
+	outputMode := req.GetString("output_mode", "paths")
+	if outputMode != "details" {
+		outputMode = "paths"
+	}
+	pathFormat := normalizePathFormat(req.GetString("path_format", "relative"))
+	entryType := req.GetString("entry_type", "any")
+	switch entryType {
+	case "file", "dir", "any":
+	default:
+		entryType = "any"
+	}
 
 	maxResults := 100
 	if mr := req.GetFloat("max_results", 0); mr > 0 {
@@ -48,12 +60,13 @@ func searchFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	}
 
 	var matches []string
+	collectLimit := maxResults + 1
 
 	walkFn := func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if len(matches) >= maxResults {
+		if len(matches) >= collectLimit {
 			return filepath.SkipAll
 		}
 		if !recursive && d.IsDir() && p != root {
@@ -68,6 +81,15 @@ func searchFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if helper.MatchesAnyGlobName(name, excludePatterns) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if (entryType == "file" && d.IsDir()) || (entryType == "dir" && !d.IsDir()) {
 			return nil
 		}
 
@@ -91,31 +113,68 @@ func searchFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 		return mcp.NewToolResultError(fmt.Sprintf("walk error: %v", err)), nil
 	}
 
+	limited := len(matches) > maxResults
+	if limited {
+		matches = matches[:maxResults]
+	}
+
 	if len(matches) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("No files matched pattern %q under %s", pattern, root)), nil
+		return mcp.NewToolResultText(fmt.Sprintf("No results matched pattern %q under %s", pattern, root)), nil
 	}
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Found %s matching %q under %s:\n\n", helper.Pluralize(len(matches), "result"), pattern, root)
 	for _, m := range matches {
+		displayPath := formatDisplayPath(root, m, pathFormat)
+		if outputMode == "paths" {
+			fmt.Fprintf(&sb, "  %s\n", displayPath)
+			continue
+		}
 		info, err := os.Stat(m)
 		if err != nil {
-			fmt.Fprintf(&sb, "  [?   ] %s\n", m)
+			fmt.Fprintf(&sb, "  [?   ] %s\n", displayPath)
 			continue
 		}
 		if info.IsDir() {
-			fmt.Fprintf(&sb, "  [dir ] %s\n", m)
+			fmt.Fprintf(&sb, "  [dir ] %s\n", displayPath)
 		} else {
 			size := helper.HumanizeBytes(info.Size())
 			mod := info.ModTime().Format("2006-01-02 15:04")
-			fmt.Fprintf(&sb, "  [file] %-50s %8s  %s\n", m, size, mod)
+			fmt.Fprintf(&sb, "  [file] %-50s %8s  %s\n", displayPath, size, mod)
 		}
 	}
-	if len(matches) == maxResults {
-		fmt.Fprintf(&sb, "\n[Result limit of %d reached \u2014 refine your pattern or increase max_results]", maxResults)
+	if limited {
+		fmt.Fprintf(&sb, "\n[Result limit of %d reached \u2014 refine pattern/exclude_patterns or increase max_results]", maxResults)
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func normalizePathFormat(value string) string {
+	if value == "absolute" {
+		return "absolute"
+	}
+	return "relative"
+}
+
+func formatDisplayPath(root, path, pathFormat string) string {
+	if pathFormat == "absolute" {
+		abs, err := filepath.Abs(path)
+		if err == nil {
+			return abs
+		}
+		return path
+	}
+
+	base := root
+	if info, err := os.Stat(root); err == nil && !info.IsDir() {
+		base = filepath.Dir(root)
+	}
+	rel, err := filepath.Rel(base, path)
+	if err != nil || rel == "." {
+		return filepath.ToSlash(filepath.Base(path))
+	}
+	return filepath.ToSlash(rel)
 }
 
 func matchGlobPath(pattern, relPath string) (bool, error) {
@@ -217,6 +276,8 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	globFilter := req.GetString("glob", "")
 	showHidden := req.GetBool("show_hidden", false)
 	multiline := req.GetBool("multiline", false)
+	excludePatterns := req.GetStringSlice("exclude_patterns", nil)
+	pathFormat := normalizePathFormat(req.GetString("path_format", "relative"))
 
 	outputMode := req.GetString("output_mode", "auto")
 	switch outputMode {
@@ -295,7 +356,7 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		}
 	}
 
-	filesToSearch, err := helper.CollectFiles(root, recursive, globFilter, showHidden)
+	filesToSearch, err := helper.CollectFiles(root, recursive, globFilter, showHidden, excludePatterns)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -337,9 +398,12 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		if grepErr != nil {
 			if errors.Is(grepErr, errBinaryFile) {
 				binarySkipped++
-				binarySkippedPaths = append(binarySkippedPaths, filePath)
+				binarySkippedPaths = append(binarySkippedPaths, formatDisplayPath(root, filePath, pathFormat))
 			}
 			continue
+		}
+		for i := range matches {
+			matches[i].file = formatDisplayPath(root, matches[i].file, pathFormat)
 		}
 		allMatches = append(allMatches, matches...)
 		if len(allMatches) >= collectLimit {

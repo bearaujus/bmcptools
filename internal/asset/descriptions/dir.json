@@ -1,13 +1,15 @@
 {
   "list_directory": {
-    "desc": "List directory contents with sizes and modification timestamps. Use for detailed file listings when you need timestamps, sizes, or glob-filtered results. For a visual overview of project structure, use directory_tree instead.",
+    "desc": "List directory contents with sizes and modification timestamps. Use for detailed one-level listings or bounded recursive listings. For a visual project overview, use directory_tree instead. Output is capped by max_entries by default to protect AI context.",
     "params": {
       "path": "Directory to list. Defaults to the server's current working directory.",
       "show_hidden": "Include hidden entries (names starting with '.'). Default: false.",
       "recursive": "List subdirectories recursively. Default: false.",
       "max_depth": "Max recursion depth when recursive=true. Default: 3.",
       "sort_by": "Sort by \"name\" (default) or \"size\" (largest first).",
-      "glob": "Only show files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Applies to files only — directories are always traversed and shown regardless of glob. Default: all files."
+      "glob": "Only show files matching this glob pattern (e.g. *.go, *.{ts,tsx}). Applies to files only — directories are still shown/traversed. Default: all files.",
+      "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). Useful with recursive=true to skip noisy directories such as node_modules, .git, vendor, dist, or generated logs.",
+      "max_entries": "Maximum number of file/directory entries to output before truncating. Default: 500. Set 0 for unlimited."
     }
   },
   "create_directory": {
@@ -24,13 +26,14 @@
     }
   },
   "directory_tree": {
-    "desc": "Print a recursive visual tree of files and directories with sizes. Best for understanding project structure at a glance. For detailed listings with timestamps, use list_directory instead. Use exclude_patterns to skip large irrelevant subtrees (e.g. node_modules, .git, vendor).",
+    "desc": "Print a recursive visual tree of files and directories with sizes. Best for understanding project structure at a glance. Output is capped by max_entries by default to protect AI context. Use exclude_patterns to skip large irrelevant subtrees.",
     "params": {
       "path": "Root directory to display.",
       "max_depth": "Maximum recursion depth. Default: 3.",
       "show_hidden": "Include hidden files/directories. Default: false.",
       "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). \"node_modules\" excludes any directory with that name at any depth; \"*.log\" excludes files like error.log.",
-      "glob": "Only show files matching this glob pattern (e.g. *.go). Default: all files."
+      "glob": "Only show files matching this glob pattern (e.g. *.go). Directories without matching descendants are pruned. Default: all files.",
+      "max_entries": "Maximum number of file/directory entries to output before truncating. Default: 500. Set 0 for unlimited."
     }
   }
 }

@@ -3,7 +3,7 @@
     "desc": "Read multiple files in a single call — more efficient than calling read_file repeatedly. Each file's content is returned with its path as a header. Failed reads (not found, permission denied) are reported inline without aborting the rest of the batch.",
     "params": {
       "paths": "Array of file paths to read.",
-      "max_bytes_per_file": "Max bytes per file. Default: 10485760 (10 MB)."
+      "max_bytes_per_file": "Max bytes per file. Default: 262144 (256 KB). Raise only when you truly need more context."
     }
   },
   "write_multiple_files": {
@@ -15,7 +15,7 @@
     }
   },
   "find_replace_in_files": {
-    "desc": "Find and replace text across multiple files in one call. Returns per-file unified diffs. Always run with dry_run=true first to preview which files match and how — then run again without dry_run to apply. Supports Go regex with $1/$2 back-references. Handles CRLF transparently: LF-only patterns match CRLF files and original line endings are preserved after editing.",
+    "desc": "Find and replace text across multiple files in one call. Returns changed files and per-file unified diffs, while summarizing unmodified files by default to protect AI context. Always run with dry_run=true first to preview which files match and how — then run again without dry_run to apply. Supports Go regex with $1/$2 back-references. Handles CRLF transparently: LF-only patterns match CRLF files and original line endings are preserved after editing.",
     "params": {
       "path": "Root file or directory to search.",
       "old_str": "Text (or regex pattern when use_regex=true) to find.",
@@ -25,19 +25,24 @@
       "glob": "Only process files matching this glob pattern (e.g. *.go). Default: all files.",
       "dry_run": "Preview matches without writing. Default: false. Run this first before applying.",
       "show_diff": "Include a unified diff for each changed file. Default: true.",
-      "show_hidden": "Include hidden files and directories. Default: false."
+      "show_hidden": "Include hidden files and directories. Default: false.",
+      "exclude_patterns": "Glob patterns matched against each entry's basename (not full path). Matching directories are pruned before processing. Use to skip node_modules, .git, vendor, dist, build, or generated files.",
+      "show_unmodified": "List files that were scanned but had no match. Default: false, which reports only the count to avoid noisy output."
     }
   },
   "path_exists_batch": {
     "desc": "Check whether multiple paths exist in a single call. Returns each path's existence, type (file/directory/symlink), and size. More efficient than calling path_exists repeatedly.",
     "params": {
-      "paths": "Array of file/directory paths to check."
+      "paths": "Array of file/directory paths to check.",
+      "limit": "Maximum paths to return. Default: 500. Set 0 for unlimited."
     }
   },
   "get_multiple_file_info": {
-    "desc": "Return metadata for multiple files/directories in a single call. Each entry includes type, size, modification time, permissions, symlink target, and line count for text files. More efficient than calling get_file_info repeatedly.",
+    "desc": "Return metadata for multiple files/directories in a single call. Each entry includes type, size, modification time, permissions, symlink target, and optionally line count for text files. More efficient than calling get_file_info repeatedly.",
     "params": {
-      "paths": "Array of file/directory paths to inspect."
+      "paths": "Array of file/directory paths to inspect.",
+      "limit": "Maximum paths to return. Default: 100. Set 0 for unlimited.",
+      "count_lines": "Count lines for text files. Default: true. Set false for faster/noiseless metadata scans."
     }
   }
 }

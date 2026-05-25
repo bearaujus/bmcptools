@@ -38,7 +38,10 @@ func notifyUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 
 	go sendNotificationFn(message, title, level, int(durationSec))
 
-	return mcp.NewToolResultText(fmt.Sprintf("[Notification sent] %s", message)), nil
+	return mcp.NewToolResultText(fmt.Sprintf(
+		"[Notification sent] title=%q level=%s message_bytes=%d",
+		title, level, len(message),
+	)), nil
 }
 
 func sendNotification(message, title, level string, durationSec int) {

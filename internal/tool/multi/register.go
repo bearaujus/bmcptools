@@ -76,6 +76,13 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("show_hidden",
 			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "show_hidden")),
 		),
+		mcp.WithArray("exclude_patterns",
+			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "exclude_patterns")),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithBoolean("show_unmodified",
+			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "show_unmodified")),
+		),
 	), findReplaceInFilesHandler)
 
 	s.AddTool(mcp.NewTool(toolname.PathExistsBatch,
@@ -85,6 +92,9 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.Description(asset.ParamDesc(toolname.PathExistsBatch, "paths")),
 			mcp.Items(map[string]any{"type": "string"}),
 		),
+		mcp.WithNumber("limit",
+			mcp.Description(asset.ParamDesc(toolname.PathExistsBatch, "limit")),
+		),
 	), pathExistsBatchHandler)
 
 	s.AddTool(mcp.NewTool(toolname.GetMultipleFileInfo,
@@ -93,6 +103,12 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.Required(),
 			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "paths")),
 			mcp.Items(map[string]any{"type": "string"}),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "limit")),
+		),
+		mcp.WithBoolean("count_lines",
+			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "count_lines")),
 		),
 	), getMultipleFileInfoHandler)
 }

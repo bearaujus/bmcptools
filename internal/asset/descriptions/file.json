@@ -5,7 +5,7 @@
       "path": "Path to the file.",
       "start_line": "First line to read (1-indexed).",
       "end_line": "Last line to read (inclusive).",
-      "max_bytes": "Maximum bytes to return. Default: 10485760 (10 MB).",
+      "max_bytes": "Maximum bytes to return. Default: 262144 (256 KB). Raise only when you truly need more context.",
       "head": "Return only the first N lines.",
       "tail": "Return only the last N lines.",
       "show_line_numbers": "Prefix every line with its line number. Default: false.",
@@ -18,7 +18,8 @@
       "path": "Path to the file.",
       "content": "Content to write.",
       "create_dirs": "Create missing parent directories. Default: true.",
-      "show_diff": "Return a unified diff of changes when overwriting. Default: true for existing files, false for new files."
+      "show_diff": "Return a unified diff of changes when overwriting. Default: true for existing files, false for new files.",
+      "max_diff_bytes": "Maximum diff bytes to return when show_diff is enabled. Default: 262144 (256 KB). Set 0 for unlimited."
     }
   },
   "append_to_file": {
@@ -38,6 +39,7 @@
       "replace_all": "Replace every match, not just the first. Default: false.",
       "dry_run": "Preview changes without writing. Default: false.",
       "context_lines": "Context lines shown around each change in the diff. Default: 3.",
+      "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB). Set 0 for unlimited.",
       "edits": "Batch mode: array of {old_str, new_str, use_regex?, replace_all?} edits applied sequentially."
     }
   },
@@ -80,7 +82,9 @@
     "params": {
       "path_a": "First file (before / original).",
       "path_b": "Second file (after / modified).",
-      "context_lines": "Context lines around each change. Default: 3."
+      "context_lines": "Context lines around each change. Default: 3.",
+      "max_file_bytes": "Maximum size for each input file before refusing to diff. Default: 2097152 (2 MB). Set 0 for unlimited.",
+      "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB). Set 0 for unlimited."
     }
   },
   "calculate_checksum": {

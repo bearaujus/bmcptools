@@ -13,6 +13,59 @@ import (
 	"github.com/bearaujus/bmcptools/internal/helper"
 )
 
+const defaultMaxEntries = 500
+
+type entryLimit struct {
+	max       int
+	shown     int
+	truncated bool
+}
+
+func newEntryLimit(req mcp.CallToolRequest) *entryLimit {
+	maxEntries := int(req.GetFloat("max_entries", defaultMaxEntries))
+	if maxEntries < 0 {
+		maxEntries = defaultMaxEntries
+	}
+	return &entryLimit{max: maxEntries}
+}
+
+func (l *entryLimit) allow() bool {
+	if l == nil || l.max == 0 {
+		return true
+	}
+	if l.shown >= l.max {
+		l.truncated = true
+		return false
+	}
+	l.shown++
+	return true
+}
+
+func (l *entryLimit) isTruncated() bool {
+	return l != nil && l.truncated
+}
+
+func matchesAnyPattern(name string, patterns []string) bool {
+	for _, pat := range patterns {
+		if ok, _ := filepath.Match(pat, name); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesGlobFilter(name, globFilter string) bool {
+	if globFilter == "" {
+		return true
+	}
+	for _, alt := range helper.ExpandAlternation(globFilter) {
+		if ok, _ := filepath.Match(alt, name); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func listDirHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	path := req.GetString("path", "")
 	if path == "" {
@@ -45,6 +98,8 @@ func listDirHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	}
 
 	globFilter := req.GetString("glob", "")
+	excludePatterns := req.GetStringSlice("exclude_patterns", nil)
+	limit := newEntryLimit(req)
 
 	var sb strings.Builder
 	abs, _ := filepath.Abs(path)
@@ -52,12 +107,30 @@ func listDirHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 
 	var fileCount, dirCount int
 	var totalBytes int64
-	err = listDirRecursive(&sb, path, "", showHidden, recursive, 0, maxDepth, sortBy, globFilter, &fileCount, &dirCount, &totalBytes)
+	err = listDirRecursive(
+		&sb,
+		path,
+		"",
+		showHidden,
+		recursive,
+		0,
+		maxDepth,
+		sortBy,
+		globFilter,
+		excludePatterns,
+		limit,
+		&fileCount,
+		&dirCount,
+		&totalBytes,
+	)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("listing error: %v", err)), nil
 	}
 
-	fmt.Fprintf(&sb, "\nTotal: %s, %s (%s)",
+	if limit.isTruncated() {
+		fmt.Fprintf(&sb, "\nOutput truncated after %d entries. Rerun with a narrower glob/exclude_patterns or raise max_entries (0 = unlimited).\n", limit.max)
+	}
+	fmt.Fprintf(&sb, "\nShown: %s, %s (%s)",
 		helper.Pluralize(fileCount, "file"),
 		helper.Pluralize(dirCount, "directory"),
 		helper.HumanizeBytes(totalBytes),
@@ -72,6 +145,8 @@ func listDirRecursive(
 	depth, maxDepth int,
 	sortBy string,
 	globFilter string,
+	excludePatterns []string,
+	limit *entryLimit,
 	fileCount, dirCount *int,
 	totalBytes *int64,
 ) error {
@@ -84,6 +159,9 @@ func listDirRecursive(
 	for _, e := range entries {
 		name := e.Name()
 		if !showHidden && strings.HasPrefix(name, ".") {
+			continue
+		}
+		if matchesAnyPattern(name, excludePatterns) {
 			continue
 		}
 		fi, _ := e.Info()
@@ -112,6 +190,9 @@ func listDirRecursive(
 		name := item.Entry.Name()
 
 		if item.Entry.IsDir() {
+			if !limit.allow() {
+				return nil
+			}
 			*dirCount++
 			fmt.Fprintf(sb, "%s[DIR]  %s/\n", prefix, name)
 			if recursive && depth < maxDepth {
@@ -120,24 +201,21 @@ func listDirRecursive(
 					filepath.Join(dir, name),
 					prefix+"    ",
 					showHidden, recursive,
-					depth+1, maxDepth, sortBy, globFilter,
+					depth+1, maxDepth, sortBy, globFilter, excludePatterns, limit,
 					fileCount, dirCount, totalBytes,
 				); err != nil {
 					fmt.Fprintf(sb, "%s    [ERROR] cannot read subdirectory: %v\n", prefix, err)
 				}
+				if limit.isTruncated() {
+					return nil
+				}
 			}
 		} else {
-			if globFilter != "" {
-				matched := false
-				for _, alt := range helper.ExpandAlternation(globFilter) {
-					if ok, _ := filepath.Match(alt, name); ok {
-						matched = true
-						break
-					}
-				}
-				if !matched {
-					continue
-				}
+			if !matchesGlobFilter(name, globFilter) {
+				continue
+			}
+			if !limit.allow() {
+				return nil
 			}
 			*fileCount++
 			if item.Info != nil {
@@ -219,6 +297,7 @@ func dirTreeHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	}
 	excludePatterns := req.GetStringSlice("exclude_patterns", nil)
 	globFilter := req.GetString("glob", "")
+	limit := newEntryLimit(req)
 
 	abs, _ := filepath.Abs(path)
 	var sb strings.Builder
@@ -226,8 +305,11 @@ func dirTreeHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 
 	var fileCount, dirCount int
 	var totalBytes int64
-	buildDirTree(&sb, path, "", showHidden, 0, maxDepth, excludePatterns, globFilter, &fileCount, &dirCount, &totalBytes)
+	buildDirTree(&sb, path, "", showHidden, 0, maxDepth, excludePatterns, globFilter, limit, &fileCount, &dirCount, &totalBytes)
 
+	if limit.isTruncated() {
+		fmt.Fprintf(&sb, "\nOutput truncated after %d entries. Rerun with a narrower glob/exclude_patterns or raise max_entries (0 = unlimited).\n", limit.max)
+	}
 	fmt.Fprintf(&sb, "\n%s, %s (%s)", helper.Pluralize(fileCount, "file"), helper.Pluralize(dirCount, "directory"), helper.HumanizeBytes(totalBytes))
 	return mcp.NewToolResultText(sb.String()), nil
 }
@@ -239,127 +321,21 @@ func buildDirTree(
 	depth, maxDepth int,
 	excludePatterns []string,
 	globFilter string,
+	limit *entryLimit,
 	fileCount, dirCount *int,
 	totalBytes *int64,
 ) bool {
-	entries, err := os.ReadDir(dir)
+	visible, err := visibleTreeEntries(dir, showHidden, depth, maxDepth, excludePatterns, globFilter)
 	if err != nil {
 		fmt.Fprintf(sb, "%s[ERROR] %v\n", prefix, err)
 		return false
 	}
 
-	var rawItems []helper.EntryWithInfo
-	for _, e := range entries {
-		name := e.Name()
-		if !showHidden && strings.HasPrefix(name, ".") {
-			continue
+	for i, item := range visible {
+		if !limit.allow() {
+			return true
 		}
-		excluded := false
-		for _, pat := range excludePatterns {
-			if ok, _ := filepath.Match(pat, name); ok {
-				excluded = true
-				break
-			}
-		}
-		if excluded {
-			continue
-		}
-		fi, _ := e.Info()
-		rawItems = append(rawItems, helper.EntryWithInfo{Entry: e, Info: fi})
-	}
 
-	sort.Slice(rawItems, func(i, j int) bool {
-		if rawItems[i].Entry.IsDir() != rawItems[j].Entry.IsDir() {
-			return rawItems[i].Entry.IsDir()
-		}
-		return rawItems[i].Entry.Name() < rawItems[j].Entry.Name()
-	})
-
-	type preItem struct {
-		name    string
-		isDir   bool
-		sizeStr string
-		subOut  string
-		subFC   int
-		subDC   int
-		subTB   int64
-		fileSz  int64
-		visible bool
-	}
-
-	pre := make([]preItem, 0, len(rawItems))
-
-	for _, item := range rawItems {
-		name := item.Entry.Name()
-		if item.Entry.IsDir() {
-			if depth >= maxDepth {
-				var buf strings.Builder
-				fmt.Fprintf(&buf, "%s│   ...\n", prefix)
-				pre = append(pre, preItem{
-					name:    name,
-					isDir:   true,
-					subOut:  buf.String(),
-					visible: globFilter == "",
-				})
-				continue
-			}
-
-			var sub strings.Builder
-			var subFC, subDC int
-			var subTB int64
-			childHasMatch := buildDirTree(
-				&sub,
-				filepath.Join(dir, name),
-				prefix+"│   ",
-				showHidden, depth+1, maxDepth,
-				excludePatterns, globFilter,
-				&subFC, &subDC, &subTB,
-			)
-
-			pre = append(pre, preItem{
-				name:    name,
-				isDir:   true,
-				subOut:  sub.String(),
-				subFC:   subFC,
-				subDC:   subDC,
-				subTB:   subTB,
-				visible: globFilter == "" || childHasMatch,
-			})
-		} else {
-			show := true
-			if globFilter != "" {
-				show = false
-				for _, alt := range helper.ExpandAlternation(globFilter) {
-					if ok, _ := filepath.Match(alt, name); ok {
-						show = true
-						break
-					}
-				}
-			}
-			sz := int64(0)
-			sizeStr := ""
-			if item.Info != nil {
-				sz = item.Info.Size()
-				sizeStr = "  " + helper.HumanizeBytes(sz)
-			}
-			pre = append(pre, preItem{
-				name:    name,
-				isDir:   false,
-				sizeStr: sizeStr,
-				fileSz:  sz,
-				visible: show,
-			})
-		}
-	}
-
-	var visible []preItem
-	for _, p := range pre {
-		if p.visible {
-			visible = append(visible, p)
-		}
-	}
-
-	for i, p := range visible {
 		isLast := i == len(visible)-1
 		connector := "├── "
 		childPrefix := prefix + "│   "
@@ -368,23 +344,123 @@ func buildDirTree(
 			childPrefix = prefix + "    "
 		}
 
-		if p.isDir {
+		name := item.Entry.Name()
+		if item.Entry.IsDir() {
 			*dirCount++
-			*fileCount += p.subFC
-			*dirCount += p.subDC
-			*totalBytes += p.subTB
-			fmt.Fprintf(sb, "%s%s%s/\n", prefix, connector, p.name)
-			subOut := p.subOut
-			if isLast {
-				subOut = strings.ReplaceAll(subOut, prefix+"│   ", childPrefix)
+			fmt.Fprintf(sb, "%s%s%s/\n", prefix, connector, name)
+			if depth >= maxDepth {
+				if globFilter == "" {
+					fmt.Fprintf(sb, "%s...\n", childPrefix)
+				}
+				continue
 			}
-			sb.WriteString(subOut)
+
+			buildDirTree(
+				sb,
+				filepath.Join(dir, name),
+				childPrefix,
+				showHidden, depth+1, maxDepth,
+				excludePatterns, globFilter, limit,
+				fileCount, dirCount, totalBytes,
+			)
+			if limit.isTruncated() {
+				return true
+			}
 		} else {
 			*fileCount++
-			*totalBytes += p.fileSz
-			fmt.Fprintf(sb, "%s%s%s%s\n", prefix, connector, p.name, p.sizeStr)
+			sizeStr := ""
+			if item.Info != nil {
+				*totalBytes += item.Info.Size()
+				sizeStr = "  " + helper.HumanizeBytes(item.Info.Size())
+			}
+			fmt.Fprintf(sb, "%s%s%s%s\n", prefix, connector, name, sizeStr)
 		}
 	}
 
 	return len(visible) > 0
+}
+
+func visibleTreeEntries(
+	dir string,
+	showHidden bool,
+	depth, maxDepth int,
+	excludePatterns []string,
+	globFilter string,
+) ([]helper.EntryWithInfo, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]helper.EntryWithInfo, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if !showHidden && strings.HasPrefix(name, ".") {
+			continue
+		}
+		if matchesAnyPattern(name, excludePatterns) {
+			continue
+		}
+		fi, _ := e.Info()
+		items = append(items, helper.EntryWithInfo{Entry: e, Info: fi})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Entry.IsDir() != items[j].Entry.IsDir() {
+			return items[i].Entry.IsDir()
+		}
+		return items[i].Entry.Name() < items[j].Entry.Name()
+	})
+
+	if globFilter == "" {
+		return items, nil
+	}
+
+	visible := make([]helper.EntryWithInfo, 0, len(items))
+	for _, item := range items {
+		name := item.Entry.Name()
+		if item.Entry.IsDir() {
+			if depth < maxDepth && treeHasGlobMatch(filepath.Join(dir, name), showHidden, depth+1, maxDepth, excludePatterns, globFilter) {
+				visible = append(visible, item)
+			}
+			continue
+		}
+		if matchesGlobFilter(name, globFilter) {
+			visible = append(visible, item)
+		}
+	}
+	return visible, nil
+}
+
+func treeHasGlobMatch(
+	dir string,
+	showHidden bool,
+	depth, maxDepth int,
+	excludePatterns []string,
+	globFilter string,
+) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+
+	for _, e := range entries {
+		name := e.Name()
+		if !showHidden && strings.HasPrefix(name, ".") {
+			continue
+		}
+		if matchesAnyPattern(name, excludePatterns) {
+			continue
+		}
+		if e.IsDir() {
+			if depth < maxDepth && treeHasGlobMatch(filepath.Join(dir, name), showHidden, depth+1, maxDepth, excludePatterns, globFilter) {
+				return true
+			}
+			continue
+		}
+		if matchesGlobFilter(name, globFilter) {
+			return true
+		}
+	}
+	return false
 }

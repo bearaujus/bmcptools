@@ -6,11 +6,13 @@
     }
   },
   "clipboard_read": {
-    "desc": "Read the current text from the system clipboard (macOS/Linux/Windows).",
-    "params": {}
+    "desc": "Read the current text from the system clipboard (macOS/Linux/Windows). Output is capped by default so a large clipboard cannot flood AI context.",
+    "params": {
+      "max_bytes": "Maximum clipboard bytes to return. Default: 262144 (256 KB). Set 0 for unlimited."
+    }
   },
   "http_request": {
-    "desc": "Make an HTTP request and return status code, response body (JSON is auto-pretty-printed), and timing. Response body is capped at 1 MB. Cross-platform — prefer this over running curl/wget via run_command. For binary files or large downloads, use download_file instead.",
+    "desc": "Make an HTTP request and return status code, response body (JSON is auto-pretty-printed), and timing. Response body is capped by default to avoid flooding AI context. Cross-platform — prefer this over running curl/wget via run_command. For binary files or large downloads, use download_file instead.",
     "params": {
       "url": "Full URL to request.",
       "method": "HTTP method: GET (default), POST, PUT, PATCH, DELETE, HEAD, OPTIONS.",
@@ -19,7 +21,8 @@
       "basic_auth": "Basic auth credentials in \"username:password\" format.",
       "timeout_seconds": "Request timeout in seconds. Default: 30. Max: 300.",
       "follow_redirects": "Follow HTTP redirects. Default: true.",
-      "include_response_headers": "Include response headers in output. Default: false."
+      "include_response_headers": "Include response headers in output. Default: false.",
+      "max_response_bytes": "Maximum response body bytes to return. Default: 262144 (256 KB). Max: 10485760 (10 MB). Set 0 for unlimited."
     }
   },
   "list_processes": {
@@ -27,7 +30,8 @@
     "params": {
       "filter": "Case-insensitive substring to filter by process name or command. Omit to list all.",
       "sort_by": "Sort by \"pid\" (default), \"cpu\", or \"mem\".",
-      "limit": "Maximum processes to return. Default: 50."
+      "limit": "Maximum processes to return. Default: 50. Set 0 for unlimited.",
+      "command_width": "Maximum command column width before truncation. Default: 80, max: 500."
     }
   },
   "get_system_info": {

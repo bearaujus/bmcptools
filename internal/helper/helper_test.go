@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -600,9 +601,9 @@ func TestHashFileNotExist(t *testing.T) {
 
 func TestCountContentLines(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    int
+		name  string
+		input string
+		want  int
 	}{
 		{"empty", "", 0},
 		{"single no newline", "hello", 1},
@@ -750,6 +751,28 @@ func TestCollectFilesRecursive(t *testing.T) {
 	}
 }
 
+func TestCollectFilesExcludePatterns(t *testing.T) {
+	dir := t.TempDir()
+	skip := filepath.Join(dir, "node_modules")
+	if err := os.MkdirAll(skip, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skip, "dep.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := CollectFiles(dir, true, "*.go", false, []string{"node_modules"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || !strings.HasSuffix(files[0], "main.go") {
+		t.Fatalf("expected only main.go after pruning node_modules, got %v", files)
+	}
+}
+
 // ── ApplyReplaceToFile ────────────────────────────────────────────────────────
 
 // Reason: ApplyReplaceToFile with dryRun=true must count replacements and
@@ -803,6 +826,38 @@ func TestApplyReplaceToFileRegex(t *testing.T) {
 	data, _ := os.ReadFile(f)
 	if !strings.Contains(string(data), "const z = ") {
 		t.Errorf("expected regex replacement in file: %q", string(data))
+	}
+}
+
+func TestApplyReplaceToFilePreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not preserve Unix permission bits")
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, "script.sh")
+	if err := os.WriteFile(f, []byte("echo old\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	count, _, skipped, err := ApplyReplaceToFile(f, "old", "new", false, false, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if skipped {
+		t.Fatal("text file should not be skipped")
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 replacement, got %d", count)
+	}
+	info, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Errorf("mode after replace = %o, want 755", got)
 	}
 }
 

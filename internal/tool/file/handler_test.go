@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -641,6 +642,32 @@ func TestReadFileHandlerRangeShowsTotalLines(t *testing.T) {
 	}
 }
 
+func TestReadFileLineRangeMaxBytesTruncationNotice(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "large-range.txt")
+	var content strings.Builder
+	for i := 1; i <= 20; i++ {
+		fmt.Fprintf(&content, "line %02d\n", i)
+	}
+	if err := os.WriteFile(f, []byte(content.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readFileHandler(nil, newTestRequest(map[string]any{
+		"path":       f,
+		"start_line": float64(1),
+		"end_line":   float64(20),
+		"max_bytes":  float64(40),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "TRUNCATED") {
+		t.Errorf("expected max_bytes truncation notice for line range: %q", text)
+	}
+}
+
 // ── edit_file dry_run ─────────────────────────────────────────────────────────
 
 func TestEditFileHandlerDryRun(t *testing.T) {
@@ -673,6 +700,32 @@ func TestEditFileHandlerDryRun(t *testing.T) {
 	data, _ := os.ReadFile(f)
 	if string(data) != original {
 		t.Errorf("dry_run modified the file: %q", string(data))
+	}
+}
+
+func TestEditFileHandlerDiffIsCapped(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "dry_large.txt")
+	if err := os.WriteFile(f, []byte(strings.Repeat("OldName", 40)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := newTestRequest(map[string]any{
+		"path":           f,
+		"old_str":        "OldName",
+		"new_str":        "NewName",
+		"replace_all":    true,
+		"dry_run":        true,
+		"max_diff_bytes": float64(40),
+	})
+	result, err := editFileHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "Diff truncated") {
+		t.Errorf("expected capped diff notice, got: %s", resultText(result))
 	}
 }
 
@@ -1092,6 +1145,39 @@ func TestEditFileHandlerCRLF(t *testing.T) {
 	}
 }
 
+func TestEditFilePreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not preserve Unix permission bits")
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, "tool.sh")
+	if err := os.WriteFile(f, []byte("echo old\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := editFileHandler(nil, newTestRequest(map[string]any{
+		"path":    f,
+		"old_str": "old",
+		"new_str": "new",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	info, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Errorf("mode after edit = %o, want 755", got)
+	}
+}
+
 func TestEditFileHandlerCRLFMultiline(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "crlf_multi.txt")
@@ -1282,6 +1368,61 @@ func TestWriteFileOverwriteShowsDiff(t *testing.T) {
 	}
 }
 
+func TestWriteFileOverwriteDiffIsCapped(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "overwrite-large.txt")
+	if err := os.WriteFile(f, []byte(strings.Repeat("a", 200)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := writeFileHandler(nil, newTestRequest(map[string]any{
+		"path":           f,
+		"content":        strings.Repeat("b", 200) + "\n",
+		"max_diff_bytes": float64(40),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "Diff truncated") {
+		t.Errorf("expected capped diff notice, got: %s", resultText(result))
+	}
+}
+
+func TestWriteFileOverwritePreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not preserve Unix permission bits")
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, "script.sh")
+	if err := os.WriteFile(f, []byte("old\n"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := writeFileHandler(nil, newTestRequest(map[string]any{
+		"path":    f,
+		"content": "new\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	info, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o750 {
+		t.Errorf("mode after overwrite = %o, want 750", got)
+	}
+}
+
 func TestWriteFileNewFileNoAutoDiff(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "newfile.txt")
@@ -1437,6 +1578,59 @@ func TestDiffFilesHandlerContextLines(t *testing.T) {
 	}
 	if !strings.Contains(text, "-line5") || !strings.Contains(text, "+CHANGED") {
 		t.Errorf("expected changed lines in diff: %q", text)
+	}
+}
+
+func TestDiffFilesHandlerMaxDiffBytes(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(a, []byte(strings.Repeat("a", 200)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(strings.Repeat("b", 200)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := diffFilesHandler(nil, newTestRequest(map[string]any{
+		"path_a":         a,
+		"path_b":         b,
+		"max_diff_bytes": float64(40),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Diff truncated") {
+		t.Errorf("expected diff truncation notice: %q", text)
+	}
+}
+
+func TestDiffFilesHandlerMaxFileBytes(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(a, []byte(strings.Repeat("a", 20)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("short"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := diffFilesHandler(nil, newTestRequest(map[string]any{
+		"path_a":         a,
+		"path_b":         b,
+		"max_file_bytes": float64(10),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected error for file exceeding max_file_bytes, got: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "max_file_bytes") {
+		t.Errorf("expected max_file_bytes guidance: %q", resultText(result))
 	}
 }
 
@@ -1618,6 +1812,54 @@ func TestCopyFileHandlerOverwrite(t *testing.T) {
 	data, _ := os.ReadFile(dst)
 	if string(data) != "new content" {
 		t.Errorf("destination content = %q, want %q", string(data), "new content")
+	}
+}
+
+func TestCopyFileHandlerRejectsSameFileOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "same.txt")
+	if err := os.WriteFile(f, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := copyFileHandler(nil, newTestRequest(map[string]any{
+		"source":      f,
+		"destination": f,
+		"overwrite":   true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatal("expected error when copy source and destination are the same file")
+	}
+	data, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "keep me" {
+		t.Errorf("same-file copy must not alter content, got %q", data)
+	}
+}
+
+func TestMoveFileHandlerRejectsSameFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "same.txt")
+	if err := os.WriteFile(f, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := moveFileHandler(nil, newTestRequest(map[string]any{
+		"source":      f,
+		"destination": f,
+		"overwrite":   true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatal("expected error when move source and destination are the same file")
+	}
+	if data, err := os.ReadFile(f); err != nil || string(data) != "keep me" {
+		t.Fatalf("same-file move must leave source untouched, data=%q err=%v", data, err)
 	}
 }
 
@@ -1938,7 +2180,6 @@ func TestExtractArchiveTarGz(t *testing.T) {
 	}
 }
 
-
 // ── readFile ranges ──────────────────────────────────────────────────────────
 
 func TestReadFileRanges(t *testing.T) {
@@ -2000,6 +2241,31 @@ func TestReadFileRangesWithLineNumbers(t *testing.T) {
 	text := resultText(r)
 	if !strings.Contains(text, "2|") {
 		t.Errorf("expected line number prefix, got: %s", text)
+	}
+}
+
+func TestReadFileRangesMaxBytesTruncationNotice(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "lines.txt")
+	var sb strings.Builder
+	for i := 1; i <= 20; i++ {
+		fmt.Fprintf(&sb, "content %02d\n", i)
+	}
+	if err := os.WriteFile(p, []byte(sb.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := readFileHandler(nil, newTestRequest(map[string]any{
+		"path":      p,
+		"ranges":    []any{[]any{1.0, 20.0}},
+		"max_bytes": float64(50),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(r)
+	if !strings.Contains(text, "TRUNCATED") {
+		t.Errorf("expected max_bytes truncation notice for multi-range read, got: %s", text)
 	}
 }
 

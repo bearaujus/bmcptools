@@ -3,6 +3,7 @@ package multi
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -584,6 +585,39 @@ func TestWriteMultipleFilesShowDiff(t *testing.T) {
 	}
 }
 
+func TestWriteMultipleFilesPreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not preserve Unix permission bits")
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, "script.sh")
+	if err := os.WriteFile(f, []byte("old\n"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := writeMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"files": []any{
+			map[string]any{"path": f, "content": "new\n"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	info, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o750 {
+		t.Errorf("mode after write_multiple_files = %o, want 750", got)
+	}
+}
+
 // Reason: When all entries succeed the result should be a text result (not
 // an error). Verifies the success/failure classification logic.
 func TestWriteMultipleFilesAllSucceedReturnsText(t *testing.T) {
@@ -736,6 +770,97 @@ func TestFindReplaceInFilesShowDiffFalse(t *testing.T) {
 	}
 }
 
+func TestFindReplaceInFilesExcludePatterns(t *testing.T) {
+	dir := t.TempDir()
+	skip := filepath.Join(dir, "node_modules")
+	if err := os.MkdirAll(skip, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dep := filepath.Join(skip, "dep.txt")
+	if err := os.WriteFile(dep, []byte("old dependency"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := filepath.Join(dir, "app.txt")
+	if err := os.WriteFile(app, []byte("old app"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":             dir,
+		"old_str":          "old",
+		"new_str":          "new",
+		"exclude_patterns": []any{"node_modules"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	depData, _ := os.ReadFile(dep)
+	if strings.Contains(string(depData), "new") {
+		t.Errorf("excluded dependency file should not be modified: %q", depData)
+	}
+	appData, _ := os.ReadFile(app)
+	if !strings.Contains(string(appData), "new app") {
+		t.Errorf("non-excluded app file should be modified: %q", appData)
+	}
+}
+
+func TestFindReplaceInFilesSuppressesUnmodifiedByDefault(t *testing.T) {
+	dir := t.TempDir()
+	match := filepath.Join(dir, "match.txt")
+	untouched := filepath.Join(dir, "untouched.txt")
+	if err := os.WriteFile(match, []byte("replace me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(untouched, []byte("nothing here"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"old_str": "replace",
+		"new_str": "updated",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "No match in 1 file") {
+		t.Errorf("expected unmodified count in output: %q", text)
+	}
+	if strings.Contains(text, "untouched.txt") {
+		t.Errorf("unmodified path should be suppressed by default: %q", text)
+	}
+}
+
+func TestFindReplaceInFilesShowUnmodified(t *testing.T) {
+	dir := t.TempDir()
+	match := filepath.Join(dir, "match.txt")
+	untouched := filepath.Join(dir, "untouched.txt")
+	if err := os.WriteFile(match, []byte("replace me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(untouched, []byte("nothing here"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":            dir,
+		"old_str":         "replace",
+		"new_str":         "updated",
+		"show_unmodified": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "untouched.txt") {
+		t.Errorf("expected unmodified path when show_unmodified=true: %q", text)
+	}
+}
+
 // ── read_multiple_files (additional edge cases) ───────────────────────────────
 
 // Reason: max_bytes_per_file limits how much of each file is read. This
@@ -837,6 +962,29 @@ func TestPathExistsBatchHandlerEmptyPaths(t *testing.T) {
 	}
 }
 
+func TestPathExistsBatchHandlerLimit(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(a, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := pathExistsBatchHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{a, b},
+		"limit": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "checked 1 of 2") || !strings.Contains(text, "Output truncated") {
+		t.Errorf("expected limit summary and truncation notice: %q", text)
+	}
+}
+
 // ── get_multiple_file_info ────────────────────────────────────────────────────
 
 func TestGetMultipleFileInfoHandler(t *testing.T) {
@@ -880,6 +1028,25 @@ func TestGetMultipleFileInfoHandlerDirectory(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "Type:        directory") {
 		t.Errorf("expected 'Type: directory': %q", text)
+	}
+}
+
+func TestGetMultipleFileInfoHandlerCountLinesFalse(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "info.txt")
+	if err := os.WriteFile(f, []byte("line one\nline two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := getMultipleFileInfoHandler(nil, newTestRequest(map[string]any{
+		"paths":       []any{f},
+		"count_lines": false,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, "Lines:") {
+		t.Errorf("expected line count to be omitted when count_lines=false: %q", text)
 	}
 }
 
@@ -931,5 +1098,31 @@ func TestGetMultipleFileInfoHandlerMultiple(t *testing.T) {
 	// Should contain two Path entries separated by a blank line
 	if strings.Count(text, "Path:") != 2 {
 		t.Errorf("expected 2 Path: headers, got %d in: %q", strings.Count(text, "Path:"), text)
+	}
+}
+
+func TestGetMultipleFileInfoHandlerLimit(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(a, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := getMultipleFileInfoHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{a, b},
+		"limit": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Count(text, "Path:") != 1 {
+		t.Errorf("expected one rendered Path entry after limit, got: %q", text)
+	}
+	if !strings.Contains(text, "shown 1 of 2") || !strings.Contains(text, "Output truncated") {
+		t.Errorf("expected limit summary and truncation notice: %q", text)
 	}
 }

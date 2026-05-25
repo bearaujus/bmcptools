@@ -79,6 +79,18 @@ func TestListProcessesLimit(t *testing.T) {
 	}
 }
 
+func TestListProcessesSmallCommandWidthDoesNotPanic(t *testing.T) {
+	result, err := listProcessesHandler(nil, newTestRequest(map[string]any{
+		"command_width": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+}
+
 func TestListProcessesSortBy(t *testing.T) {
 	for _, sortBy := range []string{"pid", "cpu", "mem"} {
 		t.Run(sortBy, func(t *testing.T) {
@@ -128,6 +140,32 @@ func TestHTTPRequestGET(t *testing.T) {
 	}
 	if !strings.Contains(text, "hello") {
 		t.Errorf("expected body in output: %q", text)
+	}
+}
+
+func TestHTTPRequestResponseBodyCap(t *testing.T) {
+	body := strings.Repeat("a", 64)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	result, err := httpRequestHandler(context.Background(), newTestRequest(map[string]any{
+		"url":                srv.URL,
+		"max_response_bytes": float64(10),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "truncated") {
+		t.Errorf("expected truncation notice in output: %q", text)
+	}
+	if strings.Contains(text, strings.Repeat("a", 20)) {
+		t.Errorf("expected body to be capped, got: %q", text)
 	}
 }
 
@@ -382,6 +420,20 @@ func TestClipboardWriteReportsStats(t *testing.T) {
 	text := resultText(writeResult)
 	if !strings.Contains(text, "bytes") {
 		t.Errorf("expected 'bytes' in clipboard write result: %q", text)
+	}
+}
+
+func TestFormatClipboardReadTruncates(t *testing.T) {
+	text := strings.Repeat("x", 20)
+	got := formatClipboardRead(text, 5)
+	if !strings.Contains(got, "5/20 bytes shown") {
+		t.Errorf("expected byte count in output: %q", got)
+	}
+	if !strings.Contains(got, "Clipboard truncated") {
+		t.Errorf("expected truncation notice in output: %q", got)
+	}
+	if strings.Contains(got, strings.Repeat("x", 10)) {
+		t.Errorf("expected displayed clipboard text to be capped: %q", got)
 	}
 }
 

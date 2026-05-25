@@ -364,6 +364,63 @@ func TestListDirHandlerGlobFilter(t *testing.T) {
 	}
 }
 
+func TestListDirHandlerExcludePatterns(t *testing.T) {
+	dir := t.TempDir()
+	skip := filepath.Join(dir, "node_modules")
+	if err := os.MkdirAll(skip, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skip, "dep.js"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := listDirHandler(nil, newTestRequest(map[string]any{
+		"path":             dir,
+		"recursive":        true,
+		"exclude_patterns": []any{"node_modules"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "app.js") {
+		t.Errorf("expected app.js in listing: %q", text)
+	}
+	if strings.Contains(text, "node_modules") || strings.Contains(text, "dep.js") {
+		t.Errorf("excluded directory should not appear in listing: %q", text)
+	}
+}
+
+func TestListDirHandlerMaxEntriesTruncates(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := listDirHandler(nil, newTestRequest(map[string]any{
+		"path":        dir,
+		"max_entries": float64(2),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Output truncated after 2 entries") {
+		t.Errorf("expected truncation notice: %q", text)
+	}
+	if !strings.Contains(text, "a.txt") || !strings.Contains(text, "b.txt") {
+		t.Errorf("expected first two files before truncation: %q", text)
+	}
+	if strings.Contains(text, "c.txt") {
+		t.Errorf("c.txt should be omitted by max_entries=2: %q", text)
+	}
+}
+
 // ── directory_tree glob filter ────────────────────────────────────────────────
 
 func TestDirTreeHandlerGlobFilter(t *testing.T) {
@@ -451,6 +508,33 @@ func TestDirTreeHandlerGlobPrunesEmptyDirs(t *testing.T) {
 	}
 	if !strings.Contains(text, "main.go") {
 		t.Errorf("expected main.go in tree: %q", text)
+	}
+}
+
+func TestDirTreeHandlerMaxEntriesTruncates(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := dirTreeHandler(nil, newTestRequest(map[string]any{
+		"path":        dir,
+		"max_entries": float64(2),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Output truncated after 2 entries") {
+		t.Errorf("expected truncation notice: %q", text)
+	}
+	if !strings.Contains(text, "a.txt") || !strings.Contains(text, "b.txt") {
+		t.Errorf("expected first two files before truncation: %q", text)
+	}
+	if strings.Contains(text, "c.txt") {
+		t.Errorf("c.txt should be omitted by max_entries=2: %q", text)
 	}
 }
 
