@@ -36,8 +36,8 @@ func TestReadMultipleFilesHandler(t *testing.T) {
 	if !strings.Contains(text, "content of b") {
 		t.Errorf("expected content of b: %q", text)
 	}
-	if !strings.Contains(text, "File 1:") || !strings.Contains(text, "File 2:") {
-		t.Errorf("expected file headers: %q", text)
+	if !strings.Contains(text, fa) || !strings.Contains(text, fb) {
+		t.Errorf("expected compact file headers with paths: %q", text)
 	}
 }
 
@@ -1003,17 +1003,37 @@ func TestGetMultipleFileInfoHandler(t *testing.T) {
 		t.Fatalf("unexpected error: %s", resultText(result))
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "Path:") {
-		t.Errorf("expected 'Path:' header: %q", text)
+	if strings.Contains(text, "Path:") {
+		t.Errorf("default output should be compact, got expanded metadata: %q", text)
 	}
-	if !strings.Contains(text, "Type:        file") {
-		t.Errorf("expected 'Type: file': %q", text)
+	if !strings.Contains(text, "file") {
+		t.Errorf("expected 'file' type: %q", text)
 	}
-	if !strings.Contains(text, "Modified:") {
-		t.Errorf("expected 'Modified:' field: %q", text)
+	if !strings.Contains(text, "modified") {
+		t.Errorf("expected compact modified timestamp: %q", text)
 	}
 	if !strings.Contains(text, "2 lines") {
 		t.Errorf("expected '2 lines' for text file: %q", text)
+	}
+}
+
+func TestGetMultipleFileInfoHandlerDetailsMode(t *testing.T) {
+	dir := t.TempDir()
+	fa := filepath.Join(dir, "info.txt")
+	if err := os.WriteFile(fa, []byte("line one\nline two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := getMultipleFileInfoHandler(nil, newTestRequest(map[string]any{
+		"paths":       []any{fa},
+		"output_mode": "details",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Path:") || !strings.Contains(text, "Type:        file") || !strings.Contains(text, "Modified:") {
+		t.Errorf("expected expanded labeled metadata in details mode: %q", text)
 	}
 }
 
@@ -1026,7 +1046,7 @@ func TestGetMultipleFileInfoHandlerDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "Type:        directory") {
+	if !strings.Contains(text, "directory") {
 		t.Errorf("expected 'Type: directory': %q", text)
 	}
 }
@@ -1045,7 +1065,7 @@ func TestGetMultipleFileInfoHandlerCountLinesFalse(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := resultText(result)
-	if strings.Contains(text, "Lines:") {
+	if strings.Contains(text, "lines") {
 		t.Errorf("expected line count to be omitted when count_lines=false: %q", text)
 	}
 }
@@ -1062,8 +1082,8 @@ func TestGetMultipleFileInfoHandlerMissing(t *testing.T) {
 		t.Fatalf("unexpected error result: %s", resultText(result))
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "[ERROR]") {
-		t.Errorf("expected inline [ERROR] for missing path: %q", text)
+	if !strings.Contains(text, "ERROR") {
+		t.Errorf("expected inline ERROR for missing path: %q", text)
 	}
 }
 
@@ -1095,9 +1115,8 @@ func TestGetMultipleFileInfoHandlerMultiple(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := resultText(result)
-	// Should contain two Path entries separated by a blank line
-	if strings.Count(text, "Path:") != 2 {
-		t.Errorf("expected 2 Path: headers, got %d in: %q", strings.Count(text, "Path:"), text)
+	if !strings.Contains(text, fa) || !strings.Contains(text, fb) {
+		t.Errorf("expected both compact metadata entries: %q", text)
 	}
 }
 
@@ -1119,10 +1138,10 @@ func TestGetMultipleFileInfoHandlerLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := resultText(result)
-	if strings.Count(text, "Path:") != 1 {
-		t.Errorf("expected one rendered Path entry after limit, got: %q", text)
+	if !strings.Contains(text, a) || strings.Contains(text, b) {
+		t.Errorf("expected only first compact metadata entry after limit, got: %q", text)
 	}
-	if !strings.Contains(text, "shown 1 of 2") || !strings.Contains(text, "Output truncated") {
+	if !strings.Contains(text, "1/2 shown") || !strings.Contains(text, "Output truncated") {
 		t.Errorf("expected limit summary and truncation notice: %q", text)
 	}
 }

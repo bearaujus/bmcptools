@@ -29,7 +29,6 @@ func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 	}
 
 	var sb strings.Builder
-	sep := strings.Repeat("\u2500", 60)
 
 	successCount := 0
 	failCount := 0
@@ -51,11 +50,11 @@ func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 
 		if sizeStr != "" && readErr == nil {
 			lineCount := helper.CountContentLines(text)
-			fmt.Fprintf(&sb, "--- File %d: %s (%s, %s) ---\n", i+1, p, sizeStr, helper.Pluralize(lineCount, "line"))
+			fmt.Fprintf(&sb, "--- %s (%s, %s) ---\n", p, sizeStr, helper.Pluralize(lineCount, "line"))
 		} else if sizeStr != "" {
-			fmt.Fprintf(&sb, "--- File %d: %s (%s) ---\n", i+1, p, sizeStr)
+			fmt.Fprintf(&sb, "--- %s (%s) ---\n", p, sizeStr)
 		} else {
-			fmt.Fprintf(&sb, "--- File %d: %s ---\n", i+1, p)
+			fmt.Fprintf(&sb, "--- %s ---\n", p)
 		}
 
 		if readErr != nil {
@@ -65,20 +64,20 @@ func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 			successCount++
 			totalBytes += fileSize
 			sb.WriteString(text)
+			if !strings.HasSuffix(text, "\n") {
+				sb.WriteByte('\n')
+			}
 		}
-		sb.WriteString("\n")
-		sb.WriteString(sep)
-		sb.WriteString("\n")
 	}
 
-	fmt.Fprintf(&sb, "\n--- Summary: %s read", helper.Pluralize(successCount, "file"))
+	fmt.Fprintf(&sb, "\n[read %s", helper.Pluralize(successCount, "file"))
 	if failCount > 0 {
 		fmt.Fprintf(&sb, ", %s failed", helper.Pluralize(failCount, "file"))
 	}
 	if totalBytes > 0 {
 		fmt.Fprintf(&sb, " (%s total)", helper.HumanizeBytes(totalBytes))
 	}
-	fmt.Fprintf(&sb, " ---\n")
+	fmt.Fprintf(&sb, "]")
 
 	return mcp.NewToolResultText(sb.String()), nil
 }
@@ -358,6 +357,8 @@ func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mc
 	}
 
 	limit := batchLimit(req, defaultMultipleFileInfoPathLimit)
+	outputMode := req.GetString("output_mode", "compact")
+	detailsMode := outputMode == "details"
 	total := len(paths)
 	truncated := false
 	if limit > 0 && len(paths) > limit {
@@ -373,12 +374,20 @@ func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mc
 	errorCount := 0
 	for i, p := range paths {
 		if i > 0 {
-			sb.WriteString("\n\n")
+			if detailsMode {
+				sb.WriteString("\n\n")
+			} else {
+				sb.WriteByte('\n')
+			}
 		}
 
 		linfo, err := os.Lstat(p)
 		if err != nil {
-			fmt.Fprintf(&sb, "Path:        %s\n[ERROR] %v", p, err)
+			if detailsMode {
+				fmt.Fprintf(&sb, "Path:        %s\n[ERROR] %v", p, err)
+			} else {
+				fmt.Fprintf(&sb, "%s: ERROR %v", p, err)
+			}
 			errorCount++
 			continue
 		}
@@ -395,40 +404,75 @@ func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mc
 			fileCount++
 		}
 
-		abs, _ := filepath.Abs(p)
-		fmt.Fprintf(&sb,
-			"Path:        %s\n"+
-				"Type:        %s\n"+
-				"Size:        %s\n"+
-				"Mode:        %s\n"+
-				"Modified:    %s\n"+
-				"Absolute:    %s",
-			p,
-			kind,
-			helper.HumanizeBytes(linfo.Size()),
-			linfo.Mode().String(),
-			linfo.ModTime().Format("2006-01-02 15:04:05 MST"),
-			abs,
-		)
-
-		if linfo.Mode()&os.ModeSymlink != 0 {
-			if target, linkErr := os.Readlink(p); linkErr == nil {
-				fmt.Fprintf(&sb, "\nSymlink →    %s", target)
-			}
-		}
-
+		lineInfo := ""
 		if countLines && !linfo.IsDir() {
 			if f, _, _, binary, sniffErr := helper.SniffAndOpen(p); sniffErr == nil {
 				if !binary {
 					if n, countErr := helper.CountLines(f); countErr == nil {
-						fmt.Fprintf(&sb, "\nLines:       %s", helper.Pluralize(n, "line"))
+						lineInfo = helper.Pluralize(n, "line")
 					}
 				}
 				f.Close()
 			}
 		}
+
+		if linfo.Mode()&os.ModeSymlink != 0 {
+			target, _ := os.Readlink(p)
+			if detailsMode {
+				abs, _ := filepath.Abs(p)
+				fmt.Fprintf(&sb,
+					"Path:        %s\n"+
+						"Type:        %s\n"+
+						"Size:        %s\n"+
+						"Mode:        %s\n"+
+						"Modified:    %s\n"+
+						"Absolute:    %s",
+					p,
+					kind,
+					helper.HumanizeBytes(linfo.Size()),
+					linfo.Mode().String(),
+					linfo.ModTime().Format("2006-01-02 15:04:05 MST"),
+					abs,
+				)
+				if target != "" {
+					fmt.Fprintf(&sb, "\nSymlink →    %s", target)
+				}
+				continue
+			}
+			if target != "" {
+				fmt.Fprintf(&sb, "%s: %s -> %s, %s, mode %s, modified %s",
+					p, kind, target, helper.HumanizeBytes(linfo.Size()), linfo.Mode().String(), linfo.ModTime().Format("2006-01-02 15:04 MST"))
+				continue
+			}
+		}
+		if detailsMode {
+			abs, _ := filepath.Abs(p)
+			fmt.Fprintf(&sb,
+				"Path:        %s\n"+
+					"Type:        %s\n"+
+					"Size:        %s\n"+
+					"Mode:        %s\n"+
+					"Modified:    %s\n"+
+					"Absolute:    %s",
+				p,
+				kind,
+				helper.HumanizeBytes(linfo.Size()),
+				linfo.Mode().String(),
+				linfo.ModTime().Format("2006-01-02 15:04:05 MST"),
+				abs,
+			)
+			if lineInfo != "" {
+				fmt.Fprintf(&sb, "\nLines:       %s", lineInfo)
+			}
+			continue
+		}
+		fmt.Fprintf(&sb, "%s: %s %s", p, kind, helper.HumanizeBytes(linfo.Size()))
+		if lineInfo != "" {
+			fmt.Fprintf(&sb, ", %s", lineInfo)
+		}
+		fmt.Fprintf(&sb, ", mode %s, modified %s", linfo.Mode().String(), linfo.ModTime().Format("2006-01-02 15:04 MST"))
 	}
-	fmt.Fprintf(&sb, "\n\nSummary: shown %d of %d path(s); files=%d directories=%d symlinks=%d errors=%d.",
+	fmt.Fprintf(&sb, "\n\nSummary: %d/%d shown; files=%d dirs=%d symlinks=%d errors=%d.",
 		len(paths), total, fileCount, dirCount, symlinkCount, errorCount)
 	if truncated {
 		fmt.Fprintf(&sb, " Output truncated after %d paths; increase limit or set limit=0 for all.", limit)

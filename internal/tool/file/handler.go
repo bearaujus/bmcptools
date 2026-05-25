@@ -745,6 +745,7 @@ func getFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	if path == "" {
 		return mcp.NewToolResultError("path is required"), nil
 	}
+	outputMode := req.GetString("output_mode", "compact")
 
 	linfo, err := os.Lstat(path)
 	if err != nil {
@@ -757,6 +758,32 @@ func getFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	}
 	if linfo.Mode()&os.ModeSymlink != 0 {
 		kind = "symlink"
+	}
+
+	lineInfo := ""
+	if !linfo.IsDir() {
+		if f, _, _, binary, sniffErr := helper.SniffAndOpen(path); sniffErr == nil {
+			if !binary {
+				if n, countErr := helper.CountLines(f); countErr == nil {
+					lineInfo = helper.Pluralize(n, "line")
+				}
+			}
+			f.Close()
+		}
+	}
+
+	if outputMode != "details" {
+		result := fmt.Sprintf("%s: %s %s", path, kind, helper.HumanizeBytes(linfo.Size()))
+		if lineInfo != "" {
+			result += fmt.Sprintf(", %s", lineInfo)
+		}
+		result += fmt.Sprintf(", mode %s, modified %s", linfo.Mode().String(), linfo.ModTime().Format("2006-01-02 15:04 MST"))
+		if linfo.Mode()&os.ModeSymlink != 0 {
+			if target, err := os.Readlink(path); err == nil {
+				result += fmt.Sprintf(", -> %s", target)
+			}
+		}
+		return mcp.NewToolResultText(result), nil
 	}
 
 	abs, _ := filepath.Abs(path)
@@ -781,15 +808,8 @@ func getFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 		}
 	}
 
-	if !linfo.IsDir() {
-		if f, _, _, binary, sniffErr := helper.SniffAndOpen(path); sniffErr == nil {
-			if !binary {
-				if n, countErr := helper.CountLines(f); countErr == nil {
-					result += fmt.Sprintf("\nLines:       %s", helper.Pluralize(n, "line"))
-				}
-			}
-			f.Close()
-		}
+	if lineInfo != "" {
+		result += fmt.Sprintf("\nLines:       %s", lineInfo)
 	}
 
 	return mcp.NewToolResultText(result), nil

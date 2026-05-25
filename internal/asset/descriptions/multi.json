@@ -1,6 +1,6 @@
 {
   "read_multiple_files": {
-    "desc": "Read multiple files in a single call — more efficient than calling read_file repeatedly. Each file's content is returned with its path as a header. Failed reads (not found, permission denied) are reported inline without aborting the rest of the batch.",
+    "desc": "Read multiple files in a single call — more efficient than calling read_file repeatedly. Each file's content is returned with a compact path/size header. Failed reads (not found, permission denied) are reported inline without aborting the rest of the batch.",
     "params": {
       "paths": "Array of file paths to read.",
       "max_bytes_per_file": "Max bytes per file. Default: 262144 (256 KB). Raise only when you truly need more context."
@@ -38,11 +38,12 @@
     }
   },
   "get_multiple_file_info": {
-    "desc": "Return metadata for multiple files/directories in a single call. Each entry includes type, size, modification time, permissions, symlink target, and optionally line count for text files. More efficient than calling get_file_info repeatedly.",
+    "desc": "Return metadata for multiple files/directories in a single call. Compact one-line entries are returned by default; set output_mode=details for expanded labeled fields. More efficient than calling get_file_info repeatedly.",
     "params": {
       "paths": "Array of file/directory paths to inspect.",
       "limit": "Maximum paths to return. Default: 100. Set 0 for unlimited.",
-      "count_lines": "Count lines for text files. Default: true. Set false for faster/noiseless metadata scans."
+      "count_lines": "Count lines for text files. Default: true. Set false for faster/noiseless metadata scans.",
+      "output_mode": "\"compact\" (default) returns one line per path. \"details\" returns expanded labeled metadata fields."
     }
   }
 }

@@ -66,9 +66,10 @@
     }
   },
   "get_file_info": {
-    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, symlink target, and line count for text files. Check line count here before using start_line/end_line in read_file.",
+    "desc": "Return metadata for a file or directory: type, size, modification time, permissions, symlink target, and line count for text files. Compact one-line output is returned by default; set output_mode=details for expanded labeled fields. Check line count here before using start_line/end_line in read_file.",
     "params": {
-      "path": "Path to the file or directory."
+      "path": "Path to the file or directory.",
+      "output_mode": "\"compact\" (default) returns one line. \"details\" returns expanded labeled metadata fields."
     }
   },
   "path_exists": {

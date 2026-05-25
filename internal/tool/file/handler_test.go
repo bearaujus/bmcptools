@@ -381,6 +381,28 @@ func TestGetFileInfoHandler(t *testing.T) {
 	if !strings.Contains(text, "info.txt") {
 		t.Errorf("expected filename in result: %q", text)
 	}
+	if strings.Contains(text, "Path:") {
+		t.Errorf("default get_file_info output should be compact: %q", text)
+	}
+}
+
+func TestGetFileInfoHandlerDetailsMode(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "info.txt")
+	if err := os.WriteFile(f, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := getFileInfoHandler(nil, newTestRequest(map[string]any{
+		"path":        f,
+		"output_mode": "details",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Path:") || !strings.Contains(text, "Type:        file") || !strings.Contains(text, "Modified:") {
+		t.Errorf("expected expanded labeled metadata in details mode: %q", text)
+	}
 }
 
 func TestGetFileInfoHandlerLineCount(t *testing.T) {

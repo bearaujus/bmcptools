@@ -39,14 +39,14 @@ Platform note: ask_user, rest, and update_dialog require macOS or Windows (they 
 ─── File operations ───────────────────────────────────────────────────────────
 
 read_file           — single file; defaults to a 256 KB cap; supports line ranges (start_line/end_line), multi-range (ranges param), head/tail, line numbers
-read_multiple_files — batch read 2+ files in one call (more efficient); defaults to 256 KB per file
+read_multiple_files — batch read 2+ files in one call (more efficient); compact path/size headers; defaults to 256 KB per file
 write_file          — create or overwrite; returns capped diff of changes
 write_multiple_files— batch write 2+ files in one call (show_diff defaults to false for performance)
 append_to_file      — append content without overwriting
 edit_file           — surgical find-and-replace (preferred for edits); supports batch mode; returns capped unified diff; has near-miss probe
 find_replace_in_files — find-and-replace across multiple files at once; supports regex, glob, and exclude_patterns; use dry_run to preview; unmodified files are counted but not listed unless show_unmodified=true
 delete_file, copy_file, move_file — self-explanatory
-get_file_info       — metadata + line count (useful before using line ranges)
+get_file_info       — compact metadata + line count (use output_mode="details" for expanded labeled fields)
 path_exists         — lightweight existence check (faster than read_file)
 diff_files          — unified diff between two files; guards large inputs and caps diff output by default
 calculate_checksum  — MD5/SHA1/SHA256
@@ -58,7 +58,7 @@ Performance tips:
   • Use read_multiple_files when reading 2+ files — single round-trip
   • Use edit_file batch mode (edits array) for multiple changes to the same file
   • Use path_exists (single) or path_exists_batch (multiple, capped by default) before read/write to branch on existence — faster than get_file_info
-  • Use get_multiple_file_info for batch metadata lookups; set count_lines=false for faster/noiseless scans
+  • Use get_multiple_file_info for batch metadata lookups; compact one-line entries are default; set output_mode="details" only when expanded fields are needed
   • edit_file has a near-miss probe: if your pattern isn't found, it shows surrounding context to help you refine it
   • Use find_replace_in_files with dry_run=true to preview changes across a project before applying
 

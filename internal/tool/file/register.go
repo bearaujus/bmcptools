@@ -90,6 +90,7 @@ func Register(s toolreg.ToolRegistrar) {
 	s.AddTool(mcp.NewTool(toolname.GetFileInfo,
 		mcp.WithDescription(asset.ToolDesc(toolname.GetFileInfo)),
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.GetFileInfo, "path"))),
+		mcp.WithString("output_mode", mcp.Description(asset.ParamDesc(toolname.GetFileInfo, "output_mode"))),
 	), getFileInfoHandler)
 
 	s.AddTool(mcp.NewTool(toolname.PathExists,

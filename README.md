@@ -86,7 +86,7 @@ For Claude Desktop / Cursor configs:
 | `delete_file` | Delete a single file. |
 | `copy_file` | Copy a file. Auto-creates destination parent dirs. |
 | `move_file` | Move or rename a file/directory. Cross-device safe. |
-| `get_file_info` | Metadata: type, size, permissions, mod time, symlink target, line count. |
+| `get_file_info` | Compact metadata: type, size, permissions, mod time, symlink target, line count. `output_mode=details` for expanded fields. |
 | `path_exists` | Lightweight existence check — faster than `read_file` or `get_file_info`. |
 | `diff_files` | Unified diff between two files. Guards large inputs and caps diff output by default. Cross-platform. |
 | `calculate_checksum` | MD5, SHA1, or SHA256 checksum. Batch-capable. Cross-platform. |
@@ -98,11 +98,11 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file`. Defaults to 256 KB per file. |
+| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file`. Compact path/size headers; defaults to 256 KB per file. |
 | `write_multiple_files` | Write 2+ files in one call. `show_diff` defaults to false for performance. |
 | `find_replace_in_files` | Find-and-replace across a directory tree. Regex, glob/exclude filters, dry-run, per-file diffs, compact unmodified-file summary. |
 | `path_exists_batch` | Check whether multiple paths exist in one call. Returns type and size with a summary and limit control. |
-| `get_multiple_file_info` | Return metadata (type, size, modified, permissions, optional line count) for multiple paths with limit control. |
+| `get_multiple_file_info` | Return compact metadata for multiple paths with limit control. `output_mode=details` for expanded fields. |
 
 ### Directory tools (4)
 

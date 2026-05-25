@@ -92,7 +92,6 @@ func listProcessesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 	header := fmt.Sprintf("%-8s "+nameColFmt+" %7s %8s  %s\n", "PID", "NAME", cpuHeader, memHeader, "COMMAND")
 	fmt.Fprint(&sb, header)
-	fmt.Fprintln(&sb, strings.Repeat("\u2500", 8+1+maxNameLen+1+7+1+8+2+maxCmdLen))
 	for _, p := range procs {
 		cmd := p.Command
 		if len(cmd) > maxCmdLen {

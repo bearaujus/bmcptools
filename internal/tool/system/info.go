@@ -26,10 +26,10 @@ func getSystemInfoHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallTo
 		fmt.Fprintf(&sb, "CPU:      %s\n", model)
 	}
 	if mem, err := memoryInfo(); err == nil {
-		fmt.Fprintf(&sb, "\n\u2500\u2500 Memory \u2500\u2500\n%s", mem)
+		fmt.Fprintf(&sb, "Memory:   %s\n", mem)
 	}
 	if disk, err := diskInfo(); err == nil {
-		fmt.Fprintf(&sb, "\n\u2500\u2500 Disk \u2500\u2500\n%s", disk)
+		fmt.Fprintf(&sb, "Disk:\n%s", disk)
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
@@ -80,11 +80,7 @@ func memoryInfo() (string, error) {
 		freePages := vals["Pages free"] + vals["Pages inactive"] + vals["Pages speculative"]
 		freeBytes := freePages * pageSize
 		usedBytes := totalBytes - freeBytes
-		return fmt.Sprintf("  Total: %s\n  Used:  %s  (%.1f%%)\n  Free:  %s\n",
-			formatBytes(totalBytes),
-			formatBytes(usedBytes), float64(usedBytes)/float64(totalBytes)*100,
-			formatBytes(freeBytes),
-		), nil
+		return memorySummary(totalBytes, usedBytes, freeBytes), nil
 
 	case "linux":
 		out, err := exec.Command("free", "-b").Output()
@@ -98,75 +94,99 @@ func memoryInfo() (string, error) {
 					total, _ := strconv.ParseInt(fields[1], 10, 64)
 					used, _ := strconv.ParseInt(fields[2], 10, 64)
 					free, _ := strconv.ParseInt(fields[3], 10, 64)
-					return fmt.Sprintf("  Total: %s\n  Used:  %s  (%.1f%%)\n  Free:  %s\n",
-						formatBytes(total),
-						formatBytes(used), float64(used)/float64(total)*100,
-						formatBytes(free),
-					), nil
+					return memorySummary(total, used, free), nil
 				}
 			}
 		}
 	case "windows":
-		out, err := exec.Command("powershell", "-Command",
-			"$m = Get-CimInstance Win32_OperatingSystem; "+
-				"Write-Output (\"Total:\"+$m.TotalVisibleMemorySize+\" Free:\"+$m.FreePhysicalMemory)").Output()
+		out, err := exec.Command("powershell", "-NoProfile", "-Command",
+			"$m=Get-CimInstance Win32_OperatingSystem; "+
+				"$total=[int64]$m.TotalVisibleMemorySize*1KB; "+
+				"$free=[int64]$m.FreePhysicalMemory*1KB; "+
+				"$used=$total-$free; "+
+				"'{0},{1},{2}' -f $total,$used,$free").Output()
 		if err != nil {
 			return "", err
 		}
-		return "  " + strings.TrimSpace(string(out)) + " KB\n", nil
+		fields := strings.Split(strings.TrimSpace(string(out)), ",")
+		if len(fields) == 3 {
+			total, _ := strconv.ParseInt(fields[0], 10, 64)
+			used, _ := strconv.ParseInt(fields[1], 10, 64)
+			free, _ := strconv.ParseInt(fields[2], 10, 64)
+			return memorySummary(total, used, free), nil
+		}
 	}
 	return "", fmt.Errorf("unsupported OS")
 }
 
 func diskInfo() (string, error) {
-	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin", "linux":
-		cmd = exec.Command("df", "-h", "-P")
-	case "windows":
-		cmd = exec.Command("powershell", "-Command",
-			"Get-PSDrive -PSProvider FileSystem | "+
-				"Select-Object Name,@{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}},@{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}} | "+
-				"Format-Table -AutoSize | Out-String")
-	default:
-		return "", fmt.Errorf("unsupported OS")
-	}
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	lines := strings.Split(string(out), "\n")
-	var kept []string
-	if runtime.GOOS != "windows" {
-		for _, line := range lines {
+		out, err := exec.Command("df", "-k", "-P").Output()
+		if err != nil {
+			return "", err
+		}
+		lines := strings.Split(string(out), "\n")
+		var kept []string
+		for _, line := range lines[1:] {
 			if line == "" {
 				continue
 			}
-			if strings.HasPrefix(line, "Filesystem") {
-				kept = append(kept, "  "+line)
-				continue
-			}
 			fs := strings.Fields(line)
-			if len(fs) == 0 {
+			if len(fs) < 6 {
 				continue
 			}
 			skip := false
-			for _, prefix := range []string{"devfs", "tmpfs", "map ", "none", "udev"} {
+			for _, prefix := range []string{"devfs", "tmpfs", "map", "none", "udev"} {
 				if strings.HasPrefix(fs[0], prefix) {
 					skip = true
 					break
 				}
 			}
-			if !skip {
-				kept = append(kept, "  "+line)
+			if skip {
+				continue
 			}
+			usedKB, _ := strconv.ParseInt(fs[2], 10, 64)
+			freeKB, _ := strconv.ParseInt(fs[3], 10, 64)
+			kept = append(kept, fmt.Sprintf("  %s: %s used, %s free", fs[5], formatBytes(usedKB*1024), formatBytes(freeKB*1024)))
 		}
-	} else {
-		for _, line := range lines {
-			kept = append(kept, "  "+line)
+		return strings.Join(kept, "\n") + "\n", nil
+	case "windows":
+		out, err := exec.Command("powershell", "-NoProfile", "-Command",
+			"Get-CimInstance Win32_LogicalDisk -Filter \"DriveType=3\" | "+
+				"ForEach-Object { '{0},{1},{2}' -f $_.DeviceID,([int64]$_.Size),([int64]$_.FreeSpace) }").Output()
+		if err != nil {
+			return "", err
 		}
+		var kept []string
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			fields := strings.Split(line, ",")
+			if len(fields) != 3 {
+				continue
+			}
+			size, _ := strconv.ParseInt(fields[1], 10, 64)
+			free, _ := strconv.ParseInt(fields[2], 10, 64)
+			used := size - free
+			drive := strings.TrimSuffix(fields[0], ":")
+			kept = append(kept, fmt.Sprintf("  %s: %s used, %s free", drive, formatBytes(used), formatBytes(free)))
+		}
+		return strings.Join(kept, "\n") + "\n", nil
+	default:
+		return "", fmt.Errorf("unsupported OS")
 	}
-	return strings.Join(kept, "\n") + "\n", nil
+}
+
+func memorySummary(total, used, free int64) string {
+	percent := 0.0
+	if total > 0 {
+		percent = float64(used) / float64(total) * 100
+	}
+	return fmt.Sprintf("%s used / %s total (%.1f%%), %s free",
+		formatBytes(used), formatBytes(total), percent, formatBytes(free))
 }
 
 func formatBytes(b int64) string {

@@ -29,6 +29,9 @@ func TestGetSystemInfoReturnsOSInfo(t *testing.T) {
 	if !strings.Contains(text, "CPUs:") {
 		t.Errorf("expected 'CPUs:' in output: %q", text)
 	}
+	if strings.Contains(text, "──") {
+		t.Errorf("get_system_info should avoid decorative separator lines: %q", text)
+	}
 }
 
 // ── list_processes ────────────────────────────────────────────────────────────
@@ -44,6 +47,9 @@ func TestListProcessesReturnsResults(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "PID") {
 		t.Errorf("expected 'PID' column header in output: %q", text)
+	}
+	if strings.Contains(text, "────") {
+		t.Errorf("list_processes should avoid wide separator lines: %q", text)
 	}
 }
 

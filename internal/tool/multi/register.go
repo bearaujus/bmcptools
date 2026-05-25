@@ -110,5 +110,8 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("count_lines",
 			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "count_lines")),
 		),
+		mcp.WithString("output_mode",
+			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "output_mode")),
+		),
 	), getMultipleFileInfoHandler)
 }
