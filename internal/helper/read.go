@@ -15,6 +15,10 @@ import (
 // Keep this conservative: tool output goes directly into model context.
 const DefaultMaxReadBytes = 256 * 1024
 
+// AutoLineCountMaxBytes is the largest file size for which line counts are
+// computed automatically when the caller did not explicitly force counting.
+const AutoLineCountMaxBytes int64 = 1 * 1024 * 1024
+
 // ReadBinaryFile returns a compact binary file summary, optionally including
 // capped base64 content when explicitly requested.
 func ReadBinaryFile(f *os.File, info os.FileInfo, contentType string, limit int, includeBase64 bool) (string, error) {
@@ -137,6 +141,28 @@ func ReadOneFileAsText(p string, limitBytes int, includeBase64 bool) (string, er
 	}
 	text, _, err := ReadFullText(f, info, limitBytes)
 	return text, err
+}
+
+// CountTextFileLines counts lines for text files. When force is false, large
+// files are skipped to keep metadata-style calls cheap.
+func CountTextFileLines(path string, force bool) (count int, counted bool, skippedForSize bool, err error) {
+	f, info, _, binary, err := SniffAndOpen(path)
+	if err != nil {
+		return 0, false, false, err
+	}
+	defer f.Close()
+
+	if !force && info.Size() > AutoLineCountMaxBytes {
+		return 0, false, true, nil
+	}
+	if binary {
+		return 0, false, false, nil
+	}
+	n, err := CountLines(f)
+	if err != nil {
+		return 0, false, false, err
+	}
+	return n, true, false, nil
 }
 
 // CountLines counts the total number of lines in an open file.

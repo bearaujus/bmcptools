@@ -492,6 +492,47 @@ func TestGetFileInfoHandlerDirectory(t *testing.T) {
 	}
 }
 
+func TestGetFileInfoHandlerSkipsLargeLineCountByDefault(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "large.txt")
+	lineCount := int(helper.AutoLineCountMaxBytes/5) + 5000
+	content := strings.Repeat("line\n", lineCount)
+	if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := getFileInfoHandler(nil, newTestRequest(map[string]any{"path": f}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, fmt.Sprintf("%d lines", lineCount)) {
+		t.Fatalf("default large-file metadata should skip exact line counts: %q", text)
+	}
+}
+
+func TestGetFileInfoHandlerForceCountLinesForLargeFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "large_counted.txt")
+	lineCount := int(helper.AutoLineCountMaxBytes/5) + 5000
+	content := strings.Repeat("line\n", lineCount)
+	if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := getFileInfoHandler(nil, newTestRequest(map[string]any{
+		"path":        f,
+		"count_lines": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, fmt.Sprintf("%d lines", lineCount)) {
+		t.Fatalf("expected explicit large-file line count, got: %q", text)
+	}
+}
+
 // ── edit_file diff output ─────────────────────────────────────────────────────
 
 func TestEditFileHandlerShowsDiff(t *testing.T) {
@@ -556,6 +597,52 @@ func TestReadFileHandlerTail(t *testing.T) {
 	}
 	if strings.Contains(text, "L1") || strings.Contains(text, "L2") {
 		t.Errorf("did not expect L1/L2 in tail=2 result: %q", text)
+	}
+}
+
+func TestReadFileHandlerHeadThenTail(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "lines.txt")
+	if err := os.WriteFile(f, []byte("L1\nL2\nL3\nL4\nL5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestRequest(map[string]any{"path": f, "head": float64(5), "tail": float64(2)})
+	result, err := readFileHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "L4") || !strings.Contains(text, "L5") {
+		t.Fatalf("expected last 2 lines of the head window: %q", text)
+	}
+	if strings.Contains(text, "L1") || strings.Contains(text, "L2") || strings.Contains(text, "L3") {
+		t.Fatalf("did not expect earlier head-window lines after tail composition: %q", text)
+	}
+}
+
+func TestReadFileHandlerLargeHeadOmitsTotalLineCount(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "large.txt")
+	lineCount := int(helper.AutoLineCountMaxBytes/8) + 5000
+	var sb strings.Builder
+	for i := 0; i < lineCount; i++ {
+		fmt.Fprintf(&sb, "L%06d\n", i)
+	}
+	if err := os.WriteFile(f, []byte(sb.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readFileHandler(nil, newTestRequest(map[string]any{"path": f, "head": float64(2)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "lines 1..2") {
+		t.Fatalf("expected bounded head header: %q", text)
+	}
+	if strings.Contains(text, "of ") {
+		t.Fatalf("large bounded head should skip the exact total line count: %q", text)
 	}
 }
 
@@ -1995,6 +2082,30 @@ func TestAppendFileCreatesNewFile(t *testing.T) {
 	}
 }
 
+func TestAppendFileEnsureLeadingNewline(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "append_safe.txt")
+	if err := os.WriteFile(f, []byte("line1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := appendFileHandler(nil, newTestRequest(map[string]any{
+		"path":                   f,
+		"content":                "line2\n",
+		"ensure_leading_newline": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	data, _ := os.ReadFile(f)
+	if got, want := string(data), "line1\nline2\n"; got != want {
+		t.Fatalf("append with safe newline = %q, want %q", got, want)
+	}
+}
+
 // ── createSymlinkHandler ─────────────────────────────────────────────────────
 
 func TestCreateSymlinkMissingSource(t *testing.T) {
@@ -2053,6 +2164,39 @@ func TestCreateSymlinkSuccess(t *testing.T) {
 	}
 	if !strings.Contains(resultText(result), "Created symlink") {
 		t.Errorf("unexpected result text: %s", resultText(result))
+	}
+}
+
+func TestCreateSymlinkIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	link := filepath.Join(dir, "link.txt")
+	req := newTestRequest(map[string]any{"source": target, "link": link})
+	first, err := createSymlinkHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(first) {
+		txt := resultText(first)
+		if strings.Contains(txt, "privilege") || strings.Contains(txt, "not permitted") {
+			t.Skip("skipping: symlink creation requires elevated privileges on this OS")
+		}
+		t.Fatalf("unexpected error: %s", txt)
+	}
+
+	second, err := createSymlinkHandler(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(second) {
+		t.Fatalf("second create should be idempotent: %s", resultText(second))
+	}
+	if !strings.Contains(resultText(second), "already exists") {
+		t.Fatalf("expected idempotent status message, got: %q", resultText(second))
 	}
 }
 

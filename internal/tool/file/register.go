@@ -12,6 +12,7 @@ import (
 func Register(s toolreg.ToolRegistrar) {
 	s.AddTool(mcp.NewTool(toolname.ReadFile,
 		mcp.WithDescription(asset.ToolDesc(toolname.ReadFile)),
+		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.ReadFile, "path"))),
 		mcp.WithNumber("start_line", mcp.Description(asset.ParamDesc(toolname.ReadFile, "start_line"))),
 		mcp.WithNumber("end_line", mcp.Description(asset.ParamDesc(toolname.ReadFile, "end_line"))),
@@ -31,6 +32,8 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.WriteFile,
 		mcp.WithDescription(asset.ToolDesc(toolname.WriteFile)),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.WriteFile, "path"))),
 		mcp.WithString("content", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.WriteFile, "content"))),
 		mcp.WithBoolean("create_dirs", mcp.Description(asset.ParamDesc(toolname.WriteFile, "create_dirs"))),
@@ -42,10 +45,12 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithDescription(asset.ToolDesc(toolname.AppendToFile)),
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.AppendToFile, "path"))),
 		mcp.WithString("content", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.AppendToFile, "content"))),
+		mcp.WithBoolean("ensure_leading_newline", mcp.Description(asset.ParamDesc(toolname.AppendToFile, "ensure_leading_newline"))),
 	), appendFileHandler)
 
 	s.AddTool(mcp.NewTool(toolname.EditFile,
 		mcp.WithDescription(asset.ToolDesc(toolname.EditFile)),
+		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.EditFile, "path"))),
 		mcp.WithString("old_str", mcp.Description(asset.ParamDesc(toolname.EditFile, "old_str"))),
 		mcp.WithString("new_str", mcp.Description(asset.ParamDesc(toolname.EditFile, "new_str"))),
@@ -71,11 +76,13 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.DeleteFile,
 		mcp.WithDescription(asset.ToolDesc(toolname.DeleteFile)),
+		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.DeleteFile, "path"))),
 	), deleteFileHandler)
 
 	s.AddTool(mcp.NewTool(toolname.CopyFile,
 		mcp.WithDescription(asset.ToolDesc(toolname.CopyFile)),
+		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString("source", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.CopyFile, "source"))),
 		mcp.WithString("destination", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.CopyFile, "destination"))),
 		mcp.WithBoolean("overwrite", mcp.Description(asset.ParamDesc(toolname.CopyFile, "overwrite"))),
@@ -83,6 +90,7 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.MoveFile,
 		mcp.WithDescription(asset.ToolDesc(toolname.MoveFile)),
+		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString("source", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.MoveFile, "source"))),
 		mcp.WithString("destination", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.MoveFile, "destination"))),
 		mcp.WithBoolean("overwrite", mcp.Description(asset.ParamDesc(toolname.MoveFile, "overwrite"))),
@@ -90,17 +98,21 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.GetFileInfo,
 		mcp.WithDescription(asset.ToolDesc(toolname.GetFileInfo)),
+		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.GetFileInfo, "path"))),
 		mcp.WithString("output_mode", mcp.Description(asset.ParamDesc(toolname.GetFileInfo, "output_mode"))),
+		mcp.WithBoolean("count_lines", mcp.Description(asset.ParamDesc(toolname.GetFileInfo, "count_lines"))),
 	), getFileInfoHandler)
 
 	s.AddTool(mcp.NewTool(toolname.PathExists,
 		mcp.WithDescription(asset.ToolDesc(toolname.PathExists)),
+		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.PathExists, "path"))),
 	), pathExistsHandler)
 
 	s.AddTool(mcp.NewTool(toolname.DiffFiles,
 		mcp.WithDescription(asset.ToolDesc(toolname.DiffFiles)),
+		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("path_a", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.DiffFiles, "path_a"))),
 		mcp.WithString("path_b", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.DiffFiles, "path_b"))),
 		mcp.WithNumber("context_lines", mcp.Description(asset.ParamDesc(toolname.DiffFiles, "context_lines"))),
@@ -110,6 +122,7 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.CalculateChecksum,
 		mcp.WithDescription(asset.ToolDesc(toolname.CalculateChecksum)),
+		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithArray("paths",
 			mcp.Required(),
 			mcp.Description(asset.ParamDesc(toolname.CalculateChecksum, "paths")),
@@ -122,12 +135,14 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.CreateSymlink,
 		mcp.WithDescription(asset.ToolDesc(toolname.CreateSymlink)),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString("source", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.CreateSymlink, "source"))),
 		mcp.WithString("link", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.CreateSymlink, "link"))),
 	), createSymlinkHandler)
 
 	s.AddTool(mcp.NewTool(toolname.CompressFiles,
 		mcp.WithDescription(asset.ToolDesc(toolname.CompressFiles)),
+		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithArray("paths",
 			mcp.Required(),
 			mcp.Description(asset.ParamDesc(toolname.CompressFiles, "paths")),
@@ -139,6 +154,7 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.ExtractArchive,
 		mcp.WithDescription(asset.ToolDesc(toolname.ExtractArchive)),
+		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString("archive", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.ExtractArchive, "archive"))),
 		mcp.WithString("output", mcp.Description(asset.ParamDesc(toolname.ExtractArchive, "output"))),
 		mcp.WithString("format", mcp.Description(asset.ParamDesc(toolname.ExtractArchive, "format"))),

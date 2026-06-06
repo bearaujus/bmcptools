@@ -1,11 +1,14 @@
 package multi
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/bearaujus/bmcptools/internal/helper"
 )
 
 // ── read_multiple_files ───────────────────────────────────────────────────────
@@ -70,6 +73,71 @@ func TestReadMultipleFilesHandlerEmptyPaths(t *testing.T) {
 	}
 	if !isResultError(result) {
 		t.Error("expected error for empty paths array")
+	}
+}
+
+func TestReadMultipleFilesHandlerSharedHead(t *testing.T) {
+	dir := t.TempDir()
+	fa := filepath.Join(dir, "a.txt")
+	fb := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(fa, []byte("A1\nA2\nA3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fb, []byte("B1\nB2\nB3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{fa, fb},
+		"head":  float64(2),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "A1") || !strings.Contains(text, "A2") || strings.Contains(text, "A3") {
+		t.Fatalf("shared head should clip the first file: %q", text)
+	}
+	if !strings.Contains(text, "B1") || !strings.Contains(text, "B2") || strings.Contains(text, "B3") {
+		t.Fatalf("shared head should clip the second file: %q", text)
+	}
+}
+
+func TestReadMultipleFilesHandlerPerFileOverridesSharedHead(t *testing.T) {
+	dir := t.TempDir()
+	fa := filepath.Join(dir, "a.txt")
+	fb := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(fa, []byte("A1\nA2\nA3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fb, []byte("B1\nB2\nB3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{
+			fa,
+			map[string]any{
+				"path":              fb,
+				"head":              float64(0),
+				"tail":              float64(1),
+				"show_line_numbers": true,
+			},
+		},
+		"head": float64(2),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, "A3") {
+		t.Fatalf("shared head should still clip the plain string entry: %q", text)
+	}
+	if !strings.Contains(text, "     3|B3") {
+		t.Fatalf("per-file override should show the final numbered line: %q", text)
+	}
+	if strings.Contains(text, "     1|B1") || strings.Contains(text, "     2|B2") {
+		t.Fatalf("per-file tail override should suppress earlier lines: %q", text)
 	}
 }
 
@@ -722,6 +790,35 @@ func TestWriteMultipleFilesAllSucceedReturnsText(t *testing.T) {
 	}
 }
 
+func TestWriteMultipleFilesAllOrNothingRollback(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.txt")
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := writeMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"files": []any{
+			map[string]any{"path": good, "content": "ok"},
+			map[string]any{"path": filepath.Join(blocker, "child.txt"), "content": "bad"},
+		},
+		"all_or_nothing": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected error result for transactional rollback test")
+	}
+	if _, statErr := os.Stat(good); !os.IsNotExist(statErr) {
+		t.Fatalf("good file should not exist after all_or_nothing rollback, statErr=%v", statErr)
+	}
+	if !strings.Contains(resultText(result), "No files were written because all_or_nothing=true") {
+		t.Fatalf("expected explicit all-or-nothing rollback message: %q", resultText(result))
+	}
+}
+
 // ── find_replace_in_files (additional edge cases) ─────────────────────────────
 
 // Reason: dry_run=true should report what WOULD be replaced without actually
@@ -1199,6 +1296,47 @@ func TestGetMultipleFileInfoHandlerMultiple(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, fa) || !strings.Contains(text, fb) {
 		t.Errorf("expected both compact metadata entries: %q", text)
+	}
+}
+
+func TestGetMultipleFileInfoHandlerSkipsLargeLineCountByDefault(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "large.txt")
+	lineCount := int(helper.AutoLineCountMaxBytes/5) + 5000
+	content := strings.Repeat("line\n", lineCount)
+	if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := getMultipleFileInfoHandler(nil, newTestRequest(map[string]any{"paths": []any{f}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, fmt.Sprintf("%d lines", lineCount)) {
+		t.Fatalf("default large-file batch metadata should skip exact line counts: %q", text)
+	}
+}
+
+func TestGetMultipleFileInfoHandlerForceCountLinesForLargeFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "large_counted.txt")
+	lineCount := int(helper.AutoLineCountMaxBytes/5) + 5000
+	content := strings.Repeat("line\n", lineCount)
+	if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := getMultipleFileInfoHandler(nil, newTestRequest(map[string]any{
+		"paths":       []any{f},
+		"count_lines": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, fmt.Sprintf("%d lines", lineCount)) {
+		t.Fatalf("expected explicit large-file batch line count, got: %q", text)
 	}
 }
 

@@ -1,18 +1,25 @@
 {
   "read_multiple_files": {
-    "desc": "Read several files in one call with compact per-file headers. Use instead of repeated read_file for related small/medium files. Each failed file is reported inline without aborting the batch; binary files return summaries unless include_base64=true.",
+    "desc": "Read several files in one call with compact per-file headers. Use instead of repeated read_file for related files, including sampling many large files with shared or per-file line windows. Each failed file is reported inline without aborting the batch; binary files return summaries unless include_base64=true.",
     "params": {
-      "paths": "Non-empty array of file paths to read, in output order.",
-      "max_bytes_per_file": "Maximum bytes returned per file. Default: 262144 (256 KB). Non-positive values keep the default.",
-      "include_base64": "For binary files, include capped base64 bytes in addition to metadata. Default: false."
+      "paths": "Non-empty array of file paths or {path, start_line?, end_line?, head?, tail?, ranges?, show_line_numbers?, max_bytes?} objects, in output order.",
+      "max_bytes_per_file": "Shared maximum bytes returned per file. Default: 262144 (256 KB). Non-positive values keep the default. Keep in mind that 256 KB of text can consume tens of thousands of tokens.",
+      "include_base64": "For binary files, include capped base64 bytes in addition to metadata. Default: false.",
+      "start_line": "Shared first line to read, 1-indexed. Used when per-file ranges/head/tail are not set.",
+      "end_line": "Shared last line to read, inclusive. If omitted with start_line, reads through the end of each file.",
+      "head": "Shared first-N-lines window to apply to every string path entry.",
+      "tail": "Shared last-N-lines window to apply to every string path entry. When combined with head, returns the last N lines of the shared head window.",
+      "show_line_numbers": "Shared flag to prefix output lines with source line numbers. Default: false.",
+      "ranges": "Shared array of [start_line, end_line] pairs for non-contiguous snippets. Takes precedence over shared head/tail/start_line/end_line."
     }
   },
   "write_multiple_files": {
-    "desc": "Create or overwrite several files atomically per file in one call. Use for generated bundles or coordinated edits when full file contents are known. Parent directories are created by default; any per-file failure makes the overall tool result an error while still reporting successes.",
+    "desc": "Create or overwrite several files atomically per file in one call. Use for generated bundles or coordinated edits when full file contents are known. Parent directories are created by default; any per-file failure makes the overall tool result an error while still reporting successes. Set all_or_nothing=true to stage the whole batch and avoid partial workspace updates.",
     "params": {
       "files": "Non-empty array of {\"path\": \"...\", \"content\": \"...\"} objects. Content is the complete file content for each path.",
       "create_dirs": "Create missing parent directories before writing. Default: true.",
-      "show_diff": "Include a unified diff for each written file when old content can be read. Default: false to avoid flooding context."
+      "show_diff": "Include a unified diff for each written file when old content can be read. Default: false to avoid flooding context.",
+      "all_or_nothing": "Stage every file first and only commit the batch if they all succeed. Default: false."
     }
   },
   "find_replace_in_files": {
@@ -44,7 +51,7 @@
     "params": {
       "paths": "Non-empty array of paths to inspect.",
       "limit": "Maximum paths to return. Default: 100; set 0 for all. Negative values use the default.",
-      "count_lines": "Count lines for text files. Default: true; set false for faster metadata-only scans.",
+      "count_lines": "Count lines for text files. Default: true for small files; files over 1 MB skip automatic counting unless this is explicitly set to true.",
       "output_mode": "\"compact\" (default) returns one line per path; \"details\" returns expanded labeled fields."
     }
   }

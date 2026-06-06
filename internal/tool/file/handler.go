@@ -31,6 +31,47 @@ func readFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		return mcp.NewToolResultError("path is required"), nil
 	}
 
+	opts := ReadOptions{
+		MaxBytes:        helper.DefaultMaxReadBytes,
+		IncludeBase64:   req.GetBool("include_base64", false),
+		ShowLineNumbers: req.GetBool("show_line_numbers", false),
+	}
+	if mb := req.GetFloat("max_bytes", 0); mb > 0 {
+		opts.MaxBytes = int(mb)
+	}
+	if sl := req.GetFloat("start_line", 0); sl >= 1 {
+		opts.StartLine = int(sl)
+	}
+	if el := req.GetFloat("end_line", 0); el >= 1 {
+		opts.EndLine = int(el)
+	}
+	if headN := req.GetFloat("head", 0); headN >= 1 {
+		opts.Head = int(headN)
+	}
+	if tailN := req.GetFloat("tail", 0); tailN >= 1 {
+		opts.Tail = int(tailN)
+	}
+	if rawRanges, ok := req.GetArguments()["ranges"]; ok && rawRanges != nil {
+		ranges, err := ParseReadLineRanges(rawRanges)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		opts.Ranges = ranges
+	}
+
+	out, err := ReadPathWithOptions(path, opts)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(out.Text), nil
+}
+
+func legacyReadFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	path := req.GetString("path", "")
+	if path == "" {
+		return mcp.NewToolResultError("path is required"), nil
+	}
+
 	limitBytes := helper.DefaultMaxReadBytes
 	if mb := req.GetFloat("max_bytes", 0); mb > 0 {
 		limitBytes = int(mb)
@@ -425,6 +466,7 @@ func appendFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	if _, exists := req.GetArguments()["content"]; !exists {
 		return mcp.NewToolResultError("content is required"), nil
 	}
+	ensureLeadingNewline := req.GetBool("ensure_leading_newline", false)
 
 	if err := helper.MkdirAllClear(filepath.Dir(path), 0o755); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot create parent directories: %v", err)), nil
@@ -434,17 +476,37 @@ func appendFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	unlock := helper.LockFile(absPath)
 	defer unlock()
 
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot open file: %v", err)), nil
 	}
 	defer f.Close()
 
-	if _, err := f.WriteString(content); err != nil {
+	writeContent := content
+	insertedSeparator := false
+	if ensureLeadingNewline && content != "" {
+		if info, statErr := f.Stat(); statErr == nil && info.Size() > 0 {
+			if _, seekErr := f.Seek(-1, io.SeekEnd); seekErr == nil {
+				lastByte := make([]byte, 1)
+				if _, readErr := f.Read(lastByte); readErr == nil && lastByte[0] != '\n' && !strings.HasPrefix(content, "\n") {
+					writeContent = "\n" + content
+					insertedSeparator = true
+				}
+				if _, seekErr := f.Seek(0, io.SeekEnd); seekErr != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("seek error: %v", seekErr)), nil
+				}
+			}
+		}
+	}
+
+	if _, err := f.WriteString(writeContent); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("write error: %v", err)), nil
 	}
 
-	msg := fmt.Sprintf("Appended %s (%s) to %s", helper.HumanizeBytes(int64(len(content))), helper.Pluralize(helper.CountContentLines(content), "line"), path)
+	msg := fmt.Sprintf("Appended %s (%s) to %s", helper.HumanizeBytes(int64(len(writeContent))), helper.Pluralize(helper.CountContentLines(writeContent), "line"), path)
+	if insertedSeparator {
+		msg += " (inserted separating newline)"
+	}
 	if newInfo, statErr := os.Stat(path); statErr == nil {
 		msg += fmt.Sprintf(" (new size: %s)", helper.HumanizeBytes(newInfo.Size()))
 	}
@@ -748,6 +810,12 @@ func getFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 		return mcp.NewToolResultError("path is required"), nil
 	}
 	outputMode := req.GetString("output_mode", "compact")
+	countLines := true
+	forceCountLines := false
+	if _, ok := req.GetArguments()["count_lines"]; ok {
+		countLines = req.GetBool("count_lines", true)
+		forceCountLines = countLines
+	}
 
 	linfo, err := os.Lstat(path)
 	if err != nil {
@@ -763,14 +831,14 @@ func getFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	}
 
 	lineInfo := ""
-	if !linfo.IsDir() {
-		if f, _, _, binary, sniffErr := helper.SniffAndOpen(path); sniffErr == nil {
-			if !binary {
-				if n, countErr := helper.CountLines(f); countErr == nil {
-					lineInfo = helper.Pluralize(n, "line")
-				}
+	lineNote := ""
+	if countLines && !linfo.IsDir() {
+		if n, counted, skippedForSize, countErr := helper.CountTextFileLines(path, forceCountLines); countErr == nil {
+			if counted {
+				lineInfo = helper.Pluralize(n, "line")
+			} else if skippedForSize {
+				lineNote = fmt.Sprintf("skipped for files over %s; set count_lines=true to force", helper.HumanizeBytes(helper.AutoLineCountMaxBytes))
 			}
-			f.Close()
 		}
 	}
 
@@ -812,6 +880,8 @@ func getFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 
 	if lineInfo != "" {
 		result += fmt.Sprintf("\nLines:       %s", lineInfo)
+	} else if lineNote != "" {
+		result += fmt.Sprintf("\nLines:       %s", lineNote)
 	}
 
 	return mcp.NewToolResultText(result), nil
@@ -937,6 +1007,21 @@ func createSymlinkHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 	link := req.GetString("link", "")
 	if link == "" {
 		return mcp.NewToolResultError("link is required"), nil
+	}
+	if info, err := os.Lstat(link); err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return mcp.NewToolResultError(fmt.Sprintf("link path %q already exists and is not a symlink", link)), nil
+		}
+		target, readErr := os.Readlink(link)
+		if readErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to inspect existing symlink: %v", readErr)), nil
+		}
+		if sameCleanPath(target, source) {
+			return mcp.NewToolResultText(fmt.Sprintf("Symlink already exists: %s → %s", link, source)), nil
+		}
+		return mcp.NewToolResultError(fmt.Sprintf("symlink %q already exists and points to %q", link, target)), nil
+	} else if !os.IsNotExist(err) {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to inspect link path: %v", err)), nil
 	}
 	if err := os.Symlink(source, link); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create symlink: %v", err)), nil

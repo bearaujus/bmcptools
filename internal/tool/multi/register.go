@@ -12,10 +12,35 @@ import (
 func Register(s toolreg.ToolRegistrar) {
 	s.AddTool(mcp.NewTool(toolname.ReadMultipleFiles,
 		mcp.WithDescription(asset.ToolDesc(toolname.ReadMultipleFiles)),
+		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithArray("paths",
 			mcp.Required(),
 			mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "paths")),
-			mcp.Items(map[string]any{"type": "string"}),
+			mcp.Items(map[string]any{
+				"anyOf": []any{
+					map[string]any{"type": "string"},
+					map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"path":              map[string]any{"type": "string", "description": "File path to read"},
+							"start_line":        map[string]any{"type": "number", "description": "First line to read, 1-indexed"},
+							"end_line":          map[string]any{"type": "number", "description": "Last line to read, inclusive"},
+							"head":              map[string]any{"type": "number", "description": "Return only the first N lines"},
+							"tail":              map[string]any{"type": "number", "description": "Return only the last N lines"},
+							"show_line_numbers": map[string]any{"type": "boolean", "description": "Prefix output lines with source line numbers"},
+							"max_bytes":         map[string]any{"type": "number", "description": "Maximum bytes to return for this file"},
+							"ranges": map[string]any{
+								"type": "array",
+								"items": map[string]any{
+									"type":  "array",
+									"items": map[string]any{"type": "number"},
+								},
+							},
+						},
+						"required": []string{"path"},
+					},
+				},
+			}),
 		),
 		mcp.WithNumber("max_bytes_per_file",
 			mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "max_bytes_per_file")),
@@ -23,10 +48,24 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("include_base64",
 			mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "include_base64")),
 		),
+		mcp.WithNumber("start_line", mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "start_line"))),
+		mcp.WithNumber("end_line", mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "end_line"))),
+		mcp.WithNumber("head", mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "head"))),
+		mcp.WithNumber("tail", mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "tail"))),
+		mcp.WithBoolean("show_line_numbers", mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "show_line_numbers"))),
+		mcp.WithArray("ranges",
+			mcp.Description(asset.ParamDesc(toolname.ReadMultipleFiles, "ranges")),
+			mcp.Items(map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "number"},
+			}),
+		),
 	), readMultipleFilesHandler)
 
 	s.AddTool(mcp.NewTool(toolname.WriteMultipleFiles,
 		mcp.WithDescription(asset.ToolDesc(toolname.WriteMultipleFiles)),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithArray("files",
 			mcp.Required(),
 			mcp.Description(asset.ParamDesc(toolname.WriteMultipleFiles, "files")),
@@ -45,10 +84,14 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("show_diff",
 			mcp.Description(asset.ParamDesc(toolname.WriteMultipleFiles, "show_diff")),
 		),
+		mcp.WithBoolean("all_or_nothing",
+			mcp.Description(asset.ParamDesc(toolname.WriteMultipleFiles, "all_or_nothing")),
+		),
 	), writeMultipleFilesHandler)
 
 	s.AddTool(mcp.NewTool(toolname.FindReplaceInFiles,
 		mcp.WithDescription(asset.ToolDesc(toolname.FindReplaceInFiles)),
+		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString("path",
 			mcp.Required(),
 			mcp.Description(asset.ParamDesc(toolname.FindReplaceInFiles, "path")),
@@ -93,6 +136,7 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.PathExistsBatch,
 		mcp.WithDescription(asset.ToolDesc(toolname.PathExistsBatch)),
+		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithArray("paths",
 			mcp.Required(),
 			mcp.Description(asset.ParamDesc(toolname.PathExistsBatch, "paths")),
@@ -105,6 +149,7 @@ func Register(s toolreg.ToolRegistrar) {
 
 	s.AddTool(mcp.NewTool(toolname.GetMultipleFileInfo,
 		mcp.WithDescription(asset.ToolDesc(toolname.GetMultipleFileInfo)),
+		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithArray("paths",
 			mcp.Required(),
 			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "paths")),

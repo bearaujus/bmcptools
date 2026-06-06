@@ -18,7 +18,7 @@ const (
 	defaultFindReplaceMaxFileSize    = 10 * 1024 * 1024
 )
 
-func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func legacyReadMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	rawPaths := req.GetStringSlice("paths", nil)
 	if len(rawPaths) == 0 {
 		return mcp.NewToolResultError("paths must be a non-empty array of file paths"), nil
@@ -84,7 +84,7 @@ func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 	return mcp.NewToolResultText(sb.String()), nil
 }
 
-func writeMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func legacyWriteMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	rawFiles, _ := req.GetArguments()["files"].([]any)
 	if len(rawFiles) == 0 {
 		return mcp.NewToolResultError("files must be a non-empty array of {path, content} objects"), nil
@@ -179,7 +179,7 @@ func writeMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	return mcp.NewToolResultText(sb.String()), nil
 }
 
-func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func legacyFindReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	root := req.GetString("path", "")
 	if root == "" {
 		return mcp.NewToolResultError("path is required"), nil
@@ -371,7 +371,7 @@ func pathExistsBatchHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Ca
 	return mcp.NewToolResultText(sb.String()), nil
 }
 
-func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func legacyGetMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	paths := req.GetStringSlice("paths", nil)
 	if len(paths) == 0 {
 		return mcp.NewToolResultError("paths is required (array of file/directory paths)"), nil

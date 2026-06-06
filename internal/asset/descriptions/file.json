@@ -1,14 +1,14 @@
 {
   "read_file": {
-    "desc": "Read one file as text, with optional line ranges or byte caps. Text is returned as UTF-8 with invalid bytes replaced; binary files return a compact summary unless include_base64=true. For large files, prefer head/tail, ranges, or start_line/end_line over reading the whole file.",
+    "desc": "Read one file as text, with optional line ranges or byte caps. Text is returned as UTF-8 with invalid bytes replaced; binary files return a compact summary unless include_base64=true. For large files, prefer head/tail, ranges, or start_line/end_line over reading the whole file; the 256 KB default can consume tens of thousands of tokens.",
     "params": {
       "path": "Path to the file.",
       "start_line": "First line to read, 1-indexed. Used when ranges/head/tail are not set.",
       "end_line": "Last line to read, inclusive. If omitted with start_line, reads through the end of the file.",
-      "max_bytes": "Maximum bytes to return for this read. Default: 262144 (256 KB). Non-positive values keep the default.",
+      "max_bytes": "Maximum bytes to return for this read. Default: 262144 (256 KB). Non-positive values keep the default. Keep in mind that 256 KB of text can consume tens of thousands of tokens.",
       "include_base64": "For binary files, include capped base64 bytes in addition to metadata. Default: false.",
       "head": "Return only the first N lines. Takes precedence over start_line/end_line.",
-      "tail": "Return only the last N lines. Used after head if both are provided.",
+      "tail": "Return only the last N lines. When combined with head, returns the last N lines of the head window.",
       "show_line_numbers": "Prefix text output lines with line numbers. Default: false.",
       "ranges": "Array of [start_line, end_line] pairs for several non-contiguous snippets. Takes precedence over head/tail/start_line/end_line."
     }
@@ -27,7 +27,8 @@
     "desc": "Append text to a file, creating the file and parent directories if needed. Use only for additive writes; use edit_file or write_file when existing content must change.",
     "params": {
       "path": "Path to append to.",
-      "content": "Content to append. Provide an explicit empty string if intentionally appending nothing."
+      "content": "Content to append. Provide an explicit empty string if intentionally appending nothing.",
+      "ensure_leading_newline": "Insert a separating newline before the appended content when the existing file is non-empty and does not already end with a newline. Default: false."
     }
   },
   "edit_file": {
@@ -67,10 +68,11 @@
     }
   },
   "get_file_info": {
-    "desc": "Return metadata for one file, directory, or symlink: type, size, mode, modified time, symlink target, and line count for text files. Use before targeted reads in large files or when deciding whether a path is safe to modify.",
+    "desc": "Return metadata for one file, directory, or symlink: type, size, mode, modified time, symlink target, and optional line count for text files. Use before targeted reads in large files or when deciding whether a path is safe to modify. Automatic line counting is skipped for files over 1 MB unless count_lines=true is passed explicitly.",
     "params": {
       "path": "Path to inspect.",
-      "output_mode": "\"compact\" (default) returns one line; \"details\" returns expanded labeled fields including absolute path."
+      "output_mode": "\"compact\" (default) returns one line; \"details\" returns expanded labeled fields including absolute path.",
+      "count_lines": "Count lines for text files. Default: true for small files; files over 1 MB skip automatic counting unless this is explicitly set to true."
     }
   },
   "path_exists": {
