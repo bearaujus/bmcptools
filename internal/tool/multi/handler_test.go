@@ -429,7 +429,7 @@ func TestReadMultipleFilesLineCountCorrect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := newTestRequest(map[string]any{"paths": []any{fa}})
+	req := newTestRequest(map[string]any{"paths": []any{fa}, "count_lines": true})
 	result, err := readMultipleFilesHandler(nil, req)
 	if err != nil {
 		t.Fatal(err)
@@ -1173,7 +1173,7 @@ func TestGetMultipleFileInfoHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := newTestRequest(map[string]any{"paths": []any{fa}})
+	req := newTestRequest(map[string]any{"paths": []any{fa}, "count_lines": true})
 	result, err := getMultipleFileInfoHandler(nil, req)
 	if err != nil {
 		t.Fatal(err)
@@ -1363,5 +1363,109 @@ func TestGetMultipleFileInfoHandlerLimit(t *testing.T) {
 	}
 	if !strings.Contains(text, "1/2 shown") || !strings.Contains(text, "Output truncated") {
 		t.Errorf("expected limit summary and truncation notice: %q", text)
+	}
+}
+
+func TestDeleteFilesHandlerMixedResults(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.txt")
+	if err := os.WriteFile(good, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "missing.txt")
+
+	result, err := deleteFilesHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{good, missing},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected mixed batch delete to return an error result")
+	}
+	if _, err := os.Stat(good); !os.IsNotExist(err) {
+		t.Fatalf("good file should be deleted, stat err=%v", err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "good.txt") || !strings.Contains(text, "missing.txt") {
+		t.Fatalf("expected both success and failure paths in output: %q", text)
+	}
+}
+
+func TestCopyPathsHandlerCopiesFilesAndDirectories(t *testing.T) {
+	dir := t.TempDir()
+	srcFile := filepath.Join(dir, "a.txt")
+	srcDir := filepath.Join(dir, "srcdir")
+	dstFile := filepath.Join(dir, "copies", "a.txt")
+	dstDir := filepath.Join(dir, "copies", "srcdir")
+	if err := os.WriteFile(srcFile, []byte("file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "nested.txt"), []byte("nested"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := copyPathsHandler(nil, newTestRequest(map[string]any{
+		"entries": []any{
+			map[string]any{"source": srcFile, "destination": dstFile},
+			map[string]any{"source": srcDir, "destination": dstDir},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if data, err := os.ReadFile(dstFile); err != nil || string(data) != "file" {
+		t.Fatalf("copied file mismatch data=%q err=%v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dstDir, "nested.txt")); err != nil || string(data) != "nested" {
+		t.Fatalf("copied directory mismatch data=%q err=%v", data, err)
+	}
+}
+
+func TestMovePathsHandlerMovesFileAndDirectory(t *testing.T) {
+	dir := t.TempDir()
+	srcFile := filepath.Join(dir, "move.txt")
+	srcDir := filepath.Join(dir, "move-dir")
+	dstFile := filepath.Join(dir, "done", "move.txt")
+	dstDir := filepath.Join(dir, "done", "move-dir")
+	if err := os.WriteFile(srcFile, []byte("file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "nested.txt"), []byte("nested"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := movePathsHandler(nil, newTestRequest(map[string]any{
+		"entries": []any{
+			map[string]any{"source": srcFile, "destination": dstFile},
+			map[string]any{"source": srcDir, "destination": dstDir},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if _, err := os.Stat(srcFile); !os.IsNotExist(err) {
+		t.Fatalf("source file should be moved away, stat err=%v", err)
+	}
+	if _, err := os.Stat(srcDir); !os.IsNotExist(err) {
+		t.Fatalf("source directory should be moved away, stat err=%v", err)
+	}
+	if data, err := os.ReadFile(dstFile); err != nil || string(data) != "file" {
+		t.Fatalf("moved file mismatch data=%q err=%v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dstDir, "nested.txt")); err != nil || string(data) != "nested" {
+		t.Fatalf("moved directory mismatch data=%q err=%v", data, err)
 	}
 }

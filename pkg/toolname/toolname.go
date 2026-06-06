@@ -27,6 +27,9 @@ const (
 	FindReplaceInFiles  = "find_replace_in_files"
 	PathExistsBatch     = "path_exists_batch"
 	GetMultipleFileInfo = "get_multiple_file_info"
+	DeleteFiles         = "delete_files"
+	CopyPaths           = "copy_paths"
+	MovePaths           = "move_paths"
 )
 
 // Directory tools.

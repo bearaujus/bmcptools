@@ -14,12 +14,12 @@
     }
   },
   "write_file": {
-    "desc": "Create or fully overwrite a file atomically, creating parent directories by default and preserving existing file permissions when overwriting. Existing readable files include a diff by default; new files do not. Prefer edit_file for targeted changes.",
+    "desc": "Create or fully overwrite a file atomically, creating parent directories by default and preserving existing file permissions when overwriting. Prefer edit_file for targeted changes. Full diffs are returned only when show_diff=true is explicitly requested.",
     "params": {
       "path": "Path to create or overwrite.",
       "content": "Complete file content to write. Provide an explicit empty string to create an empty file.",
       "create_dirs": "Create missing parent directories before writing. Default: true.",
-      "show_diff": "Include a unified diff. Default: true for existing readable files, false for new files. If true and the old file cannot be read, the tool errors.",
+      "show_diff": "Include a unified diff. Default: false. If true and the old file cannot be read, the tool errors.",
       "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB); set 0 for unlimited. Negative values use the default."
     }
   },
@@ -32,7 +32,7 @@
     }
   },
   "edit_file": {
-    "desc": "Surgically replace text in one existing file and return a focused diff. Supports exact text or Go regex, single-edit mode or edits[] batch mode, dry runs, CRLF preservation, and a near-miss hint when a single exact pattern is not found.",
+    "desc": "Surgically replace text in one existing text file and return a focused diff. Supports exact text or Go regex, single-edit mode or edits[] batch mode, dry runs, CRLF preservation, and a near-miss hint when a single exact pattern is not found. Binary files are rejected and large files are guarded by max_file_size.",
     "params": {
       "path": "Path to the existing file to edit.",
       "old_str": "Text or Go regex to replace in single-edit mode. Add enough surrounding context to identify the intended occurrence.",
@@ -42,6 +42,7 @@
       "dry_run": "Preview the replacement and diff without writing the file. Default: false.",
       "context_lines": "Context lines in the returned diff. Default: 3; maximum: 50.",
       "max_diff_bytes": "Maximum diff bytes to return. Default: 262144 (256 KB); set 0 for unlimited. Negative values use the default.",
+      "max_file_size": "Maximum size for the target file before edit_file refuses to load it. Default: 10485760 (10 MB); set 0 for unlimited. Negative values use the default.",
       "edits": "Batch mode: array of {old_str, new_str, use_regex?, replace_all?} edits applied sequentially to the same file. Top-level dry_run/context/max_diff settings still apply."
     }
   },
@@ -52,15 +53,15 @@
     }
   },
   "copy_file": {
-    "desc": "Copy one regular file to a destination path, creating parent directories and preserving source permissions. Directories are rejected. Existing destination files require overwrite=true.",
+    "desc": "Copy one file or one directory tree to a destination path, creating parent directories and preserving source permissions. Directory copies are recursive, reject symlinks inside the tree, and refuse destinations nested inside the source. Existing destination paths require overwrite=true.",
     "params": {
-      "source": "Source file path. Must not be a directory.",
-      "destination": "Destination file path. Must not be an existing directory.",
+      "source": "Source file or directory path.",
+      "destination": "Destination path. Files require a file path; directories require a directory path or a new destination.",
       "overwrite": "Replace destination if it already exists. Default: false."
     }
   },
   "move_file": {
-    "desc": "Move or rename a file or directory. Same-filesystem moves use rename; cross-device fallback is supported for files only, not directories. Existing destinations require overwrite=true.",
+    "desc": "Move or rename a file or directory. Same-filesystem moves use rename; cross-device fallback copies then deletes the source when needed. Existing destinations require overwrite=true.",
     "params": {
       "source": "Source path to move or rename.",
       "destination": "Destination path.",
@@ -68,11 +69,11 @@
     }
   },
   "get_file_info": {
-    "desc": "Return metadata for one file, directory, or symlink: type, size, mode, modified time, symlink target, and optional line count for text files. Use before targeted reads in large files or when deciding whether a path is safe to modify. Automatic line counting is skipped for files over 1 MB unless count_lines=true is passed explicitly.",
+    "desc": "Return metadata for one file, directory, or symlink: type, size, mode, modified time, symlink target, and optional line count for text files. Use before targeted reads in large files or when deciding whether a path is safe to modify.",
     "params": {
       "path": "Path to inspect.",
       "output_mode": "\"compact\" (default) returns one line; \"details\" returns expanded labeled fields including absolute path.",
-      "count_lines": "Count lines for text files. Default: true for small files; files over 1 MB skip automatic counting unless this is explicitly set to true."
+      "count_lines": "Count lines for text files. Default: false; set true only when the line count is actually needed."
     }
   },
   "path_exists": {

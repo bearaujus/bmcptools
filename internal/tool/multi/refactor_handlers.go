@@ -8,15 +8,12 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/bearaujus/bmcptools/internal/helper"
 	filetool "github.com/bearaujus/bmcptools/internal/tool/file"
 )
-
-const maxBatchConcurrency = 8
 
 type multiReadSpec struct {
 	path    string
@@ -54,6 +51,37 @@ type infoResult struct {
 	skippedCounts int
 }
 
+type deleteBatchResult struct {
+	path  string
+	kind  string
+	size  int64
+	err   error
+	valid bool
+}
+
+type transferEntry struct {
+	index       int
+	source      string
+	destination string
+	overwrite   bool
+}
+
+type copyBatchResult struct {
+	source      string
+	destination string
+	stats       filetool.CopyStats
+	err         error
+	valid       bool
+}
+
+type moveBatchResult struct {
+	source      string
+	destination string
+	stats       filetool.MoveStats
+	err         error
+	valid       bool
+}
+
 func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	specs, err := parseReadMultipleSpecs(req)
 	if err != nil {
@@ -61,7 +89,7 @@ func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 	}
 
 	results := make([]multiReadResult, len(specs))
-	runBoundedParallel(len(specs), func(i int) {
+	helper.RunBoundedParallel(len(specs), func(i int) {
 		out, readErr := filetool.ReadPathWithOptions(specs[i].path, specs[i].options)
 		results[i] = multiReadResult{
 			path: specs[i].path,
@@ -144,7 +172,7 @@ func writeMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		return mcp.NewToolResultText(msg), nil
 	}
 
-	runBoundedParallel(len(entries), func(i int) {
+	helper.RunBoundedParallel(len(entries), func(i int) {
 		entry := entries[i]
 		results[entry.index] = writeOneFile(entry.path, entry.content, createDirs, showDiff)
 	})
@@ -205,7 +233,7 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		err       error
 	}
 	results := make([]replaceResult, len(files))
-	runBoundedParallel(len(files), func(i int) {
+	helper.RunBoundedParallel(len(files), func(i int) {
 		filePath := files[i]
 		results[i].path = filePath
 		if maxFileSize > 0 {
@@ -317,16 +345,11 @@ func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mc
 		truncated = true
 	}
 
-	countLines := true
-	forceCountLines := false
-	if _, ok := req.GetArguments()["count_lines"]; ok {
-		countLines = req.GetBool("count_lines", true)
-		forceCountLines = countLines
-	}
+	countLines := req.GetBool("count_lines", false)
 
 	results := make([]infoResult, len(paths))
-	runBoundedParallel(len(paths), func(i int) {
-		results[i] = inspectPathInfo(paths[i], detailsMode, countLines, forceCountLines)
+	helper.RunBoundedParallel(len(paths), func(i int) {
+		results[i] = inspectPathInfo(paths[i], detailsMode, countLines)
 	})
 
 	var sb strings.Builder
@@ -354,6 +377,91 @@ func getMultipleFileInfoHandler(_ context.Context, req mcp.CallToolRequest) (*mc
 		fmt.Fprintf(&sb, " Output truncated after %d paths; increase limit or set limit=0 for all.", limit)
 	}
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func deleteFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	rawPaths, ok := req.GetArguments()["paths"].([]any)
+	if !ok || len(rawPaths) == 0 {
+		return mcp.NewToolResultError("paths must be a non-empty array of file paths"), nil
+	}
+
+	results := make([]deleteBatchResult, len(rawPaths))
+	paths := make([]string, 0, len(rawPaths))
+	indexes := make([]int, 0, len(rawPaths))
+	for i, raw := range rawPaths {
+		path, ok := raw.(string)
+		if !ok || strings.TrimSpace(path) == "" {
+			results[i] = deleteBatchResult{path: fmt.Sprintf("[entry %d]", i+1), err: fmt.Errorf("path is required"), valid: true}
+			continue
+		}
+		paths = append(paths, path)
+		indexes = append(indexes, i)
+	}
+
+	helper.RunBoundedParallel(len(paths), func(i int) {
+		stats, err := filetool.DeleteEntry(paths[i])
+		results[indexes[i]] = deleteBatchResult{
+			path:  paths[i],
+			kind:  stats.Kind,
+			size:  stats.Size,
+			err:   err,
+			valid: true,
+		}
+	})
+
+	msg, hasErrors := formatDeleteBatchResults(results)
+	if hasErrors {
+		return mcp.NewToolResultError(msg), nil
+	}
+	return mcp.NewToolResultText(msg), nil
+}
+
+func copyPathsHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	entries, results, _ := parseTransferEntries(req, "entries")
+	if len(results) == 0 {
+		return mcp.NewToolResultError("entries must be a non-empty array of {source, destination} objects"), nil
+	}
+
+	helper.RunBoundedParallel(len(entries), func(i int) {
+		stats, err := filetool.CopyPath(entries[i].source, entries[i].destination, entries[i].overwrite)
+		results[entries[i].index] = copyBatchResult{
+			source:      entries[i].source,
+			destination: entries[i].destination,
+			stats:       stats,
+			err:         err,
+			valid:       true,
+		}
+	})
+
+	msg, hasErrors := formatCopyBatchResults(results)
+	if hasErrors {
+		return mcp.NewToolResultError(msg), nil
+	}
+	return mcp.NewToolResultText(msg), nil
+}
+
+func movePathsHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	entries, _, results := parseTransferEntries(req, "entries")
+	if len(results) == 0 {
+		return mcp.NewToolResultError("entries must be a non-empty array of {source, destination} objects"), nil
+	}
+
+	helper.RunBoundedParallel(len(entries), func(i int) {
+		stats, err := filetool.MovePath(entries[i].source, entries[i].destination, entries[i].overwrite)
+		results[entries[i].index] = moveBatchResult{
+			source:      entries[i].source,
+			destination: entries[i].destination,
+			stats:       stats,
+			err:         err,
+			valid:       true,
+		}
+	})
+
+	msg, hasErrors := formatMoveBatchResults(results)
+	if hasErrors {
+		return mcp.NewToolResultError(msg), nil
+	}
+	return mcp.NewToolResultText(msg), nil
 }
 
 func parseReadMultipleSpecs(req mcp.CallToolRequest) ([]multiReadSpec, error) {
@@ -434,6 +542,136 @@ func parseReadMultipleSpecs(req mcp.CallToolRequest) ([]multiReadSpec, error) {
 		specs = append(specs, spec)
 	}
 	return specs, nil
+}
+
+func parseTransferEntries(req mcp.CallToolRequest, key string) ([]transferEntry, []copyBatchResult, []moveBatchResult) {
+	rawEntries, ok := req.GetArguments()[key].([]any)
+	if !ok || len(rawEntries) == 0 {
+		return nil, nil, nil
+	}
+
+	overwriteDefault := req.GetBool("overwrite", false)
+	entries := make([]transferEntry, 0, len(rawEntries))
+	copyResults := make([]copyBatchResult, len(rawEntries))
+	moveResults := make([]moveBatchResult, len(rawEntries))
+	for i, raw := range rawEntries {
+		entryLabel := fmt.Sprintf("[entry %d]", i+1)
+		item, ok := raw.(map[string]any)
+		if !ok {
+			err := fmt.Errorf("expected {source, destination} object")
+			copyResults[i] = copyBatchResult{source: entryLabel, err: err, valid: true}
+			moveResults[i] = moveBatchResult{source: entryLabel, err: err, valid: true}
+			continue
+		}
+		source, _ := item["source"].(string)
+		destination, _ := item["destination"].(string)
+		if strings.TrimSpace(source) == "" || strings.TrimSpace(destination) == "" {
+			err := fmt.Errorf("source and destination are required")
+			copyResults[i] = copyBatchResult{source: entryLabel, err: err, valid: true}
+			moveResults[i] = moveBatchResult{source: entryLabel, err: err, valid: true}
+			continue
+		}
+		overwrite := overwriteDefault
+		if rawOverwrite, ok := item["overwrite"].(bool); ok {
+			overwrite = rawOverwrite
+		}
+		entries = append(entries, transferEntry{
+			index:       i,
+			source:      source,
+			destination: destination,
+			overwrite:   overwrite,
+		})
+	}
+	return entries, copyResults, moveResults
+}
+
+func formatDeleteBatchResults(results []deleteBatchResult) (string, bool) {
+	var sb strings.Builder
+	successes := 0
+	failures := 0
+	for _, result := range results {
+		if !result.valid {
+			continue
+		}
+		if result.err != nil {
+			failures++
+			fmt.Fprintf(&sb, "✗ %s: %v\n", result.path, result.err)
+			continue
+		}
+		successes++
+		fmt.Fprintf(&sb, "✓ %s (%s, %s)\n", result.path, result.kind, helper.HumanizeBytes(result.size))
+	}
+	fmt.Fprintf(&sb, "\nDeleted %s of %s.", helper.Pluralize(successes, "entry"), helper.Pluralize(successes+failures, "entry"))
+	return sb.String(), failures > 0
+}
+
+func formatCopyBatchResults(results []copyBatchResult) (string, bool) {
+	var sb strings.Builder
+	successes := 0
+	failures := 0
+	for _, result := range results {
+		if !result.valid {
+			continue
+		}
+		if result.err != nil {
+			failures++
+			fmt.Fprintf(&sb, "✗ %s → %s: %v\n", result.source, result.destination, result.err)
+			continue
+		}
+		successes++
+		fmt.Fprintf(&sb, "✓ %s → %s (%s)\n", result.source, result.destination, summarizeCopyStats(result.stats))
+	}
+	fmt.Fprintf(&sb, "\nCopied %s of %s.", helper.Pluralize(successes, "entry"), helper.Pluralize(successes+failures, "entry"))
+	return sb.String(), failures > 0
+}
+
+func formatMoveBatchResults(results []moveBatchResult) (string, bool) {
+	var sb strings.Builder
+	successes := 0
+	failures := 0
+	for _, result := range results {
+		if !result.valid {
+			continue
+		}
+		if result.err != nil {
+			failures++
+			fmt.Fprintf(&sb, "✗ %s → %s: %v\n", result.source, result.destination, result.err)
+			continue
+		}
+		successes++
+		fmt.Fprintf(&sb, "✓ %s → %s (%s)\n", result.source, result.destination, summarizeMoveStats(result.stats))
+	}
+	fmt.Fprintf(&sb, "\nMoved %s of %s.", helper.Pluralize(successes, "entry"), helper.Pluralize(successes+failures, "entry"))
+	return sb.String(), failures > 0
+}
+
+func summarizeCopyStats(stats filetool.CopyStats) string {
+	if stats.SourceKind == "directory" {
+		return fmt.Sprintf("%s, %s, %s",
+			helper.Pluralize(stats.Files, "file"),
+			helper.Pluralize(stats.Dirs, "directory"),
+			helper.HumanizeBytes(stats.Bytes),
+		)
+	}
+	return helper.HumanizeBytes(stats.Bytes)
+}
+
+func summarizeMoveStats(stats filetool.MoveStats) string {
+	if stats.SourceKind == "directory" {
+		summary := fmt.Sprintf("%s, %s", helper.Pluralize(stats.Files, "file"), helper.Pluralize(stats.Dirs, "directory"))
+		if stats.Bytes > 0 {
+			summary += ", " + helper.HumanizeBytes(stats.Bytes)
+		}
+		if stats.UsedFallback {
+			summary += ", copied+deleted"
+		}
+		return summary
+	}
+	summary := helper.HumanizeBytes(stats.Bytes)
+	if stats.UsedFallback {
+		summary += ", copied+deleted"
+	}
+	return summary
 }
 
 func parseWriteEntries(rawFiles []any, results []writeResult) ([]writeEntry, int) {
@@ -618,7 +856,7 @@ func performTransactionalWrites(entries []writeEntry, createDirs, showDiff bool)
 	return results, nil
 }
 
-func inspectPathInfo(path string, detailsMode, countLines, forceCountLines bool) infoResult {
+func inspectPathInfo(path string, detailsMode, countLines bool) infoResult {
 	linfo, err := os.Lstat(path)
 	if err != nil {
 		if detailsMode {
@@ -641,13 +879,10 @@ func inspectPathInfo(path string, detailsMode, countLines, forceCountLines bool)
 	}
 
 	lineInfo := ""
-	lineNote := ""
 	if countLines && !linfo.IsDir() && linfo.Mode()&os.ModeSymlink == 0 {
-		if n, counted, skippedForSize, countErr := helper.CountTextFileLines(path, forceCountLines); countErr == nil {
+		if n, counted, _, countErr := helper.CountTextFileLinesWithInfo(path, linfo, true); countErr == nil {
 			if counted {
 				lineInfo = helper.Pluralize(n, "line")
-			} else if skippedForSize {
-				lineNote = fmt.Sprintf("skipped for files over %s; set count_lines=true to force", helper.HumanizeBytes(helper.AutoLineCountMaxBytes))
 			}
 		}
 	}
@@ -691,8 +926,6 @@ func inspectPathInfo(path string, detailsMode, countLines, forceCountLines bool)
 		)
 		if lineInfo != "" {
 			text += fmt.Sprintf("\nLines:       %s", lineInfo)
-		} else if lineNote != "" {
-			text += fmt.Sprintf("\nLines:       %s", lineNote)
 		}
 		result.text = text
 		return result
@@ -734,38 +967,6 @@ func numberToInt(v any) (int, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func runBoundedParallel(total int, fn func(i int)) {
-	if total <= 1 {
-		for i := 0; i < total; i++ {
-			fn(i)
-		}
-		return
-	}
-	limit := runtime.GOMAXPROCS(0)
-	if limit < 2 {
-		limit = 2
-	}
-	if limit > maxBatchConcurrency {
-		limit = maxBatchConcurrency
-	}
-	if limit > total {
-		limit = total
-	}
-
-	sem := make(chan struct{}, limit)
-	var wg sync.WaitGroup
-	for i := 0; i < total; i++ {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(idx int) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			fn(idx)
-		}(i)
-	}
-	wg.Wait()
 }
 
 func normalizedPathKey(path string) string {

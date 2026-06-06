@@ -59,6 +59,7 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("dry_run", mcp.Description(asset.ParamDesc(toolname.EditFile, "dry_run"))),
 		mcp.WithNumber("context_lines", mcp.Description(asset.ParamDesc(toolname.EditFile, "context_lines"))),
 		mcp.WithNumber("max_diff_bytes", mcp.Description(asset.ParamDesc(toolname.EditFile, "max_diff_bytes"))),
+		mcp.WithNumber("max_file_size", mcp.Description(asset.ParamDesc(toolname.EditFile, "max_file_size"))),
 		mcp.WithArray("edits",
 			mcp.Description(asset.ParamDesc(toolname.EditFile, "edits")),
 			mcp.Items(map[string]any{

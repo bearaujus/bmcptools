@@ -165,4 +165,56 @@ func Register(s toolreg.ToolRegistrar) {
 			mcp.Description(asset.ParamDesc(toolname.GetMultipleFileInfo, "output_mode")),
 		),
 	), getMultipleFileInfoHandler)
+
+	s.AddTool(mcp.NewTool(toolname.DeleteFiles,
+		mcp.WithDescription(asset.ToolDesc(toolname.DeleteFiles)),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithArray("paths",
+			mcp.Required(),
+			mcp.Description(asset.ParamDesc(toolname.DeleteFiles, "paths")),
+			mcp.Items(map[string]any{"type": "string"}),
+		),
+	), deleteFilesHandler)
+
+	s.AddTool(mcp.NewTool(toolname.CopyPaths,
+		mcp.WithDescription(asset.ToolDesc(toolname.CopyPaths)),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithArray("entries",
+			mcp.Required(),
+			mcp.Description(asset.ParamDesc(toolname.CopyPaths, "entries")),
+			mcp.Items(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"source":      map[string]any{"type": "string", "description": "Source file or directory path"},
+					"destination": map[string]any{"type": "string", "description": "Destination path"},
+					"overwrite":   map[string]any{"type": "boolean", "description": "Override the shared overwrite default for this entry"},
+				},
+				"required": []string{"source", "destination"},
+			}),
+		),
+		mcp.WithBoolean("overwrite",
+			mcp.Description(asset.ParamDesc(toolname.CopyPaths, "overwrite")),
+		),
+	), copyPathsHandler)
+
+	s.AddTool(mcp.NewTool(toolname.MovePaths,
+		mcp.WithDescription(asset.ToolDesc(toolname.MovePaths)),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithArray("entries",
+			mcp.Required(),
+			mcp.Description(asset.ParamDesc(toolname.MovePaths, "entries")),
+			mcp.Items(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"source":      map[string]any{"type": "string", "description": "Source file or directory path"},
+					"destination": map[string]any{"type": "string", "description": "Destination path"},
+					"overwrite":   map[string]any{"type": "boolean", "description": "Override the shared overwrite default for this entry"},
+				},
+				"required": []string{"source", "destination"},
+			}),
+		),
+		mcp.WithBoolean("overwrite",
+			mcp.Description(asset.ParamDesc(toolname.MovePaths, "overwrite")),
+		),
+	), movePathsHandler)
 }

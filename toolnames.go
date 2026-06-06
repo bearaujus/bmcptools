@@ -31,6 +31,9 @@ const (
 	ToolFindReplaceInFiles  = toolname.FindReplaceInFiles
 	ToolPathExistsBatch     = toolname.PathExistsBatch
 	ToolGetMultipleFileInfo = toolname.GetMultipleFileInfo
+	ToolDeleteFiles         = toolname.DeleteFiles
+	ToolCopyPaths           = toolname.CopyPaths
+	ToolMovePaths           = toolname.MovePaths
 )
 
 // Directory tools.

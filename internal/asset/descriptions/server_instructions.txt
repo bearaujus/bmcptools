@@ -50,7 +50,7 @@ read_file:
 - Use ranges for several non-contiguous snippets from the same file.
 - Binary files return summaries by default; request base64 only when bytes are required.
 
-write_file creates or fully overwrites a file. Prefer edit_file for changing an existing file because it is surgical and returns a focused diff.
+write_file creates or fully overwrites a file. Prefer edit_file for changing an existing file because it is surgical. Request show_diff=true only when you actually need a unified diff in the result.
 
 append_to_file is only for additive writes. Do not use it when existing content needs to change.
 
@@ -60,11 +60,11 @@ edit_file is the default editing tool for existing files:
 - Use dry_run for risky replacements or unclear matches.
 - Use replace_all only when every occurrence is intentionally in scope.
 
-delete_file deletes a single file irreversibly. For directories, use the directory deletion tool when that group is available.
+delete_file deletes a single file or symlink irreversibly. For directories, use the directory deletion tool when that group is available.
 
-copy_file and move_file operate on files; move_file can also rename or move directories. Be careful with overwrite=true because destination content is replaced.
+copy_file copies either one file or one directory tree. move_file moves or renames either one file or one directory tree. Be careful with overwrite=true because destination content is replaced.
 
-get_file_info returns metadata and line counts. Use it before targeted reads in large files or when you need size/type/permission facts.
+get_file_info returns metadata, and can include line counts when count_lines=true. Use it before targeted reads in large files or when you need size/type/permission facts.
 
 path_exists is the cheapest existence/type check for a single path.
 
@@ -93,7 +93,13 @@ find_replace_in_files performs project-wide or directory-wide replacement:
 
 path_exists_batch checks many paths at once. Prefer it over repeated single-path checks.
 
-get_multiple_file_info returns metadata for many paths. Use count_lines=false when line counts are unnecessary.
+get_multiple_file_info returns metadata for many paths. Line counts are opt-in with count_lines=true.
+
+delete_files deletes multiple file or symlink paths in one call.
+
+copy_paths copies multiple files or directory trees in one call.
+
+move_paths moves multiple files or directory trees in one call.
 
 [[group:dir]]
 --- Directory operations ------------------------------------------------------

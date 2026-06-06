@@ -410,7 +410,7 @@ func TestGetFileInfoHandler(t *testing.T) {
 	if err := os.WriteFile(f, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := getFileInfoHandler(nil, newTestRequest(map[string]any{"path": f}))
+	result, err := getFileInfoHandler(nil, newTestRequest(map[string]any{"path": f, "count_lines": true}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +454,7 @@ func TestGetFileInfoHandlerLineCount(t *testing.T) {
 	if err := os.WriteFile(f, []byte("line1\nline2\nline3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := getFileInfoHandler(nil, newTestRequest(map[string]any{"path": f}))
+	result, err := getFileInfoHandler(nil, newTestRequest(map[string]any{"path": f, "count_lines": true}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -759,7 +759,7 @@ func TestReadFileHandlerShowLineNumbers(t *testing.T) {
 	}
 }
 
-// ── read_file range headers include total line count ─────────────────────────
+// ── read_file range headers avoid extra full-file rescans ───────────────────
 
 func TestReadFileHandlerHeadShowsTotalLines(t *testing.T) {
 	dir := t.TempDir()
@@ -773,8 +773,8 @@ func TestReadFileHandlerHeadShowsTotalLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "5") {
-		t.Errorf("expected total line count (5) in head= header: %q", text)
+	if strings.Contains(text, "of 5 lines") {
+		t.Errorf("head reads should not rescan just to report total lines: %q", text)
 	}
 	if !strings.Contains(text, "L1") || !strings.Contains(text, "L2") {
 		t.Errorf("expected L1 and L2 in head=2 result: %q", text)
@@ -813,8 +813,8 @@ func TestReadFileHandlerRangeShowsTotalLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "5") {
-		t.Errorf("expected total line count (5) in range header: %q", text)
+	if strings.Contains(text, "of 5 lines") {
+		t.Errorf("range reads should not rescan just to report total lines: %q", text)
 	}
 	if !strings.Contains(text, "L2") || !strings.Contains(text, "L3") {
 		t.Errorf("expected L2 and L3 in range result: %q", text)
@@ -1531,8 +1531,9 @@ func TestWriteFileOverwriteShowsDiff(t *testing.T) {
 	}
 
 	req := newTestRequest(map[string]any{
-		"path":    f,
-		"content": "new content\n",
+		"path":      f,
+		"content":   "new content\n",
+		"show_diff": true,
 	})
 	result, err := writeFileHandler(nil, req)
 	if err != nil {
@@ -1557,6 +1558,7 @@ func TestWriteFileOverwriteDiffIsCapped(t *testing.T) {
 	result, err := writeFileHandler(nil, newTestRequest(map[string]any{
 		"path":           f,
 		"content":        strings.Repeat("b", 200) + "\n",
+		"show_diff":      true,
 		"max_diff_bytes": float64(40),
 	}))
 	if err != nil {
@@ -2656,5 +2658,132 @@ func TestReadFileRangesInvalidPair(t *testing.T) {
 	}))
 	if !isResultError(r) {
 		t.Errorf("expected error for invalid range pair")
+	}
+}
+
+func TestWriteFileOverwriteOmitsDiffByDefault(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "plain-overwrite.txt")
+	if err := os.WriteFile(f, []byte("old value\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := writeFileHandler(nil, newTestRequest(map[string]any{
+		"path":    f,
+		"content": "new value\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if strings.Contains(text, "old value") || strings.Contains(text, "@@") {
+		t.Fatalf("write_file should omit diffs by default: %q", text)
+	}
+}
+
+func TestEditFileHandlerRejectsBinary(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "data.bin")
+	if err := os.WriteFile(f, []byte{0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := editFileHandler(nil, newTestRequest(map[string]any{
+		"path":    f,
+		"old_str": "a",
+		"new_str": "b",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) || !strings.Contains(strings.ToLower(resultText(result)), "binary") {
+		t.Fatalf("expected binary-file rejection, got: %q", resultText(result))
+	}
+}
+
+func TestEditFileHandlerRejectsOversizedFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "large.txt")
+	if err := os.WriteFile(f, []byte(strings.Repeat("x", 64)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := editFileHandler(nil, newTestRequest(map[string]any{
+		"path":          f,
+		"old_str":       "x",
+		"new_str":       "y",
+		"max_file_size": float64(8),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) || !strings.Contains(resultText(result), "max_file_size") {
+		t.Fatalf("expected max_file_size rejection, got: %q", resultText(result))
+	}
+}
+
+func TestCopyFileHandlerDirectory(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "srcdir")
+	dst := filepath.Join(dir, "dstdir")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "nested.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := copyFileHandler(nil, newTestRequest(map[string]any{
+		"source":      src,
+		"destination": dst,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	data, err := os.ReadFile(filepath.Join(dst, "nested.txt"))
+	if err != nil {
+		t.Fatalf("copied directory missing file: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("copied directory content = %q", data)
+	}
+}
+
+func TestMoveFileHandlerDirectory(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "srcdir")
+	dst := filepath.Join(dir, "moveddir")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "nested.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := moveFileHandler(nil, newTestRequest(map[string]any{
+		"source":      src,
+		"destination": dst,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Fatalf("source directory should be gone after move, stat err=%v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dst, "nested.txt"))
+	if err != nil {
+		t.Fatalf("moved directory missing file: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("moved directory content = %q", data)
 	}
 }

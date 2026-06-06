@@ -1,6 +1,6 @@
 # bmcptools
 
-> An MCP server that exposes **41 developer tools** to any MCP-compatible LLM client — file I/O, shell execution, search, system info, and interactive user dialogs.
+> An MCP server that exposes **44 developer tools** to any MCP-compatible LLM client — file I/O, shell execution, search, system info, and interactive user dialogs.
 
 [![Go](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/bearaujus/bmcptools)](https://github.com/bearaujus/bmcptools/releases)
@@ -10,7 +10,7 @@ Communication happens over **stdio** using the [`mark3labs/mcp-go`](https://gith
 
 ### Why bmcptools?
 
-- **41 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, and user interaction
+- **44 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, and user interaction
   Disable any tool group you don't need with `--disable=user,system,...` (see [Disabling tool groups](#disabling-tool-groups)).
 - **Built-in server instructions** — the AI receives a categorized guide on when and how to use each tool
 - **Interactive dialogs** — `ask_user` opens a browser dialog with choices, markdown, pasted/dropped images, live updates, and typing indicators
@@ -81,13 +81,13 @@ For Claude Desktop / Cursor configs:
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read a file with encoding auto-detection. Defaults to a 256 KB context cap. Supports `start_line`/`end_line`, multi-range (`ranges` param), `head`/`tail`, `show_line_numbers`, and byte limits. Binary files return summaries unless `include_base64=true`. |
-| `write_file` | Create or overwrite a file. Auto-creates parent dirs. Returns a capped unified diff when overwriting (configurable via `show_diff`). |
+| `write_file` | Create or overwrite a file. Auto-creates parent dirs. Returns a capped unified diff only when `show_diff=true`. |
 | `append_to_file` | Append content to a file (creates if absent). Returns new file size. |
 | `edit_file` | Surgical find-and-replace. Batch mode, Go regex with backreferences, CRLF-transparent, capped diff, near-miss probe, dry-run. **Preferred for editing.** |
 | `delete_file` | Delete a single file. |
-| `copy_file` | Copy a file. Auto-creates destination parent dirs. |
-| `move_file` | Move or rename a file/directory. Cross-device safe. |
-| `get_file_info` | Compact metadata: type, size, permissions, mod time, symlink target, line count. `output_mode=details` for expanded fields. |
+| `copy_file` | Copy a file or directory tree. Auto-creates destination parent dirs. |
+| `move_file` | Move or rename a file/directory. Cross-device fallback copies then deletes the source when needed. |
+| `get_file_info` | Compact metadata: type, size, permissions, mod time, symlink target, optional line count. `output_mode=details` for expanded fields. |
 | `path_exists` | Lightweight existence check — faster than `read_file` or `get_file_info`. |
 | `diff_files` | Unified diff between two files. Guards large inputs and caps diff output by default. Cross-platform. |
 | `calculate_checksum` | MD5, SHA1, or SHA256 checksum. Batch-capable. Cross-platform. |
@@ -95,7 +95,7 @@ For Claude Desktop / Cursor configs:
 | `compress_files` | Compress files/directories into a zip or tar.gz archive. Auto-detects format from extension. |
 | `extract_archive` | Extract a zip or tar.gz archive. Auto-detects format. Path-traversal protected. |
 
-### Multi-file tools (5)
+### Multi-file tools (8)
 
 | Tool | Description |
 |------|-------------|
@@ -103,7 +103,10 @@ For Claude Desktop / Cursor configs:
 | `write_multiple_files` | Write 2+ files in one call. `show_diff` defaults to false for performance. |
 | `find_replace_in_files` | Find-and-replace across a directory tree. Regex, glob/exclude filters, dry-run, per-file diffs, compact unmodified-file summary, and default oversized-file guard. |
 | `path_exists_batch` | Check whether multiple paths exist in one call. Returns type and size with a summary and limit control. |
-| `get_multiple_file_info` | Return compact metadata for multiple paths with limit control. `output_mode=details` for expanded fields. |
+| `get_multiple_file_info` | Return compact metadata for multiple paths with limit control. `count_lines=true` opts into line counts. `output_mode=details` for expanded fields. |
+| `delete_files` | Delete multiple files or symlinks in one call. |
+| `copy_paths` | Copy multiple files or directory trees in one call. |
+| `move_paths` | Move multiple files or directory trees in one call. |
 
 ### Directory tools (4)
 

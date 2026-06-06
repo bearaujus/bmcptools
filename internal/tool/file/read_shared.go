@@ -3,11 +3,9 @@ package file
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/bearaujus/bmcptools/internal/helper"
 )
@@ -44,7 +42,6 @@ type lineRenderState struct {
 	firstLine     int
 	lastLine      int
 	returnedLines int
-	returnedChars int
 	truncated     bool
 }
 
@@ -120,11 +117,9 @@ func ReadPathWithOptions(path string, opts ReadOptions) (ReadOutput, error) {
 			return out, nil
 		}
 		lineCount := helper.CountContentLines(text)
-		charCount := utf8.RuneCountInString(text)
-		out.Text = fmt.Sprintf("[%s — %s, %s]\n%s",
+		out.Text = fmt.Sprintf("[%s — %s]\n%s",
 			info.Name(),
 			helper.Pluralize(lineCount, "line"),
-			helper.Pluralize(charCount, "char"),
 			text,
 		)
 		return out, nil
@@ -141,7 +136,6 @@ func (r *lineRenderState) appendLine(lineNum int, text string) bool {
 	}
 	r.lastLine = lineNum
 	r.returnedLines++
-	r.returnedChars += utf8.RuneCountInString(text)
 	if r.showLineNums {
 		fmt.Fprintf(&r.builder, "%6d|%s\n", lineNum, text)
 	} else {
@@ -178,17 +172,7 @@ func readSharedFullWithLineNumbers(f *os.File, info os.FileInfo, limit int) (str
 		return fmt.Sprintf("[%s — 0 lines]", info.Name()), nil
 	}
 
-	if state.truncated && info.Size() <= helper.AutoLineCountMaxBytes {
-		for scanner.Scan() {
-			totalLines++
-		}
-		if err := scanner.Err(); err != nil {
-			return "", fmt.Errorf("read error: %w", err)
-		}
-		totalKnown = true
-	}
-
-	header := formatFullLineHeader(info.Name(), state.returnedLines, totalLines, totalKnown, state.returnedChars)
+	header := formatFullLineHeader(info.Name(), state.returnedLines, totalLines, totalKnown)
 	if state.truncated {
 		state.builder.WriteString(formatTruncationNotice(
 			limit,
@@ -238,9 +222,11 @@ func readSharedLineWindow(f *os.File, info os.FileInfo, startLine, endLine, limi
 		return fmt.Sprintf("[%s] No lines found between line %d and %s", info.Name(), startLine, end), nil
 	}
 
-	totalLines, totalKnown, err := resolveTotalLines(f, info, reachedEOF && !state.truncated, lineNum)
-	if err != nil {
-		return "", err
+	totalLines := 0
+	totalKnown := false
+	if reachedEOF && !state.truncated {
+		totalLines = lineNum
+		totalKnown = true
 	}
 	header := formatSelectedLineHeader(info.Name(), state, totalLines, totalKnown, "")
 	if state.truncated {
@@ -290,11 +276,13 @@ func readSharedHeadThenTail(f *os.File, info os.FileInfo, headN, tailN, limit in
 		return fmt.Sprintf("[%s] No lines found in head=%d window", info.Name(), headN), nil
 	}
 
-	totalLines, totalKnown, err := resolveTotalLines(f, info, reachedEOF, lineNum)
-	if err != nil {
-		return "", err
-	}
 	state := renderSelectedLines(selected, limit, showLineNums)
+	totalLines := 0
+	totalKnown := false
+	if reachedEOF && !state.truncated {
+		totalLines = lineNum
+		totalKnown = true
+	}
 	header := formatSelectedLineHeader(
 		info.Name(),
 		state,
@@ -357,7 +345,6 @@ func readSharedMultiRange(f *os.File, info os.FileInfo, ranges []ReadLineRange, 
 	rangeIdx := 0
 	firstInRange := true
 	truncated := false
-	returnedChars := 0
 
 	for scanner.Scan() {
 		lineNum++
@@ -396,7 +383,6 @@ func readSharedMultiRange(f *os.File, info os.FileInfo, ranges []ReadLineRange, 
 			sb.WriteString(scanner.Text())
 			sb.WriteByte('\n')
 		}
-		returnedChars += utf8.RuneCountInString(scanner.Text())
 		if sb.Len() >= limit {
 			truncated = true
 			break
@@ -409,7 +395,7 @@ func readSharedMultiRange(f *os.File, info os.FileInfo, ranges []ReadLineRange, 
 		return fmt.Sprintf("[%s] No lines found in specified ranges", info.Name()), nil
 	}
 
-	header := fmt.Sprintf("[%s — %s]\n", info.Name(), helper.Pluralize(returnedChars, "char"))
+	header := fmt.Sprintf("[%s]\n", info.Name())
 	if truncated {
 		sb.WriteString(fmt.Sprintf(
 			"\n[TRUNCATED — range output reached max_bytes=%s. Use fewer/smaller ranges or raise max_bytes.]",
@@ -434,55 +420,34 @@ func renderSelectedLines(lines []selectedLine, limit int, showLineNums bool) lin
 	return state
 }
 
-func resolveTotalLines(f *os.File, info os.FileInfo, totalKnown bool, knownTotal int) (int, bool, error) {
-	if totalKnown {
-		return knownTotal, true, nil
-	}
-	if info.Size() > helper.AutoLineCountMaxBytes {
-		return 0, false, nil
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return 0, false, fmt.Errorf("seek error: %w", err)
-	}
-	total, err := helper.CountLines(f)
-	if err != nil {
-		return 0, false, fmt.Errorf("read error: %w", err)
-	}
-	return total, true, nil
-}
-
 func formatSelectedLineHeader(name string, state lineRenderState, totalLines int, totalKnown bool, qualifier string) string {
 	if totalKnown {
-		return fmt.Sprintf("[%s — %slines %d..%d of %s, %s]\n",
+		return fmt.Sprintf("[%s — %slines %d..%d of %s]\n",
 			name,
 			qualifier,
 			state.firstLine,
 			state.lastLine,
 			helper.Pluralize(totalLines, "line"),
-			helper.Pluralize(state.returnedChars, "char"),
 		)
 	}
-	return fmt.Sprintf("[%s — %slines %d..%d, %s]\n",
+	return fmt.Sprintf("[%s — %slines %d..%d]\n",
 		name,
 		qualifier,
 		state.firstLine,
 		state.lastLine,
-		helper.Pluralize(state.returnedChars, "char"),
 	)
 }
 
-func formatFullLineHeader(name string, shownLines, totalLines int, totalKnown bool, chars int) string {
+func formatFullLineHeader(name string, shownLines, totalLines int, totalKnown bool) string {
 	if totalKnown {
-		return fmt.Sprintf("[%s — %s, %s]\n",
+		return fmt.Sprintf("[%s — %s]\n",
 			name,
 			helper.Pluralize(totalLines, "line"),
-			helper.Pluralize(chars, "char"),
 		)
 	}
-	return fmt.Sprintf("[%s — first %s shown, %s]\n",
+	return fmt.Sprintf("[%s — first %s shown]\n",
 		name,
 		helper.Pluralize(shownLines, "line"),
-		helper.Pluralize(chars, "char"),
 	)
 }
 

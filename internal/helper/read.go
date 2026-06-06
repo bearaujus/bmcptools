@@ -75,24 +75,10 @@ func ReadFullText(f *os.File, info os.FileInfo, limit int) (string, bool, error)
 
 	result := string(raw)
 	if truncated {
-		if _, seekErr := f.Seek(0, io.SeekStart); seekErr == nil {
-			scanner := bufio.NewScanner(f)
-			scanBuf := make([]byte, 64*1024)
-			scanner.Buffer(scanBuf, 10*1024*1024)
-			totalLines := 0
-			for scanner.Scan() {
-				totalLines++
-			}
-			result += fmt.Sprintf(
-				"\n\n[TRUNCATED — showing first %s of %s (%s total). Use start_line/end_line to read specific sections.]",
-				HumanizeBytes(int64(limit)), HumanizeBytes(info.Size()), Pluralize(totalLines, "line"),
-			)
-		} else {
-			result += fmt.Sprintf(
-				"\n\n[TRUNCATED — showing first %s of %s. Use start_line/end_line to read specific sections.]",
-				HumanizeBytes(int64(limit)), HumanizeBytes(info.Size()),
-			)
-		}
+		result += fmt.Sprintf(
+			"\n\n[TRUNCATED — showing first %s of %s. Use start_line/end_line to read specific sections.]",
+			HumanizeBytes(int64(limit)), HumanizeBytes(info.Size()),
+		)
 	}
 	return result, truncated, nil
 }
@@ -146,7 +132,16 @@ func ReadOneFileAsText(p string, limitBytes int, includeBase64 bool) (string, er
 // CountTextFileLines counts lines for text files. When force is false, large
 // files are skipped to keep metadata-style calls cheap.
 func CountTextFileLines(path string, force bool) (count int, counted bool, skippedForSize bool, err error) {
-	f, info, _, binary, err := SniffAndOpen(path)
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, false, false, err
+	}
+	return CountTextFileLinesWithInfo(path, info, force)
+}
+
+// CountTextFileLinesWithInfo counts lines for text files using already-known metadata.
+func CountTextFileLinesWithInfo(path string, info os.FileInfo, force bool) (count int, counted bool, skippedForSize bool, err error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return 0, false, false, err
 	}
@@ -155,10 +150,20 @@ func CountTextFileLines(path string, force bool) (count int, counted bool, skipp
 	if !force && info.Size() > AutoLineCountMaxBytes {
 		return 0, false, true, nil
 	}
-	if binary {
+
+	header := make([]byte, 512)
+	n, readErr := f.Read(header)
+	if readErr != nil && readErr != io.EOF {
+		return 0, false, false, readErr
+	}
+	header = header[:n]
+	if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
+		return 0, false, false, seekErr
+	}
+	if IsBinaryContent(header, http.DetectContentType(header)) {
 		return 0, false, false, nil
 	}
-	n, err := CountLines(f)
+	n, err = CountLines(f)
 	if err != nil {
 		return 0, false, false, err
 	}

@@ -51,8 +51,28 @@
     "params": {
       "paths": "Non-empty array of paths to inspect.",
       "limit": "Maximum paths to return. Default: 100; set 0 for all. Negative values use the default.",
-      "count_lines": "Count lines for text files. Default: true for small files; files over 1 MB skip automatic counting unless this is explicitly set to true.",
+      "count_lines": "Count lines for text files. Default: false; set true only when line counts are actually needed.",
       "output_mode": "\"compact\" (default) returns one line per path; \"details\" returns expanded labeled fields."
+    }
+  },
+  "delete_files": {
+    "desc": "Delete multiple non-directory filesystem entries in one call. Each path is processed independently so successful deletions are still reported when another entry fails.",
+    "params": {
+      "paths": "Non-empty array of file or symlink paths to delete."
+    }
+  },
+  "copy_paths": {
+    "desc": "Copy multiple files or directory trees in one call. Directory copies are recursive, reject symlinks inside the tree, and preserve source permissions. Existing destinations require overwrite=true.",
+    "params": {
+      "entries": "Non-empty array of {source, destination, overwrite?} objects to copy.",
+      "overwrite": "Shared overwrite default for every entry. Individual entries may override it with overwrite=true/false."
+    }
+  },
+  "move_paths": {
+    "desc": "Move or rename multiple files or directories in one call. Same-filesystem moves use rename; cross-device fallback copies then deletes the source when needed. Existing destinations require overwrite=true.",
+    "params": {
+      "entries": "Non-empty array of {source, destination, overwrite?} objects to move.",
+      "overwrite": "Shared overwrite default for every entry. Individual entries may override it with overwrite=true/false."
     }
   }
 }
