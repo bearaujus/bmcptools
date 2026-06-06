@@ -14,7 +14,9 @@ import (
 const (
 	defaultPathExistsBatchLimit      = 500
 	defaultMultipleFileInfoPathLimit = 100
+	defaultReadMultipleTotalBytes    = 1 * 1024 * 1024
 	defaultFindReplaceMaxFileSize    = 10 * 1024 * 1024
+	defaultFindReplaceTotalDiffBytes = 256 * 1024
 )
 
 func writeLimitedPathList(sb *strings.Builder, paths []string, limit int) {

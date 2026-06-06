@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -398,10 +400,72 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		}
 	}
 
-	filesToSearch, err := helper.CollectFiles(root, recursive, globFilter, showHidden, excludePatterns)
+	filesToSearch, err := helper.CollectFileEntries(root, recursive, globFilter, showHidden, excludePatterns)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+
+	type grepFileResult struct {
+		matches   []grepMatch
+		attempted bool
+		binary    bool
+		oversized bool
+		err       error
+	}
+
+	results := make([]grepFileResult, len(filesToSearch))
+	totalEligible := len(filesToSearch)
+	limitByMatches := outputMode == "content" || outputMode == "auto"
+	var collected atomic.Int64
+	helper.RunIOBoundedParallelWhile(len(filesToSearch), func(i int) bool {
+		if limitByMatches && collected.Load() >= int64(collectLimit) {
+			return false
+		}
+
+		entry := filesToSearch[i]
+		results[i].attempted = true
+		if maxFileSize > 0 {
+			if entry.Info != nil && entry.Info.Size() > maxFileSize {
+				results[i].oversized = true
+				return true
+			}
+			if entry.Info == nil {
+				if fi, statErr := os.Stat(entry.Path); statErr == nil && fi.Size() > maxFileSize {
+					results[i].oversized = true
+					return true
+				}
+			}
+		}
+
+		remaining := collectLimit
+		if limitByMatches {
+			remaining = collectLimit - int(collected.Load())
+			if remaining <= 0 {
+				return false
+			}
+		}
+
+		var matches []grepMatch
+		var grepErr error
+		if mlRegex != nil {
+			matches, grepErr = grepFileMultiline(entry.Path, mlRegex, remaining)
+		} else {
+			matches, grepErr = grepFile(entry.Path, matchFn, ctxLines, remaining)
+		}
+		if grepErr != nil {
+			if errors.Is(grepErr, errBinaryFile) {
+				results[i].binary = true
+				return true
+			}
+			results[i].err = grepErr
+			return true
+		}
+		results[i].matches = matches
+		if limitByMatches && len(matches) > 0 {
+			collected.Add(int64(len(matches)))
+		}
+		return true
+	})
 
 	var allMatches []grepMatch
 	filesAttempted := 0
@@ -409,48 +473,34 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	oversizeSkipped := 0
 	var binarySkippedPaths []string
 	limited := false
-	totalEligible := len(filesToSearch)
-
-	for _, filePath := range filesToSearch {
-		if limited {
-			break
-		}
-		filesAttempted++
-
-		if maxFileSize > 0 {
-			if fi, statErr := os.Stat(filePath); statErr == nil && fi.Size() > maxFileSize {
-				oversizeSkipped++
-				continue
-			}
-		}
-
-		rem := collectLimit - len(allMatches)
-		if rem <= 0 {
-			limited = true
-			break
-		}
-
-		var matches []grepMatch
-		var grepErr error
-		if mlRegex != nil {
-			matches, grepErr = grepFileMultiline(filePath, mlRegex, rem)
-		} else {
-			matches, grepErr = grepFile(filePath, matchFn, ctxLines, rem)
-		}
-		if grepErr != nil {
-			if errors.Is(grepErr, errBinaryFile) {
-				binarySkipped++
-				binarySkippedPaths = append(binarySkippedPaths, formatDisplayPath(root, filePath, pathFormat))
-			}
+	for i, result := range results {
+		if !result.attempted {
 			continue
 		}
-		for i := range matches {
-			matches[i].file = formatDisplayPath(root, matches[i].file, pathFormat)
+		filesAttempted++
+		if result.oversized {
+			oversizeSkipped++
+			continue
 		}
-		allMatches = append(allMatches, matches...)
-		if len(allMatches) >= collectLimit {
-			limited = true
+		if result.binary {
+			binarySkipped++
+			binarySkippedPaths = append(binarySkippedPaths, formatDisplayPath(root, filesToSearch[i].Path, pathFormat))
+			continue
 		}
+		if result.err != nil {
+			continue
+		}
+		for _, match := range result.matches {
+			if limitByMatches && len(allMatches) >= collectLimit {
+				limited = true
+				break
+			}
+			match.file = formatDisplayPath(root, match.file, pathFormat)
+			allMatches = append(allMatches, match)
+		}
+	}
+	if limitByMatches && (len(allMatches) >= collectLimit || filesAttempted < totalEligible) {
+		limited = true
 	}
 
 	textFilesSearched := filesAttempted - binarySkipped - oversizeSkipped
@@ -623,21 +673,13 @@ func formatBinarySkippedFooter(paths []string) string {
 }
 
 func grepFile(path string, matchFn func(string) bool, ctxLines, remaining int) ([]grepMatch, error) {
-	f, err := os.Open(path)
+	f, _, _, binary, err := helper.SniffAndOpen(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-
-	header := make([]byte, 512)
-	n, _ := f.Read(header)
-	for _, b := range header[:n] {
-		if b == 0 {
-			return nil, errBinaryFile
-		}
-	}
-	if _, err := f.Seek(0, 0); err != nil {
-		return nil, fmt.Errorf("seek error: %w", err)
+	if binary {
+		return nil, errBinaryFile
 	}
 
 	scanner := bufio.NewScanner(f)
@@ -711,18 +753,17 @@ func grepFile(path string, matchFn func(string) bool, ctxLines, remaining int) (
 }
 
 func grepFileMultiline(path string, re *regexp.Regexp, remaining int) ([]grepMatch, error) {
-	data, err := os.ReadFile(path)
+	f, _, _, binary, err := helper.SniffAndOpen(path)
 	if err != nil {
 		return nil, err
 	}
-	sniff := data
-	if len(sniff) > 512 {
-		sniff = data[:512]
+	defer f.Close()
+	if binary {
+		return nil, errBinaryFile
 	}
-	for _, b := range sniff {
-		if b == 0 {
-			return nil, errBinaryFile
-		}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
 	}
 
 	content := string(data)

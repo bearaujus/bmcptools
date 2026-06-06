@@ -949,6 +949,53 @@ func TestFindReplaceInFilesShowDiffFalse(t *testing.T) {
 	}
 }
 
+func TestFindReplaceInFilesShowDiffDefaultFalse(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"old_str": "hello",
+		"new_str": "hi",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, "@@") {
+		t.Errorf("default find_replace_in_files output should suppress diff hunks: %q", text)
+	}
+}
+
+func TestFindReplaceInFilesMaxTotalDiffBytes(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("hello world\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := findReplaceInFilesHandler(nil, newTestRequest(map[string]any{
+		"path":                 dir,
+		"old_str":              "hello",
+		"new_str":              "hi",
+		"show_diff":            true,
+		"max_total_diff_bytes": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "max_total_diff_bytes") {
+		t.Errorf("expected diff budget notice in output: %q", text)
+	}
+	if !strings.Contains(text, "a.txt") || !strings.Contains(text, "b.txt") {
+		t.Errorf("expected changed file summaries even when diff budget is exhausted: %q", text)
+	}
+}
+
 func TestFindReplaceInFilesExcludePatterns(t *testing.T) {
 	dir := t.TempDir()
 	skip := filepath.Join(dir, "node_modules")
@@ -1067,6 +1114,63 @@ func TestReadMultipleFilesMaxBytesPerFile(t *testing.T) {
 	fullContent := strings.Repeat("A", 100)
 	if strings.Contains(text, fullContent) {
 		t.Errorf("expected content to be limited to max_bytes_per_file=10: %q", text)
+	}
+}
+
+func TestReadMultipleFilesTotalMaxBytes(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a.txt")
+	second := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(first, []byte("first payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":           []any{first, second},
+		"total_max_bytes": float64(120),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "total_max_bytes") {
+		t.Fatalf("expected aggregate budget notice: %q", text)
+	}
+	if !strings.Contains(text, "omitted") {
+		t.Fatalf("expected omitted-file notice: %q", text)
+	}
+	if !strings.Contains(text, "Summary") {
+		t.Fatalf("expected summary in budgeted output: %q", text)
+	}
+}
+
+func TestReadMultipleFilesGlobExpansion(t *testing.T) {
+	dir := t.TempDir()
+	match := filepath.Join(dir, "a.go")
+	other := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(match, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("ignore me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"root": dir,
+		"glob": "*.go",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "package main") {
+		t.Fatalf("expected glob-matched file content: %q", text)
+	}
+	if strings.Contains(text, "ignore me") {
+		t.Fatalf("did not expect non-matching file content: %q", text)
 	}
 }
 

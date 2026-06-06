@@ -81,14 +81,14 @@ compress_files and extract_archive handle zip/tar.gz archives. Use them instead 
 
 Multi-file tools exist to reduce round trips and avoid flooding context.
 
-read_multiple_files reads 2+ files in one call. Use it for related small/medium files; set per-file caps when files may be large.
+read_multiple_files reads 2+ files in one call. Use it for related small/medium files; set per-file caps when files may be large, and keep the batch bounded with total_max_bytes. It can also expand root+glob in one round trip.
 
 write_multiple_files writes 2+ files in one call. Leave show_diff=false for broad generated writes unless per-file diffs are important.
 
 find_replace_in_files performs project-wide or directory-wide replacement:
 - Always run with dry_run=true first.
 - Narrow scope with glob and exclude_patterns.
-- Use show_diff=false for very broad mechanical changes when a changed-file summary is enough.
+- show_diff defaults to false; enable it only for narrow replacement sets, or combine it with max_total_diff_bytes.
 - Use show_unmodified only when you need an audit trail; otherwise it creates noise.
 
 path_exists_batch checks many paths at once. Prefer it over repeated single-path checks.

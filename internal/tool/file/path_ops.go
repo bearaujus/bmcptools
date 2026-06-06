@@ -201,7 +201,19 @@ func copyDirectory(source, destination string, overwrite bool, srcInfo os.FileIn
 		return CopyStats{}, fmt.Errorf("cannot stat destination: %w", err)
 	}
 
-	stats := CopyStats{SourceKind: "directory"}
+	type dirCopyJob struct {
+		source string
+		target string
+		mode   os.FileMode
+		size   int64
+	}
+	type dirCreateJob struct {
+		target string
+		mode   os.FileMode
+	}
+
+	var dirs []dirCreateJob
+	var files []dirCopyJob
 	walkErr := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -220,39 +232,66 @@ func copyDirectory(source, destination string, overwrite bool, srcInfo os.FileIn
 		}
 
 		if info.IsDir() {
-			if err := helper.MkdirAllClear(target, info.Mode().Perm()); err != nil {
-				return fmt.Errorf("cannot create directory %q: %w", target, err)
-			}
-			stats.Dirs++
+			dirs = append(dirs, dirCreateJob{target: target, mode: info.Mode().Perm()})
 			return nil
 		}
 
-		if dstInfo, err := os.Stat(target); err == nil {
-			if dstInfo.IsDir() {
-				return fmt.Errorf("destination %q already exists as a directory", target)
-			}
-			if !overwrite {
-				return fmt.Errorf("destination %q already exists; set overwrite=true to replace it", target)
-			}
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("cannot stat destination %q: %w", target, err)
-		}
-
-		if err := helper.MkdirAllClear(filepath.Dir(target), 0o755); err != nil {
-			return fmt.Errorf("cannot create parent directories for %q: %w", target, err)
-		}
-		n, err := helper.CopyFileDataN(path, target, info.Mode().Perm())
-		if err != nil {
-			return fmt.Errorf("%s -> %s: %w", path, target, err)
-		}
-		stats.Files++
-		stats.Bytes += n
+		files = append(files, dirCopyJob{
+			source: path,
+			target: target,
+			mode:   info.Mode().Perm(),
+			size:   info.Size(),
+		})
 		return nil
 	})
 	if walkErr != nil {
 		return CopyStats{}, walkErr
 	}
 
+	for _, dirJob := range dirs {
+		if err := helper.MkdirAllClear(dirJob.target, dirJob.mode); err != nil {
+			return CopyStats{}, fmt.Errorf("cannot create directory %q: %w", dirJob.target, err)
+		}
+	}
+
+	for _, fileJob := range files {
+		if dstInfo, err := os.Stat(fileJob.target); err == nil {
+			if dstInfo.IsDir() {
+				return CopyStats{}, fmt.Errorf("destination %q already exists as a directory", fileJob.target)
+			}
+			if !overwrite {
+				return CopyStats{}, fmt.Errorf("destination %q already exists; set overwrite=true to replace it", fileJob.target)
+			}
+		} else if !os.IsNotExist(err) {
+			return CopyStats{}, fmt.Errorf("cannot stat destination %q: %w", fileJob.target, err)
+		}
+	}
+
+	type fileCopyResult struct {
+		bytes int64
+		err   error
+	}
+	results := make([]fileCopyResult, len(files))
+	helper.RunIOBoundedParallel(len(files), func(i int) {
+		n, err := helper.CopyFileDataN(files[i].source, files[i].target, files[i].mode)
+		if err != nil {
+			results[i].err = fmt.Errorf("%s -> %s: %w", files[i].source, files[i].target, err)
+			return
+		}
+		results[i].bytes = n
+	})
+
+	stats := CopyStats{
+		SourceKind: "directory",
+		Files:      len(files),
+		Dirs:       len(dirs),
+	}
+	for _, result := range results {
+		if result.err != nil {
+			return CopyStats{}, result.err
+		}
+		stats.Bytes += result.bytes
+	}
 	if stats.Dirs == 0 {
 		if err := helper.MkdirAllClear(destination, srcInfo.Mode().Perm()); err != nil {
 			return CopyStats{}, fmt.Errorf("cannot create destination directory: %w", err)

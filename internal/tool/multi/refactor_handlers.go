@@ -88,8 +88,13 @@ func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	totalMaxBytes := int(req.GetFloat("total_max_bytes", float64(defaultReadMultipleTotalBytes)))
+	if totalMaxBytes < 0 {
+		totalMaxBytes = defaultReadMultipleTotalBytes
+	}
+
 	results := make([]multiReadResult, len(specs))
-	helper.RunBoundedParallel(len(specs), func(i int) {
+	helper.RunIOBoundedParallel(len(specs), func(i int) {
 		out, readErr := filetool.ReadPathWithOptions(specs[i].path, specs[i].options)
 		results[i] = multiReadResult{
 			path: specs[i].path,
@@ -102,32 +107,51 @@ func readMultipleFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.
 	var sb strings.Builder
 	successCount := 0
 	failCount := 0
+	omittedCount := 0
 	var totalBytes int64
+	renderedBytes := 0
 	for i, result := range results {
+		var section strings.Builder
 		if i > 0 {
-			sb.WriteString("\n")
+			section.WriteByte('\n')
 		}
 		if result.size > 0 {
-			fmt.Fprintf(&sb, "--- %s (%s) ---\n", result.path, helper.HumanizeBytes(result.size))
+			fmt.Fprintf(&section, "--- %s (%s) ---\n", result.path, helper.HumanizeBytes(result.size))
 		} else {
-			fmt.Fprintf(&sb, "--- %s ---\n", result.path)
+			fmt.Fprintf(&section, "--- %s ---\n", result.path)
 		}
 		if result.err != nil {
 			failCount++
-			fmt.Fprintf(&sb, "[ERROR] %v\n", result.err)
-			continue
+			fmt.Fprintf(&section, "[ERROR] %v\n", result.err)
+		} else {
+			successCount++
+			totalBytes += result.size
+			section.WriteString(result.text)
+			if !strings.HasSuffix(result.text, "\n") {
+				section.WriteByte('\n')
+			}
 		}
-		successCount++
-		totalBytes += result.size
-		sb.WriteString(result.text)
-		if !strings.HasSuffix(result.text, "\n") {
-			sb.WriteByte('\n')
+		sectionText := section.String()
+		if totalMaxBytes > 0 && renderedBytes+len(sectionText) > totalMaxBytes {
+			omittedCount = len(results) - i
+			break
 		}
+		sb.WriteString(sectionText)
+		renderedBytes += len(sectionText)
 	}
 
+	if omittedCount > 0 {
+		fmt.Fprintf(&sb, "[Output capped at total_max_bytes=%s — %s omitted. Raise total_max_bytes or narrow the file set.]\n\n",
+			helper.HumanizeBytes(int64(totalMaxBytes)),
+			helper.Pluralize(omittedCount, "file"),
+		)
+	}
 	fmt.Fprintf(&sb, "\nSummary: read %s", helper.Pluralize(successCount, "file"))
 	if failCount > 0 {
 		fmt.Fprintf(&sb, ", %s failed", helper.Pluralize(failCount, "file"))
+	}
+	if omittedCount > 0 {
+		fmt.Fprintf(&sb, ", %s omitted by total_max_bytes", helper.Pluralize(omittedCount, "file"))
 	}
 	if totalBytes > 0 {
 		fmt.Fprintf(&sb, " (%s total source data)", helper.HumanizeBytes(totalBytes))
@@ -204,13 +228,17 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	recursive := req.GetBool("recursive", true)
 	globPattern := req.GetString("glob", "")
 	dryRun := req.GetBool("dry_run", false)
-	showDiff := req.GetBool("show_diff", true)
+	showDiff := req.GetBool("show_diff", false)
 	showHidden := req.GetBool("show_hidden", false)
 	excludePatterns := req.GetStringSlice("exclude_patterns", nil)
 	showUnmodified := req.GetBool("show_unmodified", false)
 	maxFileSize := int64(req.GetFloat("max_file_size", float64(defaultFindReplaceMaxFileSize)))
 	if maxFileSize < 0 {
 		maxFileSize = defaultFindReplaceMaxFileSize
+	}
+	maxTotalDiffBytes := int(req.GetFloat("max_total_diff_bytes", float64(defaultFindReplaceTotalDiffBytes)))
+	if maxTotalDiffBytes < 0 {
+		maxTotalDiffBytes = defaultFindReplaceTotalDiffBytes
 	}
 
 	if useRegex {
@@ -219,7 +247,7 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		}
 	}
 
-	files, err := helper.CollectFiles(root, recursive, globPattern, showHidden, excludePatterns)
+	files, err := helper.CollectFileEntries(root, recursive, globPattern, showHidden, excludePatterns)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -233,13 +261,19 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 		err       error
 	}
 	results := make([]replaceResult, len(files))
-	helper.RunBoundedParallel(len(files), func(i int) {
-		filePath := files[i]
+	helper.RunIOBoundedParallel(len(files), func(i int) {
+		filePath := files[i].Path
 		results[i].path = filePath
 		if maxFileSize > 0 {
-			if info, statErr := os.Stat(filePath); statErr == nil && info.Size() > maxFileSize {
+			if files[i].Info != nil && files[i].Info.Size() > maxFileSize {
 				results[i].oversized = true
 				return
+			}
+			if files[i].Info == nil {
+				if info, statErr := os.Stat(filePath); statErr == nil && info.Size() > maxFileSize {
+					results[i].oversized = true
+					return
+				}
 			}
 		}
 		count, diff, skipped, replaceErr := helper.ApplyReplaceToFile(filePath, oldStr, newStr, useRegex, dryRun, showDiff)
@@ -261,6 +295,9 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	totalCount := 0
 	totalScanned := len(files)
 	var errBuf strings.Builder
+	remainingDiffBytes := maxTotalDiffBytes
+	diffBudgetExhausted := false
+	diffFilesOmitted := 0
 	for _, result := range results {
 		switch {
 		case result.oversized:
@@ -303,12 +340,30 @@ func findReplaceInFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp
 	)
 	for _, result := range changed {
 		fmt.Fprintf(&sb, "  %s (%s)\n", result.path, helper.Pluralize(result.count, "occurrence"))
-		if showDiff && result.diff != "" {
+		if showDiff && result.diff != "" && !diffBudgetExhausted {
+			if maxTotalDiffBytes > 0 && len(result.diff) > remainingDiffBytes {
+				diffBudgetExhausted = true
+				diffFilesOmitted++
+				continue
+			}
 			sb.WriteString(result.diff)
 			if !strings.HasSuffix(result.diff, "\n") {
 				sb.WriteByte('\n')
 			}
+			if maxTotalDiffBytes > 0 {
+				remainingDiffBytes -= len(result.diff)
+			}
+			continue
 		}
+		if showDiff && result.diff != "" && diffBudgetExhausted {
+			diffFilesOmitted++
+		}
+	}
+	if showDiff && diffBudgetExhausted {
+		fmt.Fprintf(&sb, "\n[Diff output capped at max_total_diff_bytes=%s — omitted diffs for %s. Raise max_total_diff_bytes or rerun with a narrower scope.]\n",
+			helper.HumanizeBytes(int64(maxTotalDiffBytes)),
+			helper.Pluralize(diffFilesOmitted, "file"),
+		)
 	}
 	if len(skipped) > 0 {
 		fmt.Fprintf(&sb, "\nSkipped %s (binary):\n", helper.Pluralize(len(skipped), "file"))
@@ -465,9 +520,10 @@ func movePathsHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 }
 
 func parseReadMultipleSpecs(req mcp.CallToolRequest) ([]multiReadSpec, error) {
-	rawPaths, ok := req.GetArguments()["paths"].([]any)
-	if !ok || len(rawPaths) == 0 {
-		return nil, fmt.Errorf("paths must be a non-empty array of file paths")
+	rawPaths, pathsProvided := req.GetArguments()["paths"].([]any)
+	globPattern := strings.TrimSpace(req.GetString("glob", ""))
+	if (!pathsProvided || len(rawPaths) == 0) && globPattern == "" {
+		return nil, fmt.Errorf("provide a non-empty paths array or a glob pattern")
 	}
 
 	base := filetool.ReadOptions{
@@ -500,48 +556,84 @@ func parseReadMultipleSpecs(req mcp.CallToolRequest) ([]multiReadSpec, error) {
 
 	specs := make([]multiReadSpec, 0, len(rawPaths))
 	for idx, raw := range rawPaths {
-		spec := multiReadSpec{options: base}
-		switch value := raw.(type) {
-		case string:
-			spec.path = value
-		case map[string]any:
-			path, _ := value["path"].(string)
-			spec.path = path
-			applyOptionalReadInt(value, "start_line", &spec.options.StartLine)
-			applyOptionalReadInt(value, "end_line", &spec.options.EndLine)
-			applyOptionalReadInt(value, "head", &spec.options.Head)
-			applyOptionalReadInt(value, "tail", &spec.options.Tail)
-			if rawShow, ok := value["show_line_numbers"]; ok {
-				if show, ok := rawShow.(bool); ok {
-					spec.options.ShowLineNumbers = show
-				}
-			}
-			if rawMax, ok := value["max_bytes"]; ok {
-				if maxBytes, ok := numberToInt(rawMax); ok {
-					if maxBytes > 0 {
-						spec.options.MaxBytes = maxBytes
-					} else {
-						spec.options.MaxBytes = helper.DefaultMaxReadBytes
-					}
-				}
-			}
-			if rawRanges, ok := value["ranges"]; ok {
-				ranges, err := filetool.ParseReadLineRanges(rawRanges)
-				if err != nil {
-					return nil, fmt.Errorf("paths[%d]: %w", idx, err)
-				}
-				spec.options.Ranges = ranges
-			}
-		default:
-			return nil, fmt.Errorf("paths[%d]: expected a string path or {path, ...} object", idx)
-		}
-
-		if strings.TrimSpace(spec.path) == "" {
-			return nil, fmt.Errorf("paths[%d]: path is required", idx)
+		spec, err := parseOneReadSpec(raw, idx, base)
+		if err != nil {
+			return nil, err
 		}
 		specs = append(specs, spec)
 	}
+
+	if globPattern != "" {
+		root := req.GetString("root", "")
+		if root == "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return nil, fmt.Errorf("cannot get working directory: %w", err)
+			}
+			root = cwd
+		}
+		recursive := req.GetBool("recursive", true)
+		showHidden := req.GetBool("show_hidden", false)
+		excludePatterns := req.GetStringSlice("exclude_patterns", nil)
+		entries, err := helper.CollectFileEntries(root, recursive, globPattern, showHidden, excludePatterns)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			specs = append(specs, multiReadSpec{
+				path:    entry.Path,
+				options: base,
+			})
+		}
+	}
+
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("no files matched the requested read set")
+	}
 	return specs, nil
+}
+
+func parseOneReadSpec(raw any, idx int, base filetool.ReadOptions) (multiReadSpec, error) {
+	spec := multiReadSpec{options: base}
+	switch value := raw.(type) {
+	case string:
+		spec.path = value
+	case map[string]any:
+		path, _ := value["path"].(string)
+		spec.path = path
+		applyOptionalReadInt(value, "start_line", &spec.options.StartLine)
+		applyOptionalReadInt(value, "end_line", &spec.options.EndLine)
+		applyOptionalReadInt(value, "head", &spec.options.Head)
+		applyOptionalReadInt(value, "tail", &spec.options.Tail)
+		if rawShow, ok := value["show_line_numbers"]; ok {
+			if show, ok := rawShow.(bool); ok {
+				spec.options.ShowLineNumbers = show
+			}
+		}
+		if rawMax, ok := value["max_bytes"]; ok {
+			if maxBytes, ok := numberToInt(rawMax); ok {
+				if maxBytes > 0 {
+					spec.options.MaxBytes = maxBytes
+				} else {
+					spec.options.MaxBytes = helper.DefaultMaxReadBytes
+				}
+			}
+		}
+		if rawRanges, ok := value["ranges"]; ok {
+			ranges, err := filetool.ParseReadLineRanges(rawRanges)
+			if err != nil {
+				return multiReadSpec{}, fmt.Errorf("paths[%d]: %w", idx, err)
+			}
+			spec.options.Ranges = ranges
+		}
+	default:
+		return multiReadSpec{}, fmt.Errorf("paths[%d]: expected a string path or {path, ...} object", idx)
+	}
+
+	if strings.TrimSpace(spec.path) == "" {
+		return multiReadSpec{}, fmt.Errorf("paths[%d]: path is required", idx)
+	}
+	return spec, nil
 }
 
 func parseTransferEntries(req mcp.CallToolRequest, key string) ([]transferEntry, []copyBatchResult, []moveBatchResult) {

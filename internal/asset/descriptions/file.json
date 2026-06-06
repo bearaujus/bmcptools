@@ -73,7 +73,7 @@
     "params": {
       "path": "Path to inspect.",
       "output_mode": "\"compact\" (default) returns one line; \"details\" returns expanded labeled fields including absolute path.",
-      "count_lines": "Count lines for text files. Default: false; set true only when the line count is actually needed."
+      "count_lines": "Count lines for text files. Default: false; set true only when the line count is actually needed. This scans the file fully."
     }
   },
   "path_exists": {

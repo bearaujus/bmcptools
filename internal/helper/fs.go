@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // EntryWithInfo pairs a directory entry with its cached FileInfo.
 type EntryWithInfo struct {
+	Path  string
 	Entry os.DirEntry
 	Info  os.FileInfo
 }
@@ -20,12 +22,26 @@ type EntryWithInfo struct {
 // CollectFiles walks root and returns all matching file paths.
 // Optional exclude patterns match entry basenames and prune matching directories.
 func CollectFiles(root string, recursive bool, globPattern string, showHidden bool, excludePatternSets ...[]string) ([]string, error) {
+	entries, err := CollectFileEntries(root, recursive, globPattern, showHidden, excludePatternSets...)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		files = append(files, entry.Path)
+	}
+	return files, nil
+}
+
+// CollectFileEntries walks root and returns matching files with cached path and
+// FileInfo metadata from the initial directory walk.
+func CollectFileEntries(root string, recursive bool, globPattern string, showHidden bool, excludePatternSets ...[]string) ([]EntryWithInfo, error) {
 	rootInfo, err := os.Stat(root)
 	if err != nil {
 		return nil, fmt.Errorf("cannot stat %q: %w", root, err)
 	}
 	if !rootInfo.IsDir() {
-		return []string{root}, nil
+		return []EntryWithInfo{{Path: root, Info: rootInfo}}, nil
 	}
 
 	var excludePatterns []string
@@ -33,7 +49,7 @@ func CollectFiles(root string, recursive bool, globPattern string, showHidden bo
 		excludePatterns = excludePatternSets[0]
 	}
 
-	var files []string
+	var files []EntryWithInfo
 	walkErr := filepath.WalkDir(root, func(p string, d os.DirEntry, werr error) error {
 		if werr != nil {
 			return nil
@@ -69,7 +85,12 @@ func CollectFiles(root string, recursive bool, globPattern string, showHidden bo
 				return nil
 			}
 		}
-		files = append(files, p)
+		info, _ := d.Info()
+		files = append(files, EntryWithInfo{
+			Path:  p,
+			Entry: d,
+			Info:  info,
+		})
 		return nil
 	})
 	if walkErr != nil {
@@ -166,7 +187,11 @@ func ApplyReplaceToFile(filePath, oldStr, newStr string, useRegex, dryRun, produ
 		return 0, "", true, nil
 	}
 
-	original, hasCRLF := NormalizeCRLF(string(data))
+	original := string(data)
+	if !utf8.ValidString(original) {
+		original = strings.ToValidUTF8(original, "\uFFFD")
+	}
+	original, hasCRLF := NormalizeCRLF(original)
 	modified, count, editErr := ApplyEdit(original, oldStr, newStr, useRegex, true)
 	if editErr != nil {
 		return 0, "", false, editErr

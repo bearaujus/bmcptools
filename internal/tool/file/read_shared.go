@@ -2,7 +2,9 @@ package file
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -108,7 +110,7 @@ func ReadPathWithOptions(path string, opts ReadOptions) (ReadOutput, error) {
 	case opts.ShowLineNumbers:
 		out.Text, err = readSharedFullWithLineNumbers(f, info, limitBytes)
 	default:
-		text, truncated, readErr := helper.ReadFullText(f, info, limitBytes)
+		text, truncated, lineCount, readErr := helper.ReadFullText(f, info, limitBytes)
 		if readErr != nil {
 			return ReadOutput{}, readErr
 		}
@@ -116,7 +118,6 @@ func ReadPathWithOptions(path string, opts ReadOptions) (ReadOutput, error) {
 			out.Text = text
 			return out, nil
 		}
-		lineCount := helper.CountContentLines(text)
 		out.Text = fmt.Sprintf("[%s — %s]\n%s",
 			info.Name(),
 			helper.Pluralize(lineCount, "line"),
@@ -304,6 +305,26 @@ func readSharedTail(f *os.File, info os.FileInfo, tailN, limit int, showLineNums
 		tailN = 1
 	}
 
+	if !showLineNums && info.Size() > helper.AutoLineCountMaxBytes {
+		selected, err := readTailLinesFromEOF(f, info, tailN)
+		if err != nil {
+			return "", err
+		}
+		if len(selected) == 0 {
+			return fmt.Sprintf("[%s] No lines found in tail=%d window", info.Name(), tailN), nil
+		}
+
+		state := renderSelectedLines(selected, limit, false)
+		header := fmt.Sprintf("[%s — last %s]\n", info.Name(), helper.Pluralize(len(selected), "line"))
+		if state.truncated {
+			state.builder.WriteString(fmt.Sprintf(
+				"\n[TRUNCATED — range output reached max_bytes=%s. Use a smaller line range or raise max_bytes.]",
+				helper.HumanizeBytes(int64(limit)),
+			))
+		}
+		return header + state.builder.String(), nil
+	}
+
 	scanner := bufio.NewScanner(f)
 	scanBuf := make([]byte, 64*1024)
 	scanner.Buffer(scanBuf, scannerBufferLimit(limit))
@@ -333,6 +354,47 @@ func readSharedTail(f *os.File, info os.FileInfo, tailN, limit int, showLineNums
 		))
 	}
 	return header + state.builder.String(), nil
+}
+
+func readTailLinesFromEOF(f *os.File, info os.FileInfo, tailN int) ([]selectedLine, error) {
+	if info.Size() == 0 {
+		return nil, nil
+	}
+
+	const chunkSize int64 = 4096
+	var data []byte
+	newlineCount := 0
+	pos := info.Size()
+	for pos > 0 && newlineCount <= tailN {
+		readSize := chunkSize
+		if pos < readSize {
+			readSize = pos
+		}
+		pos -= readSize
+
+		chunk := make([]byte, readSize)
+		n, err := f.ReadAt(chunk, pos)
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("read error: %w", err)
+		}
+		chunk = chunk[:n]
+		data = append(chunk, data...)
+		newlineCount += bytes.Count(chunk, []byte{'\n'})
+	}
+
+	lines := bytes.Split(data, []byte{'\n'})
+	if len(lines) > 0 && len(lines[len(lines)-1]) == 0 {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > tailN {
+		lines = lines[len(lines)-tailN:]
+	}
+
+	selected := make([]selectedLine, 0, len(lines))
+	for i, line := range lines {
+		selected = append(selected, selectedLine{number: i + 1, text: string(line)})
+	}
+	return selected, nil
 }
 
 func readSharedMultiRange(f *os.File, info os.FileInfo, ranges []ReadLineRange, limit int, showLineNums bool) (string, error) {

@@ -306,7 +306,7 @@ func editFileHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	if err := f.Close(); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("cannot close file: %v", err)), nil
 	}
-	original, hasCRLF := helper.NormalizeCRLF(strings.ToValidUTF8(string(helper.StripBOM(data)), "\uFFFD"))
+	original, hasCRLF := helper.NormalizeTextBytes(data)
 	current := original
 	totalCount := 0
 	var missed []string

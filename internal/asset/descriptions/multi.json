@@ -1,10 +1,16 @@
 {
   "read_multiple_files": {
-    "desc": "Read several files in one call with compact per-file headers. Use instead of repeated read_file for related files, including sampling many large files with shared or per-file line windows. Each failed file is reported inline without aborting the batch; binary files return summaries unless include_base64=true.",
+    "desc": "Read several files in one call with compact per-file headers. Use instead of repeated read_file for related files, including sampling many large files with shared or per-file line windows. Each failed file is reported inline without aborting the batch; binary files return summaries unless include_base64=true. You can pass explicit paths, or use root+glob to bulk-read a matched file set in one round trip.",
     "params": {
-      "paths": "Non-empty array of file paths or {path, start_line?, end_line?, head?, tail?, ranges?, show_line_numbers?, max_bytes?} objects, in output order.",
+      "paths": "Optional array of file paths or {path, start_line?, end_line?, head?, tail?, ranges?, show_line_numbers?, max_bytes?} objects, in output order. Provide this, a glob, or both.",
       "max_bytes_per_file": "Shared maximum bytes returned per file. Default: 262144 (256 KB). Non-positive values keep the default. Keep in mind that 256 KB of text can consume tens of thousands of tokens.",
+      "total_max_bytes": "Shared maximum rendered output bytes across the whole batch. Default: 1048576 (1 MB). Set 0 for unlimited; negative values use the default.",
       "include_base64": "For binary files, include capped base64 bytes in addition to metadata. Default: false.",
+      "root": "Root directory used when glob is set. Defaults to the current working directory.",
+      "glob": "Optional basename glob for bulk reads, such as *.go or *.{ts,tsx}. Matches are appended in walk order after any explicit paths.",
+      "recursive": "When glob is set and root is a directory, descend into subdirectories. Default: true.",
+      "show_hidden": "When glob is set, include hidden files and directories. Default: false.",
+      "exclude_patterns": "When glob is set, prune basenames such as .git, node_modules, dist, build, vendor, or generated outputs before reading.",
       "start_line": "Shared first line to read, 1-indexed. Used when per-file ranges/head/tail are not set.",
       "end_line": "Shared last line to read, inclusive. If omitted with start_line, reads through the end of each file.",
       "head": "Shared first-N-lines window to apply to every string path entry.",
@@ -32,11 +38,12 @@
       "recursive": "Descend into subdirectories when path is a directory. Default: true.",
       "glob": "Only process files whose basename matches this glob, such as *.go or *.{ts,tsx}. Strongly prefer setting this in large projects.",
       "dry_run": "Preview matches and diffs without modifying files. Default: false; run this first for broad replacements.",
-      "show_diff": "Include a unified diff for changed files. Default: true; set false for broad refactors when the changed-file summary is enough.",
+      "show_diff": "Include unified diffs for changed files. Default: false; enable it when reviewing a narrow replacement set.",
       "show_hidden": "Include hidden files and directories. Default: false.",
       "exclude_patterns": "Basename globs to prune before processing, such as node_modules, .git, vendor, dist, build, or generated files.",
       "show_unmodified": "List files that were scanned but had no match. Default: false; leave false unless you need an audit trail.",
-      "max_file_size": "Skip files larger than this many bytes. Default: 10485760 (10 MB); set 0 for unlimited. Negative values use the default."
+      "max_file_size": "Skip files larger than this many bytes. Default: 10485760 (10 MB); set 0 for unlimited. Negative values use the default.",
+      "max_total_diff_bytes": "Maximum total diff bytes to emit when show_diff=true. Default: 262144 (256 KB); set 0 for unlimited. Negative values use the default."
     }
   },
   "path_exists_batch": {
@@ -51,7 +58,7 @@
     "params": {
       "paths": "Non-empty array of paths to inspect.",
       "limit": "Maximum paths to return. Default: 100; set 0 for all. Negative values use the default.",
-      "count_lines": "Count lines for text files. Default: false; set true only when line counts are actually needed.",
+      "count_lines": "Count lines for text files. Default: false; set true only when line counts are actually needed. This scans each counted file fully.",
       "output_mode": "\"compact\" (default) returns one line per path; \"details\" returns expanded labeled fields."
     }
   },
