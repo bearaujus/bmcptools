@@ -222,6 +222,10 @@ func readMultipleFilesHandler(ctx context.Context, req mcp.CallToolRequest) (*mc
 		sectionText := formatMultiReadSection(result, i > 0)
 		if totalMaxBytes > 0 && renderedBytes+len(sectionText) > totalMaxBytes {
 			remaining := totalMaxBytes - renderedBytes
+			if remaining < multiReadSectionHeaderBytes(sectionText) {
+				omittedCount = len(specs) - i
+				break
+			}
 			sb.WriteString(truncateUTF8Bytes(sectionText, remaining))
 			renderedBytes = totalMaxBytes
 			sectionTruncated = true
@@ -298,6 +302,13 @@ func formatMultiReadSection(result multiReadResult, includeLeadingNewline bool) 
 		section.WriteByte('\n')
 	}
 	return section.String()
+}
+
+func multiReadSectionHeaderBytes(sectionText string) int {
+	if idx := strings.IndexByte(sectionText, '\n'); idx >= 0 {
+		return idx + 1
+	}
+	return len(sectionText)
 }
 
 func readMultipleBatchHint(specs []multiReadSpec) string {
