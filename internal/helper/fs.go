@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"unicode/utf8"
 )
 
 // EntryWithInfo pairs a directory entry with its cached FileInfo.
@@ -17,6 +16,27 @@ type EntryWithInfo struct {
 	Path  string
 	Entry os.DirEntry
 	Info  os.FileInfo
+}
+
+var defaultTraversalExcludePatterns = []string{
+	"node_modules",
+	".git",
+	".svn",
+	".hg",
+	"vendor",
+	"target",
+	"dist",
+	"build",
+	".next",
+	"__pycache__",
+	".venv",
+}
+
+// DefaultTraversalExcludePatterns returns the built-in basename globs that are
+// pruned by default for recursive repo traversal when callers do not supply an
+// explicit exclude_patterns list.
+func DefaultTraversalExcludePatterns() []string {
+	return append([]string(nil), defaultTraversalExcludePatterns...)
 }
 
 // CollectFiles walks root and returns all matching file paths.
@@ -61,7 +81,7 @@ func CollectFileEntries(root string, recursive bool, globPattern string, showHid
 			}
 			return nil
 		}
-		if !showHidden && strings.HasPrefix(name, ".") {
+		if !showHidden && IsHiddenPath(p, nil) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -187,11 +207,8 @@ func ApplyReplaceToFile(filePath, oldStr, newStr string, useRegex, dryRun, produ
 		return 0, "", true, nil
 	}
 
-	original := string(data)
-	if !utf8.ValidString(original) {
-		original = strings.ToValidUTF8(original, "\uFFFD")
-	}
-	original, hasCRLF := NormalizeCRLF(original)
+	decoded := DecodeTextBytes(data)
+	original := decoded.Text
 	modified, count, editErr := ApplyEdit(original, oldStr, newStr, useRegex, true)
 	if editErr != nil {
 		return 0, "", false, editErr
@@ -206,10 +223,10 @@ func ApplyReplaceToFile(filePath, oldStr, newStr string, useRegex, dryRun, produ
 	}
 
 	if !dryRun {
-		if hasCRLF {
+		if decoded.HasCRLF {
 			modified = RestoreCRLF(modified)
 		}
-		wErr := AtomicWriteFile(filePath, []byte(modified), ExistingFilePerm(filePath, 0o644))
+		wErr := AtomicWriteFile(filePath, EncodeTextBytes(modified, decoded.Encoding, decoded.HadBOM), ExistingFilePerm(filePath, 0o644))
 		if wErr != nil {
 			return count, diff, false, wErr
 		}
@@ -217,15 +234,60 @@ func ApplyReplaceToFile(filePath, oldStr, newStr string, useRegex, dryRun, produ
 	return count, diff, false, nil
 }
 
-var fileLocks sync.Map
+func ReadExistingTextForDiff(path string, info os.FileInfo, maxBytes int64) (string, string, error) {
+	if info == nil {
+		return "", "", fmt.Errorf("missing file info for diff preparation")
+	}
+	if maxBytes > 0 && info.Size() > maxBytes {
+		return "", fmt.Sprintf(
+			"[Diff skipped: existing file is %s, which exceeds the diff preview limit of %s.]",
+			HumanizeBytes(info.Size()),
+			HumanizeBytes(maxBytes),
+		), nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", err
+	}
+	decoded := DecodeTextBytes(data)
+	return decoded.Text, "", nil
+}
+
+type fileLockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+var fileLockRegistry = struct {
+	mu    sync.Mutex
+	locks map[string]*fileLockEntry
+}{
+	locks: make(map[string]*fileLockEntry),
+}
 
 // LockFile returns the per-file mutex for the given absolute path and locks it.
 // The caller must call the returned unlock function when done.
 func LockFile(absPath string) func() {
-	v, _ := fileLocks.LoadOrStore(absPath, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+	fileLockRegistry.mu.Lock()
+	entry := fileLockRegistry.locks[absPath]
+	if entry == nil {
+		entry = &fileLockEntry{}
+		fileLockRegistry.locks[absPath] = entry
+	}
+	entry.refs++
+	fileLockRegistry.mu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+
+		fileLockRegistry.mu.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(fileLockRegistry.locks, absPath)
+		}
+		fileLockRegistry.mu.Unlock()
+	}
 }
 
 // MkdirAllClear calls os.MkdirAll and augments the error message on failure.

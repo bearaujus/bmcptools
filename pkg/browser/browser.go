@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -18,14 +19,7 @@ import (
 //
 //	browser.OpenFn = func(string) {}
 var OpenFn = func(url string) {
-	switch runtime.GOOS {
-	case "darwin":
-		_ = exec.Command("open", url).Run()
-	case "windows":
-		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Run()
-	// Linux has no single standard open command; the caller is expected to handle this
-	// case (e.g. by falling back to a console prompt). OpenFn is a deliberate no-op here.
-	}
+	_ = TryOpen(url)
 }
 
 // Serve starts a local HTTP server on a random loopback port.
@@ -50,6 +44,24 @@ func Serve(mux *http.ServeMux) (port int, shutdown func(), err error) {
 // Open opens url in the system default browser.
 // It is a best-effort call; errors are silently ignored.
 func Open(url string) { OpenFn(url) }
+
+// TryOpen opens url in the system default browser and reports whether the
+// platform-specific launch command was started successfully.
+func TryOpen(url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "linux":
+		if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" && os.Getenv("MIR_SOCKET") == "" {
+			return fmt.Errorf("no graphical Linux session detected")
+		}
+		return exec.Command("xdg-open", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform %q", runtime.GOOS)
+	}
+}
 
 // ServeAndOpen starts a local HTTP server and immediately opens
 // http://127.0.0.1:<port>/ in the browser. Returns the port and shutdown func.

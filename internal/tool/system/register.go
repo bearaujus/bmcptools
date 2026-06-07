@@ -49,6 +49,9 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithBoolean("follow_redirects",
 			mcp.Description(asset.ParamDesc(toolname.HTTPRequest, "follow_redirects")),
 		),
+		mcp.WithBoolean("allow_private",
+			mcp.Description(asset.ParamDesc(toolname.HTTPRequest, "allow_private")),
+		),
 		mcp.WithBoolean("include_response_headers",
 			mcp.Description(asset.ParamDesc(toolname.HTTPRequest, "include_response_headers")),
 		),
@@ -107,6 +110,8 @@ func Register(s toolreg.ToolRegistrar) {
 		mcp.WithString("path", mcp.Required(), mcp.Description(asset.ParamDesc(toolname.DownloadFile, "path"))),
 		mcp.WithObject("headers", mcp.Description(asset.ParamDesc(toolname.DownloadFile, "headers"))),
 		mcp.WithNumber("timeout_seconds", mcp.Description(asset.ParamDesc(toolname.DownloadFile, "timeout_seconds"))),
+		mcp.WithBoolean("allow_private", mcp.Description(asset.ParamDesc(toolname.DownloadFile, "allow_private"))),
+		mcp.WithBoolean("allow_outside_cwd", mcp.Description(asset.ParamDesc(toolname.DownloadFile, "allow_outside_cwd"))),
 		mcp.WithBoolean("overwrite", mcp.Description(asset.ParamDesc(toolname.DownloadFile, "overwrite"))),
 	), downloadFileHandler)
 }

@@ -603,3 +603,76 @@ func TestCreateDirHandlerEmptyPath(t *testing.T) {
 		t.Error("expected error for empty path argument")
 	}
 }
+
+func TestListDirHandlerGlobPrunesEmptyDirs(t *testing.T) {
+	dir := t.TempDir()
+	sub1 := filepath.Join(dir, "sub1")
+	sub2 := filepath.Join(dir, "sub2")
+	if err := os.MkdirAll(sub1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sub2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub1, "note.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub2, "match.go"), []byte("package main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := listDirHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"recursive": true,
+		"glob":      "*.go",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, "sub1") {
+		t.Fatalf("sub1 should be pruned when its subtree has no glob match: %q", text)
+	}
+	if !strings.Contains(text, "sub2") || !strings.Contains(text, "match.go") {
+		t.Fatalf("expected matching subtree in output: %q", text)
+	}
+}
+
+func TestDirHandlersLabelSymlinkedDirectories(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "child.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "linked")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable on this platform/user: %v", err)
+	}
+
+	listResult, err := listDirHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"recursive": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listText := resultText(listResult)
+	if !strings.Contains(listText, "[LINK] linked/") {
+		t.Fatalf("expected symlinked directory label in list_directory: %q", listText)
+	}
+	if strings.Contains(listText, "child.txt") {
+		t.Fatalf("symlinked directory should not be traversed by default: %q", listText)
+	}
+
+	treeResult, err := dirTreeHandler(nil, newTestRequest(map[string]any{"path": dir}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	treeText := resultText(treeResult)
+	if !strings.Contains(treeText, "linked/ ->") {
+		t.Fatalf("expected symlinked directory label in directory_tree: %q", treeText)
+	}
+}

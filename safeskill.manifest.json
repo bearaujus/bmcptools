@@ -1,0 +1,99 @@
+{
+  "manifestVersion": "1.0",
+  "name": "bmcptools",
+  "version": "1.9.0",
+  "type": "mcp-server",
+  "description": "An MCP server exposing 44 developer tools (file I/O, shell execution, search, system info, and interactive user dialogs) to any MCP-compatible LLM client.",
+  "repository": "https://github.com/bearaujus/bmcptools",
+  "homepage": "https://github.com/bearaujus/bmcptools#readme",
+  "language": "go",
+  "transport": "stdio",
+  "permissions": {
+    "filesystem": {
+      "read": true,
+      "write": true,
+      "reason": "File, multi-file, directory, and search tools read and modify paths the user/agent targets. Destructive operations (delete, overwrite, recursive remove) are gated and marked with destructive annotations."
+    },
+    "shell": {
+      "execute": true,
+      "reason": "run_command runs bounded, non-interactive local commands. No PTY is allocated and there is no auto-elevation."
+    },
+    "network": {
+      "outbound": true,
+      "reason": "http_request and download_file perform caller-initiated HTTP requests. Private, loopback, and link-local targets are blocked unless allow_private is explicitly set."
+    },
+    "environment": {
+      "read": true,
+      "reason": "get_env inspects environment variables. Without an explicit key/filter it lists names only, and secret-like values are redacted by default."
+    },
+    "clipboard": {
+      "read": true,
+      "write": true,
+      "reason": "clipboard_read and clipboard_write access the system clipboard on request; reads are size-capped."
+    },
+    "process": {
+      "list": true,
+      "reason": "list_processes inspects running processes; it does not start or kill processes."
+    }
+  },
+  "network": {
+    "telemetry": false,
+    "analytics": false,
+    "hardcodedEndpoints": [],
+    "notes": "No telemetry, analytics, or hardcoded outbound endpoints. Every network call is explicitly requested by the caller and SSRF-guarded by default."
+  },
+  "dataHandling": {
+    "collectsUserData": false,
+    "sendsDataExternally": false,
+    "secretRedaction": true,
+    "notes": "bmcptools does not collect, store, or transmit user data on its own. Output is bounded by default caps to avoid leaking large or sensitive content."
+  },
+  "installScripts": false,
+  "toolGroups": ["file", "multi", "dir", "search", "exec", "system", "user"],
+  "tools": [
+    "read_file",
+    "write_file",
+    "append_to_file",
+    "edit_file",
+    "delete_file",
+    "copy_file",
+    "move_file",
+    "get_file_info",
+    "path_exists",
+    "diff_files",
+    "calculate_checksum",
+    "create_symlink",
+    "compress_files",
+    "extract_archive",
+    "read_multiple_files",
+    "write_multiple_files",
+    "find_replace_in_files",
+    "path_exists_batch",
+    "get_multiple_file_info",
+    "delete_files",
+    "copy_paths",
+    "move_paths",
+    "list_directory",
+    "directory_tree",
+    "create_directory",
+    "delete_directory",
+    "search_files",
+    "grep_files",
+    "get_working_directory",
+    "run_command",
+    "open_in_app",
+    "get_env",
+    "http_request",
+    "download_file",
+    "clipboard_read",
+    "clipboard_write",
+    "list_processes",
+    "get_system_info",
+    "ask_user",
+    "get_user_response",
+    "update_dialog",
+    "cancel_ask_user",
+    "notify_user",
+    "rest"
+  ]
+}

@@ -9,13 +9,15 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// collectingRegistrar records the names of every tool added to it.
+// collectingRegistrar records every tool added to it.
 type collectingRegistrar struct {
 	names []string
+	tools []mcp.Tool
 }
 
 func (c *collectingRegistrar) AddTool(tool mcp.Tool, _ server.ToolHandlerFunc) {
 	c.names = append(c.names, tool.Name)
+	c.tools = append(c.tools, tool)
 }
 
 // TestDescriptionsCoverage ensures every registered tool has a non-empty
@@ -28,6 +30,27 @@ func TestDescriptionsCoverage(t *testing.T) {
 	for _, name := range r.names {
 		if asset.ToolDesc(name) == "" {
 			t.Errorf("tool %q is registered but has no description entry in internal/asset/descriptions/*.json", name)
+		}
+	}
+}
+
+// TestParamDescriptionsCoverage ensures every registered tool parameter ships a
+// non-empty description in the embedded JSON assets. A missing params entry
+// otherwise resolves to "" and silently registers an undocumented parameter,
+// which hurts the model's ability to call the tool correctly.
+func TestParamDescriptionsCoverage(t *testing.T) {
+	r := &collectingRegistrar{}
+	Register(r)
+
+	for _, tool := range r.tools {
+		for param, raw := range tool.InputSchema.Properties {
+			prop, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if desc, _ := prop["description"].(string); strings.TrimSpace(desc) == "" {
+				t.Errorf("tool %q parameter %q has no description entry in internal/asset/descriptions/*.json", tool.Name, param)
+			}
 		}
 	}
 }

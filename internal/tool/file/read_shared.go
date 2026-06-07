@@ -70,9 +70,29 @@ func ParseReadLineRanges(raw any) ([]ReadLineRange, error) {
 	return ranges, nil
 }
 
+func ValidateReadOptions(opts ReadOptions) error {
+	selectorGroups := 0
+	if len(opts.Ranges) > 0 {
+		selectorGroups++
+	}
+	if opts.Head > 0 || opts.Tail > 0 {
+		selectorGroups++
+	}
+	if opts.StartLine > 0 || opts.EndLine > 0 {
+		selectorGroups++
+	}
+	if selectorGroups > 1 {
+		return fmt.Errorf("conflicting read selectors: choose only one of ranges, head/tail, or start_line/end_line")
+	}
+	return nil
+}
+
 func ReadPathWithOptions(path string, opts ReadOptions) (ReadOutput, error) {
 	if path == "" {
 		return ReadOutput{}, fmt.Errorf("path is required")
+	}
+	if err := ValidateReadOptions(opts); err != nil {
+		return ReadOutput{}, err
 	}
 
 	limitBytes := opts.MaxBytes
@@ -254,7 +274,6 @@ func readSharedHeadThenTail(f *os.File, info os.FileInfo, headN, tailN, limit in
 	scanBuf := make([]byte, 64*1024)
 	scanner.Buffer(scanBuf, scannerBufferLimit(limit))
 
-	lines := make([]ReadLineRange, 0, 0)
 	selected := make([]selectedLine, 0, tailN)
 	lineNum := 0
 	reachedEOF := true
@@ -272,7 +291,6 @@ func readSharedHeadThenTail(f *os.File, info os.FileInfo, headN, tailN, limit in
 	if err := scanner.Err(); err != nil {
 		return "", fmt.Errorf("read error: %w", err)
 	}
-	_ = lines
 	if len(selected) == 0 {
 		return fmt.Sprintf("[%s] No lines found in head=%d window", info.Name(), headN), nil
 	}
@@ -306,7 +324,11 @@ func readSharedTail(f *os.File, info os.FileInfo, tailN, limit int, showLineNums
 	}
 
 	if !showLineNums && info.Size() > helper.AutoLineCountMaxBytes {
-		selected, err := readTailLinesFromEOF(f, info, tailN)
+		totalLines, err := helper.CountLines(f)
+		if err != nil {
+			return "", fmt.Errorf("read error: %w", err)
+		}
+		selected, err := readTailLinesFromEOF(f, info, tailN, totalLines)
 		if err != nil {
 			return "", err
 		}
@@ -315,7 +337,7 @@ func readSharedTail(f *os.File, info os.FileInfo, tailN, limit int, showLineNums
 		}
 
 		state := renderSelectedLines(selected, limit, false)
-		header := fmt.Sprintf("[%s — last %s]\n", info.Name(), helper.Pluralize(len(selected), "line"))
+		header := formatSelectedLineHeader(info.Name(), state, totalLines, true, "")
 		if state.truncated {
 			state.builder.WriteString(fmt.Sprintf(
 				"\n[TRUNCATED — range output reached max_bytes=%s. Use a smaller line range or raise max_bytes.]",
@@ -356,7 +378,7 @@ func readSharedTail(f *os.File, info os.FileInfo, tailN, limit int, showLineNums
 	return header + state.builder.String(), nil
 }
 
-func readTailLinesFromEOF(f *os.File, info os.FileInfo, tailN int) ([]selectedLine, error) {
+func readTailLinesFromEOF(f *os.File, info os.FileInfo, tailN, totalLines int) ([]selectedLine, error) {
 	if info.Size() == 0 {
 		return nil, nil
 	}
@@ -391,8 +413,12 @@ func readTailLinesFromEOF(f *os.File, info os.FileInfo, tailN int) ([]selectedLi
 	}
 
 	selected := make([]selectedLine, 0, len(lines))
+	startLine := totalLines - len(lines) + 1
+	if startLine < 1 {
+		startLine = 1
+	}
 	for i, line := range lines {
-		selected = append(selected, selectedLine{number: i + 1, text: string(line)})
+		selected = append(selected, selectedLine{number: startLine + i, text: string(line)})
 	}
 	return selected, nil
 }

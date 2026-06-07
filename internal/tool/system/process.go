@@ -46,7 +46,7 @@ func listProcessesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 
 	if filter != "" {
-		filtered := procs[:0]
+		filtered := make([]processInfo, 0, len(procs))
 		for _, p := range procs {
 			if strings.Contains(strings.ToLower(p.Name), filter) ||
 				strings.Contains(strings.ToLower(p.Command), filter) {

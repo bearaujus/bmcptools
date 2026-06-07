@@ -49,6 +49,9 @@ func StripBOM(b []byte) []byte {
 
 // IsBinaryContent returns true when the file header suggests binary content.
 func IsBinaryContent(header []byte, contentType string) bool {
+	if _, hasBOM := DetectTextEncoding(header); hasBOM {
+		return false
+	}
 	for _, b := range header {
 		if b == 0 {
 			return true

@@ -621,6 +621,29 @@ func TestReadFileHandlerHeadThenTail(t *testing.T) {
 	}
 }
 
+func TestReadFileHandlerRejectsConflictingSelectors(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "lines.txt")
+	if err := os.WriteFile(f, []byte("L1\nL2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readFileHandler(nil, newTestRequest(map[string]any{
+		"path":       f,
+		"head":       float64(1),
+		"start_line": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected conflicting selector error, got: %q", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "conflicting read selectors") {
+		t.Fatalf("expected conflicting selector guidance, got: %q", resultText(result))
+	}
+}
+
 func TestReadFileHandlerLargeHeadOmitsTotalLineCount(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "large.txt")
@@ -1572,6 +1595,29 @@ func TestWriteFileOverwriteDiffIsCapped(t *testing.T) {
 	}
 }
 
+func TestWriteFileShowDiffSkipsOversizedExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "oversized.txt")
+	if err := os.WriteFile(f, []byte(strings.Repeat("a", defaultDiffFileMaxBytes+1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := writeFileHandler(nil, newTestRequest(map[string]any{
+		"path":      f,
+		"content":   "replacement\n",
+		"show_diff": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("expected overwrite success with skipped diff note, got: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "Diff skipped") {
+		t.Fatalf("expected oversized diff note, got: %q", resultText(result))
+	}
+}
+
 func TestWriteFileOverwritePreservesMode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not preserve Unix permission bits")
@@ -2202,6 +2248,36 @@ func TestCreateSymlinkIdempotent(t *testing.T) {
 	}
 }
 
+func TestCreateSymlinkRejectsTargetOutsideLinkDirectory(t *testing.T) {
+	dir := t.TempDir()
+	linkDir := filepath.Join(dir, "links")
+	outsideTarget := filepath.Join(dir, "target.txt")
+	if err := os.MkdirAll(linkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outsideTarget, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	link := filepath.Join(linkDir, "link.txt")
+	result, err := createSymlinkHandler(nil, newTestRequest(map[string]any{
+		"source": "../target.txt",
+		"link":   link,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected safety error, got: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "outside") {
+		t.Fatalf("expected outside-directory error, got: %s", resultText(result))
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("link should not have been created; stat err=%v", err)
+	}
+}
+
 // ── compressFilesHandler ─────────────────────────────────────────────────────
 
 func TestCompressFilesMissingPaths(t *testing.T) {
@@ -2253,7 +2329,7 @@ func TestCompressFilesZip(t *testing.T) {
 	if isResultError(result) {
 		t.Fatalf("unexpected error: %s", resultText(result))
 	}
-	if !strings.Contains(resultText(result), "Compressed 2 files") {
+	if !strings.Contains(resultText(result), "Compressed 2 files and 1 directory") {
 		t.Errorf("unexpected result: %s", resultText(result))
 	}
 
@@ -2297,7 +2373,11 @@ func TestCompressFilesZipOutputInsideSourceSkipsArchive(t *testing.T) {
 			t.Fatalf("archive included itself: entries=%v", r.File)
 		}
 	}
-	if len(r.File) != 1 || r.File[0].Name != "src/hello.txt" {
+	var names []string
+	for _, entry := range r.File {
+		names = append(names, entry.Name)
+	}
+	if len(names) != 2 || names[0] != "src/" || names[1] != "src/hello.txt" {
 		t.Fatalf("unexpected zip entries: %+v", r.File)
 	}
 }
@@ -2324,7 +2404,7 @@ func TestCompressFilesTarGz(t *testing.T) {
 	if isResultError(result) {
 		t.Fatalf("unexpected error: %s", resultText(result))
 	}
-	if !strings.Contains(resultText(result), "Compressed 1 files") {
+	if !strings.Contains(resultText(result), "Compressed 1 file and 1 directory") {
 		t.Errorf("unexpected result: %s", resultText(result))
 	}
 
@@ -2335,6 +2415,54 @@ func TestCompressFilesTarGz(t *testing.T) {
 	}
 	if info.Size() == 0 {
 		t.Fatal("output archive is empty")
+	}
+}
+
+func TestCompressFilesTar(t *testing.T) {
+	dir := t.TempDir()
+
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "hello.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(dir, "out.tar")
+	result, err := compressFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":  []any{srcDir},
+		"output": output,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "(tar,") {
+		t.Errorf("expected tar format in summary, got: %s", resultText(result))
+	}
+
+	f, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	tr := tar.NewReader(f)
+	var names []string
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, header.Name)
+	}
+	if len(names) != 2 || names[0] != "src/" || names[1] != "src/hello.txt" {
+		t.Fatalf("unexpected tar entries: %v", names)
 	}
 }
 
@@ -2387,8 +2515,91 @@ func TestCompressFilesTarGzOutputInsideSourceSkipsArchive(t *testing.T) {
 			t.Fatalf("archive included itself: entries=%v", names)
 		}
 	}
-	if len(names) != 1 || names[0] != "src/hello.txt" {
+	if len(names) != 2 || names[0] != "src/" || names[1] != "src/hello.txt" {
 		t.Fatalf("unexpected tar entries: %v", names)
+	}
+}
+
+func TestCompressAndExtractZipPreservesEmptyDirectories(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	emptyDir := filepath.Join(srcDir, "empty")
+	if err := os.MkdirAll(emptyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath := filepath.Join(dir, "empty.zip")
+	result, err := compressFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":  []any{srcDir},
+		"output": archivePath,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected compression error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "2 directories") {
+		t.Fatalf("expected directory count in compression summary, got: %q", resultText(result))
+	}
+
+	extractDir := filepath.Join(dir, "unzipped")
+	result, err = extractArchiveHandler(nil, newTestRequest(map[string]any{
+		"archive": archivePath,
+		"output":  extractDir,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected extract error: %s", resultText(result))
+	}
+	info, err := os.Stat(filepath.Join(extractDir, "src", "empty"))
+	if err != nil {
+		t.Fatalf("expected empty directory after extract: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected extracted empty path to be a directory, got mode %s", info.Mode())
+	}
+}
+
+func TestCompressAndExtractTarGzPreservesEmptyDirectories(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	emptyDir := filepath.Join(srcDir, "empty")
+	if err := os.MkdirAll(emptyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath := filepath.Join(dir, "empty.tar.gz")
+	result, err := compressFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":  []any{srcDir},
+		"output": archivePath,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected compression error: %s", resultText(result))
+	}
+
+	extractDir := filepath.Join(dir, "untarred")
+	result, err = extractArchiveHandler(nil, newTestRequest(map[string]any{
+		"archive": archivePath,
+		"output":  extractDir,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected extract error: %s", resultText(result))
+	}
+	info, err := os.Stat(filepath.Join(extractDir, "src", "empty"))
+	if err != nil {
+		t.Fatalf("expected empty directory after tar extract: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected extracted empty path to be a directory, got mode %s", info.Mode())
 	}
 }
 
@@ -2523,6 +2734,53 @@ func TestExtractArchiveTarGz(t *testing.T) {
 	}
 
 	archivePath := filepath.Join(dir, "test.tar.gz")
+	cResult, err := compressFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":  []any{srcDir},
+		"output": archivePath,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(cResult) {
+		t.Fatalf("compress failed: %s", resultText(cResult))
+	}
+
+	extractDir := filepath.Join(dir, "extracted")
+	result, err := extractArchiveHandler(nil, newTestRequest(map[string]any{
+		"archive": archivePath,
+		"output":  extractDir,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "Extracted 1 files") {
+		t.Errorf("unexpected result: %s", resultText(result))
+	}
+
+	data, err := os.ReadFile(filepath.Join(extractDir, "src", "c.txt"))
+	if err != nil {
+		t.Fatalf("missing extracted file: %v", err)
+	}
+	if string(data) != "ccc" {
+		t.Errorf("content = %q, want %q", string(data), "ccc")
+	}
+}
+
+func TestExtractArchiveTar(t *testing.T) {
+	dir := t.TempDir()
+
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "c.txt"), []byte("ccc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath := filepath.Join(dir, "test.tar")
 	cResult, err := compressFilesHandler(nil, newTestRequest(map[string]any{
 		"paths":  []any{srcDir},
 		"output": archivePath,
@@ -2785,5 +3043,90 @@ func TestMoveFileHandlerDirectory(t *testing.T) {
 	}
 	if string(data) != "hello" {
 		t.Fatalf("moved directory content = %q", data)
+	}
+}
+
+func TestEditFileHandlerUTF16LE(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "utf16.txt")
+	original := helper.EncodeTextBytes("alpha\r\nbeta\r\n", helper.TextEncodingUTF16LE, true)
+	if err := os.WriteFile(f, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := editFileHandler(nil, newTestRequest(map[string]any{
+		"path":    f,
+		"old_str": "beta",
+		"new_str": "gamma",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	raw, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) < 2 || raw[0] != 0xFF || raw[1] != 0xFE {
+		t.Fatalf("expected UTF-16LE BOM to be preserved, got %v", raw[:min(2, len(raw))])
+	}
+	if got := helper.DecodeTextBytes(raw).Text; got != "alpha\ngamma\n" {
+		t.Fatalf("unexpected edited UTF-16 content: %q", got)
+	}
+}
+
+func TestDiffFilesHandlerNoNewlineMarker(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(a, []byte("line1\nline2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("line1\nline2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := diffFilesHandler(nil, newTestRequest(map[string]any{"path_a": a, "path_b": b}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, `\ No newline at end of file`) {
+		t.Fatalf("expected EOF newline marker in diff output: %q", text)
+	}
+}
+
+func TestGetFileInfoAndPathExistsShowSymlinkTargetMetadata(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable on this platform/user: %v", err)
+	}
+
+	infoResult, err := getFileInfoHandler(nil, newTestRequest(map[string]any{
+		"path":        link,
+		"output_mode": "details",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	infoText := resultText(infoResult)
+	if !strings.Contains(infoText, "Target:      file") || !strings.Contains(infoText, "Target Size:") {
+		t.Fatalf("expected resolved symlink metadata in get_file_info: %q", infoText)
+	}
+
+	existsResult, err := pathExistsHandler(nil, newTestRequest(map[string]any{"path": link}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	existsText := resultText(existsResult)
+	if !strings.Contains(existsText, "symlink ->") || !strings.Contains(existsText, "target: file") {
+		t.Fatalf("expected resolved symlink metadata in path_exists: %q", existsText)
 	}
 }

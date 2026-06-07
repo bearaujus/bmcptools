@@ -1,8 +1,11 @@
 package user
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -31,6 +34,9 @@ func TestNotifyUserSuccess(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "message_bytes=17") {
 		t.Errorf("expected concise message metadata in result: %q", text)
+	}
+	if !strings.Contains(text, "duration_support=") {
+		t.Errorf("expected duration support metadata in result: %q", text)
 	}
 }
 
@@ -178,6 +184,109 @@ func TestAskUserHandlerReturnsToken(t *testing.T) {
 	}
 }
 
+func TestRunDialogBlockingFallsBackToConsoleWhenBrowserOpenFails(t *testing.T) {
+	oldOpen := openBrowserFn
+	oldPrompt := promptConsoleFn
+	oldChoicePrompt := promptChoiceConsoleFn
+	openBrowserFn = func(string) error { return errors.New("no browser available") }
+	promptConsoleFn = func(question, details string) (string, error) { return "typed in console", nil }
+	promptChoiceConsoleFn = func(question, details, title string, choices []string) (string, error) {
+		return "typed in console", nil
+	}
+	defer func() {
+		openBrowserFn = oldOpen
+		promptConsoleFn = oldPrompt
+		promptChoiceConsoleFn = oldChoicePrompt
+	}()
+
+	answer := runDialogBlocking(
+		context.Background(),
+		"",
+		"Question?",
+		"Details",
+		"AI Assistant",
+		"",
+		nil,
+		false,
+		2*time.Second,
+		mustNewDialogToken(t),
+		&dialogActivity{},
+		&pendingDialogState{},
+	)
+	if answer != "typed in console" {
+		t.Fatalf("expected console fallback answer, got %q", answer)
+	}
+}
+
+func TestRestHandlerFallsBackToConsoleWhenBrowserOpenFails(t *testing.T) {
+	oldOpen := openBrowserFn
+	oldPrompt := promptRestConsoleFn
+	openBrowserFn = func(string) error { return errors.New("no browser available") }
+	promptRestConsoleFn = func(title, subtitle, notes string, timeout time.Duration) (string, error) {
+		if title != "AI Assistant" || subtitle != "Waiting" || notes != "Resume when ready." {
+			t.Fatalf("unexpected rest prompt contents: %q / %q / %q", title, subtitle, notes)
+		}
+		if timeout != 30*time.Second {
+			t.Fatalf("unexpected timeout: %v", timeout)
+		}
+		return "User woke up the AI with note: from console", nil
+	}
+	defer func() {
+		openBrowserFn = oldOpen
+		promptRestConsoleFn = oldPrompt
+	}()
+
+	result, err := makeRestHandler("")(nil, newTestRequest(map[string]any{
+		"title":           "AI Assistant",
+		"subtitle":        "Waiting",
+		"notes":           "Resume when ready.",
+		"timeout_seconds": float64(30),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+
+	token := resultToken(t, result)
+	poll, err := getUserResponseHandler(nil, newTestRequest(map[string]any{
+		"token":        token,
+		"wait_seconds": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(poll) {
+		t.Fatalf("unexpected polling error: %s", resultText(poll))
+	}
+	if got := resultText(poll); got != "User woke up the AI with note: from console" {
+		t.Fatalf("unexpected rest response: %q", got)
+	}
+}
+
+type failingTokenReader struct{}
+
+func (failingTokenReader) Read(_ []byte) (int, error) {
+	return 0, errors.New("rng unavailable")
+}
+
+func TestNewDialogTokenFailsWhenRandomSourceFails(t *testing.T) {
+	oldReader := dialogTokenReader
+	dialogTokenReader = failingTokenReader{}
+	defer func() {
+		dialogTokenReader = oldReader
+	}()
+
+	token, err := newDialogToken()
+	if err == nil {
+		t.Fatal("expected token generation error")
+	}
+	if token != "" {
+		t.Fatalf("expected empty token on failure, got %q", token)
+	}
+}
+
 // ── get_user_response ─────────────────────────────────────────────────────────
 
 // Reason: get_user_response has ZERO test coverage. Key paths: missing token,
@@ -226,7 +335,7 @@ func TestGetUserResponseUnknownToken(t *testing.T) {
 // Reason: When the dialog goroutine has already delivered an answer, the
 // handler must return it immediately on the first poll.
 func TestGetUserResponseReceivesAnswer(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	ch := make(chan string, 1)
 	ch <- "my answer"
 	state := &pendingDialogState{
@@ -253,7 +362,7 @@ func TestGetUserResponseReceivesAnswer(t *testing.T) {
 }
 
 func TestGetUserResponseCapsLargeAnswer(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	ch := make(chan string, 1)
 	ch <- strings.Repeat("x", 20)
 	state := &pendingDialogState{
@@ -284,7 +393,7 @@ func TestGetUserResponseCapsLargeAnswer(t *testing.T) {
 }
 
 func TestGetUserResponseDefaultIsUnlimited(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	answer := strings.Repeat("x", 512*1024)
 	ch := make(chan string, 1)
 	ch <- answer
@@ -312,7 +421,7 @@ func TestGetUserResponseDefaultIsUnlimited(t *testing.T) {
 }
 
 func TestGetUserResponseCapsLargeAnswerAtUTF8Boundary(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	ch := make(chan string, 1)
 	ch <- "a🙂b"
 	state := &pendingDialogState{
@@ -345,7 +454,7 @@ func TestGetUserResponseCapsLargeAnswerAtUTF8Boundary(t *testing.T) {
 // Reason: When the dialog is open but no answer has arrived yet, get_user_response
 // must return a PENDING message (not block forever) after wait_seconds elapses.
 func TestGetUserResponseReturnsPendingOnTimeout(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	state := &pendingDialogState{
 		responseCh: make(chan string, 1),
 		activity:   &dialogActivity{},
@@ -412,7 +521,7 @@ func TestUpdateDialogUnknownToken(t *testing.T) {
 // Reason: When a valid token with an activity tracker exists, broadcast must
 // succeed and return a success message.
 func TestUpdateDialogBroadcastsToKnownToken(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	act := &dialogActivity{}
 	ch, unsub := act.subscribe()
 	defer unsub()
@@ -422,6 +531,13 @@ func TestUpdateDialogBroadcastsToKnownToken(t *testing.T) {
 	}
 	storePendingDialog(token, state)
 	defer deletePendingDialog(token)
+
+	deliveredCh := make(chan dialogOutboundEvent, 1)
+	go func() {
+		evt := <-ch
+		evt.markDelivered()
+		deliveredCh <- evt
+	}()
 
 	result, err := updateDialogHandler(nil, newTestRequest(map[string]any{
 		"token":   token,
@@ -439,7 +555,7 @@ func TestUpdateDialogBroadcastsToKnownToken(t *testing.T) {
 	}
 	// Verify the broadcast reached the subscriber.
 	select {
-	case evt := <-ch:
+	case evt := <-deliveredCh:
 		if evt.Type != dialogEventUpdate {
 			t.Errorf("expected update event type, got: %q", evt.Type)
 		}
@@ -454,10 +570,67 @@ func TestUpdateDialogBroadcastsToKnownToken(t *testing.T) {
 	}
 }
 
+func TestUpdateDialogReturnsQueuedWhenBrowserHasNotConsumedUpdate(t *testing.T) {
+	token := mustNewDialogToken(t)
+	act := &dialogActivity{}
+	_, unsub := act.subscribe()
+	defer unsub()
+	state := &pendingDialogState{
+		responseCh: make(chan string, 1),
+		activity:   act,
+	}
+	storePendingDialog(token, state)
+	defer deletePendingDialog(token)
+
+	result, err := updateDialogHandler(nil, newTestRequest(map[string]any{
+		"token":   token,
+		"message": "still rendering",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "queued") {
+		t.Fatalf("expected queued delivery status, got %q", resultText(result))
+	}
+}
+
+func TestUpdateDialogReturnsDroppedWhenSubscriberBufferIsFull(t *testing.T) {
+	token := mustNewDialogToken(t)
+	act := &dialogActivity{}
+	ch, unsub := act.subscribe()
+	defer unsub()
+	for i := 0; i < cap(ch); i++ {
+		ch <- dialogOutboundEvent{dialogEvent: dialogEvent{Type: dialogEventUpdate}}
+	}
+	state := &pendingDialogState{
+		responseCh: make(chan string, 1),
+		activity:   act,
+	}
+	storePendingDialog(token, state)
+	defer deletePendingDialog(token)
+
+	result, err := updateDialogHandler(nil, newTestRequest(map[string]any{
+		"token":   token,
+		"message": "buffer full",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "dropped") {
+		t.Fatalf("expected dropped delivery status, got %q", resultText(result))
+	}
+}
+
 // Reason: replace_last=true marks the event for browser-side replacement
 // without mutating the user-visible message body.
 func TestUpdateDialogReplaceLastFlag(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	act := &dialogActivity{}
 	ch, unsub := act.subscribe()
 	defer unsub()
@@ -468,6 +641,13 @@ func TestUpdateDialogReplaceLastFlag(t *testing.T) {
 	storePendingDialog(token, state)
 	defer deletePendingDialog(token)
 
+	deliveredCh := make(chan dialogOutboundEvent, 1)
+	go func() {
+		evt := <-ch
+		evt.markDelivered()
+		deliveredCh <- evt
+	}()
+
 	_, err := updateDialogHandler(nil, newTestRequest(map[string]any{
 		"token":        token,
 		"message":      "replaced",
@@ -477,7 +657,7 @@ func TestUpdateDialogReplaceLastFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case evt := <-ch:
+	case evt := <-deliveredCh:
 		if evt.Type != dialogEventUpdate {
 			t.Errorf("expected update event type, got: %q", evt.Type)
 		}
@@ -493,7 +673,7 @@ func TestUpdateDialogReplaceLastFlag(t *testing.T) {
 }
 
 func TestUpdateDialogSentinelLikeMessagesArePlainUpdates(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	act := &dialogActivity{}
 	ch, unsub := act.subscribe()
 	defer unsub()
@@ -504,6 +684,13 @@ func TestUpdateDialogSentinelLikeMessagesArePlainUpdates(t *testing.T) {
 	storePendingDialog(token, state)
 	defer deletePendingDialog(token)
 
+	deliveredCh := make(chan dialogOutboundEvent, 1)
+	go func() {
+		evt := <-ch
+		evt.markDelivered()
+		deliveredCh <- evt
+	}()
+
 	_, err := updateDialogHandler(nil, newTestRequest(map[string]any{
 		"token":   token,
 		"message": "__DISMISS__",
@@ -512,7 +699,7 @@ func TestUpdateDialogSentinelLikeMessagesArePlainUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case evt := <-ch:
+	case evt := <-deliveredCh:
 		if evt.Type != dialogEventUpdate {
 			t.Errorf("expected update event type, got: %q", evt.Type)
 		}
@@ -554,7 +741,7 @@ func TestCancelAskUserUnknownToken(t *testing.T) {
 // Reason: A dialog with cancelFn=nil cannot be cancelled — the handler must
 // return a clear error rather than panicking.
 func TestCancelAskUserNoCancelFn(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	state := &pendingDialogState{
 		responseCh: make(chan string, 1),
 		activity:   &dialogActivity{},
@@ -577,7 +764,7 @@ func TestCancelAskUserNoCancelFn(t *testing.T) {
 // Reason: The happy path — calling cancel on a live dialog must succeed and
 // invoke the cancelFn so the goroutine exits cleanly.
 func TestCancelAskUserSuccess(t *testing.T) {
-	token := newDialogToken()
+	token := mustNewDialogToken(t)
 	cancelled := false
 	state := &pendingDialogState{
 		responseCh: make(chan string, 1),

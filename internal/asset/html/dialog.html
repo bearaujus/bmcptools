@@ -8,14 +8,14 @@
 [[MD_CSS]]
 <style>
 :root{
-  --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#c7c7cc;
+  --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#6e6e73;
   --border:#e5e5ea;--chip-bg:#f0f0f5;--chip-hover:#e5f0ff;
   --bubble-bg:#edf3ff;--reply-bg:#fff;--dismiss-bg:#f2f2f7;
   --dismiss-fg:#3c3c43;--scroll-thumb:rgba(60,60,67,.28);
   --scroll-thumb-hover:rgba(60,60,67,.45);
 }
 @media(prefers-color-scheme:dark){:root{
-  --bg:#000;--card:#1c1c1e;--text:#fff;--text2:#8e8e93;--text3:#48484a;
+  --bg:#000;--card:#1c1c1e;--text:#fff;--text2:#8e8e93;--text3:#9a9aa0;
   --border:#38383a;--chip-bg:#2c2c2e;--chip-hover:#1a3460;
   --bubble-bg:#0a2560;--reply-bg:#1c1c1e;--dismiss-bg:#2c2c2e;
   --dismiss-fg:#ebebf5;--scroll-thumb:rgba(235,235,245,.34);
@@ -269,6 +269,12 @@ textarea.dragging{background:rgba(0,122,255,.08)}
   padding:10px 18px 14px;border-top:1px solid var(--border);gap:8px;
 }
 .ur-processing{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)}
+.status-retry{
+  padding:4px 10px;border-radius:999px;border:1px solid var(--border);
+  background:var(--chip-bg);color:var(--text);cursor:pointer;
+  font:600 11px/1 inherit;
+}
+.status-retry:hover{border-color:#007aff;color:#007aff}
 .processing-dots{display:flex;gap:3px;align-items:center}
 .processing-dots span{
   width:5px;height:5px;border-radius:50%;background:#007aff;animation:pd .9s infinite;
@@ -296,6 +302,7 @@ textarea.dragging{background:rgba(0,122,255,.08)}
   padding:8px 18px 6px;scroll-behavior:smooth;
   scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) transparent;
 }
+.upd-conn{font-size:11px;color:var(--text2);padding:2px 0 8px}
 .upd-item{display:flex;gap:10px;align-items:flex-start;padding:4px 0;animation:upd-in .25s ease}
 @keyframes upd-in{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
 .upd-dot{width:6px;height:6px;border-radius:50%;background:#007aff;margin-top:5px;flex-shrink:0}
@@ -383,7 +390,7 @@ textarea.dragging{background:rgba(0,122,255,.08)}
   <div class="attach-list" id="attachList" style="display:none"></div>
   <div class="reply-footer">
     <div style="display:flex;align-items:center;gap:8px">
-      <div class="hint" id="kbHint">&#8984;&#8629; to send</div>
+      <div class="hint" id="kbHint">Ctrl&#8629; to send</div>
       <div class="char-count" id="charCount"></div>
     </div>
     <div class="actions">
@@ -395,7 +402,7 @@ textarea.dragging{background:rgba(0,122,255,.08)}
 </div>
 </div>
 
-<div class="image-preview-modal" id="imagePreviewModal" onclick="closeImagePreview(event)">
+<div class="image-preview-modal" id="imagePreviewModal" role="dialog" aria-modal="true" aria-label="Image preview" tabindex="-1" onclick="closeImagePreview(event)">
   <div class="image-preview-panel">
     <div class="image-preview-toolbar">
       <a class="image-preview-action" id="imagePreviewDownload" href="#" download="image.png" title="Download image">
@@ -414,6 +421,24 @@ textarea.dragging{background:rgba(0,122,255,.08)}
 <script>
 var QUESTION_RAW = [[QUESTION_JSON]];
 var DETAILS_RAW = [[DETAILS_JSON]];
+
+function dialogTokenParam(){
+  try{
+    return new URLSearchParams(window.location.search).get('dialog_token') || '';
+  }catch(e){
+    return '';
+  }
+}
+
+function dialogEndpoint(path){
+  var token = dialogTokenParam();
+  if(!token) return path;
+  return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'dialog_token=' + encodeURIComponent(token);
+}
+
+function isSafeImageDataUrl(data){
+  return /^data:image\//i.test(String(data || ''));
+}
 
 // mdInline renders short inline-flavoured markdown (bold/italic/code/links)
 // without wrapping in a paragraph. Used for chips and chip badges where
@@ -447,15 +472,22 @@ function mdInline(raw){
 var total=[[TIMEOUT_SEC]],rem=total,selIdx=-1,selVal='',dialogDone=false;
 var timerPaused=false, resumeTimer=null;
 var attachments=[], attachmentSeq=0;
+var heartbeatIv=null;
+window.__LAST_SEND_BODY__='';
+window.__LAST_SEND_DISMISSED__=false;
 
 var badge=document.getElementById('tbadge');
-badge.textContent=fmtSec(rem);
+function setCountdownBadge(){
+  badge.textContent=(rem<=60?'Urgent · ':'')+fmtSec(rem);
+  badge.setAttribute('aria-label',(rem<=60?'Urgent, ':'')+fmtSec(rem)+' remaining');
+}
+setCountdownBadge();
 
 var iv=setInterval(function(){
   if(timerPaused)return;
   rem--;
   document.getElementById('pfill').style.width=(rem/total*100)+'%';
-  badge.textContent=fmtSec(rem);
+  setCountdownBadge();
   if(rem<=60){badge.classList.add('urgent');badge.classList.remove('paused');}
   else{badge.classList.remove('urgent');}
   if(rem<=0){clearInterval(iv);done(null);}
@@ -470,7 +502,7 @@ function pauseTimer(){
   resumeTimer=setTimeout(function(){
     timerPaused=false;
     badge.classList.remove('paused');
-    badge.textContent=fmtSec(rem);
+    setCountdownBadge();
     if(rem<=60)badge.classList.add('urgent');
   },3000);
 }
@@ -494,9 +526,9 @@ function renderAttachments(){
   if(!box)return;
   if(!attachments.length){box.style.display='none';box.innerHTML='';return;}
   box.style.display='flex';
-  box.innerHTML=attachments.map(function(a){
+  box.innerHTML=attachments.filter(function(a){return isSafeImageDataUrl(a.data);}).map(function(a){
     return '<div class="attach-item" data-id="'+a.id+'" role="button" tabindex="0" onclick="openImagePreviewById('+a.id+')" onkeydown="attachmentPreviewKey(event,'+a.id+')" title="View image">'+
-      '<img class="attach-thumb" src="'+a.data+'" alt="">'+
+      '<img class="attach-thumb" src="'+escHtml(a.data)+'" alt="">'+
       '<div class="attach-meta"><div class="attach-name" title="'+escHtml(a.name)+'">'+escHtml(a.name)+'</div>'+
       '<div class="attach-size">'+escHtml(a.type||'image')+' · '+readableBytes(a.size)+'</div></div>'+
       '<button class="attach-remove" type="button" onclick="event.stopPropagation();removeAttachment('+a.id+')" title="Remove image">'+
@@ -572,7 +604,9 @@ function openImagePreview(a){
   var img=document.getElementById('imagePreviewImg');
   var meta=document.getElementById('imagePreviewMeta');
   var download=document.getElementById('imagePreviewDownload');
-  if(!modal||!img||!a||!a.data)return;
+  var closeBtn=document.getElementById('imagePreviewClose');
+  if(!modal||!img||!a||!isSafeImageDataUrl(a.data))return;
+  window.__LAST_PREVIEW_FOCUS__ = document.activeElement;
   img.src=a.data;
   img.alt=a.name||'image';
   if(meta)meta.textContent=(a.name||'image')+' · '+(a.mime||a.type||'image')+' · '+readableBytes(a.size);
@@ -581,7 +615,10 @@ function openImagePreview(a){
     download.download=safeDownloadName(a.name||'image',a.mime||a.type||'image/png');
   }
   modal.classList.add('open');
+  modal.setAttribute('role','dialog');
+  modal.setAttribute('aria-modal','true');
   document.addEventListener('keydown',imagePreviewKeydown);
+  if(closeBtn)closeBtn.focus();
 }
 
 function safeDownloadName(name,mime){
@@ -605,10 +642,27 @@ function closeImagePreview(e){
   if(modal)modal.classList.remove('open');
   if(img)img.removeAttribute('src');
   document.removeEventListener('keydown',imagePreviewKeydown);
+  if(window.__LAST_PREVIEW_FOCUS__&&window.__LAST_PREVIEW_FOCUS__.focus){
+    window.__LAST_PREVIEW_FOCUS__.focus();
+  }
 }
 
 function imagePreviewKeydown(e){
-  if(e.key==='Escape')closeImagePreview();
+  if(e.key==='Escape'){closeImagePreview();return;}
+  if(e.key!=='Tab')return;
+  var modal=document.getElementById('imagePreviewModal');
+  if(!modal||!modal.classList.contains('open'))return;
+  var focusables=modal.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])');
+  if(!focusables.length)return;
+  var first=focusables[0];
+  var last=focusables[focusables.length-1];
+  if(e.shiftKey&&document.activeElement===first){
+    e.preventDefault();
+    last.focus();
+  } else if(!e.shiftKey&&document.activeElement===last){
+    e.preventDefault();
+    first.focus();
+  }
 }
 
 function pickChip(val,idx){
@@ -639,6 +693,7 @@ function refreshReplyTimerState(){
     badge.classList.add('paused');
     badge.textContent='\u23f8 \u2014 reply in progress';
   } else {
+    setCountdownBadge();
     pauseTimer();
   }
 }
@@ -697,31 +752,62 @@ function copyResponse(btn){
   });
 }
 
+function renderSendStatus(html){
+  var sa=document.getElementById('statusArea');
+  if(sa)sa.innerHTML=html;
+}
+
+function retryLastSend(){
+  if(!window.__LAST_SEND_BODY__||window.__LAST_SEND_DISMISSED__)return;
+  renderSendStatus(
+    '<div class="processing-dots"><span></span><span></span><span></span></div>'+
+    '<span>Retrying reply\u2026</span>'
+  );
+  fetch(dialogEndpoint('/answer'),{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:window.__LAST_SEND_BODY__
+  }).then(function(){
+    renderSendStatus('<span style="color:#34c759;font-size:12px">&#10003; Message sent</span>');
+    var f=document.getElementById('favicon');
+    if(f)f.href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%2334c759'/><path d='M8 16l5 6 11-11' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>";
+  }).catch(function(){
+    renderSendStatus(
+      '<span style="color:#ff3b30;font-size:12px">&#9888; Failed to send</span> '+
+      '<button class="status-retry" type="button" onclick="retryLastSend()">Retry send</button>'
+    );
+  });
+}
+
 function done(payload){
   dialogDone=true;
   clearInterval(iv);
   if(resumeTimer){clearTimeout(resumeTimer);}
+  if(heartbeatIv){clearInterval(heartbeatIv);heartbeatIv=null;}
   if(_sse){_sse.close();_sse=null;}
   var combined=payload?(payload.choice?(payload.choice+(payload.notes?'\n\n'+payload.notes:'')):payload.notes):'';
   var payloadAttachments=(payload&&Array.isArray(payload.attachments))?payload.attachments:[];
   var isDismissed=!combined.trim()&&payloadAttachments.length===0;
   // Always include `dismissed` so the server can skip retrying on an explicit dismissal.
   var body=JSON.stringify(Object.assign({},payload||{},{dismissed:isDismissed}));
+  window.__LAST_SEND_BODY__=body;
+  window.__LAST_SEND_DISMISSED__=isDismissed;
   var FAVICON_SENT="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%2334c759'/><path d='M8 16l5 6 11-11' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>";
   var FAVICON_ERR="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23ff3b30'/><text x='16' y='22' font-family='system-ui' font-size='20' font-weight='bold' text-anchor='middle' fill='white'>!</text></svg>";
   function setFavicon(url){var f=document.getElementById('favicon');if(f)f.href=url;}
-  fetch('/answer',{method:'POST',headers:{'Content-Type':'application/json'},body:body})
+  fetch(dialogEndpoint('/answer'),{method:'POST',headers:{'Content-Type':'application/json'},body:body})
     .then(function(r){
       if(!isDismissed){
-        var sa=document.getElementById('statusArea');
-        if(sa)sa.innerHTML='<span style="color:#34c759;font-size:12px">&#10003; Message sent</span>';
+        renderSendStatus('<span style="color:#34c759;font-size:12px">&#10003; Message sent</span>');
         setFavicon(FAVICON_SENT);
       }
     })
     .catch(function(){
       if(!isDismissed){
-        var sa=document.getElementById('statusArea');
-        if(sa)sa.innerHTML='<span style="color:#ff3b30;font-size:12px">&#9888; Failed to send</span>';
+        renderSendStatus(
+          '<span style="color:#ff3b30;font-size:12px">&#9888; Failed to send</span> '+
+          '<button class="status-retry" type="button" onclick="retryLastSend()">Retry send</button>'
+        );
         setFavicon(FAVICON_ERR);
       }
     });
@@ -752,7 +838,7 @@ function done(payload){
     window.__SENT_ATTACHMENTS__=payloadAttachments;
     attachHtml='<div class="attach-list" style="display:flex;padding:8px 0 0">'+payloadAttachments.map(function(a,idx){
       return '<div class="attach-item" role="button" tabindex="0" onclick="openSentImagePreview('+idx+')" onkeydown="sentAttachmentPreviewKey(event,'+idx+')" title="View image">'+
-        '<img class="attach-thumb" src="'+a.data+'" alt="">'+
+        '<img class="attach-thumb" src="'+escHtml(isSafeImageDataUrl(a.data)?a.data:'')+'" alt="">'+
         '<div class="attach-meta"><div class="attach-name" title="'+escHtml(a.name||'image')+'">'+escHtml(a.name||'image')+'</div>'+
         '<div class="attach-size">'+escHtml(a.mime||a.type||'image')+' · '+readableBytes(a.size)+'</div></div></div>';
     }).join('')+'</div>';
@@ -761,7 +847,7 @@ function done(payload){
 
   var sublabel=isDismissed?'Dismissed':'Replied at '+timeStr;
   var processingHtml=isDismissed?'<span style="color:var(--text2);font-size:12px">\u2715 No reply sent</span>':
-    '<div class="ur-processing" id="statusArea">'+
+    '<div class="ur-processing" id="statusArea" role="status" aria-live="polite">'+
       '<div class="processing-dots"><span></span><span></span><span></span></div>'+
       '<span>Sending reply\u2026</span>'+
     '</div>';
@@ -874,9 +960,9 @@ ta.addEventListener('input',function(){
 window.addEventListener('resize',function(){resizeReplyTextarea(ta);});
 ta.addEventListener('wheel',lockTextareaWheel,{passive:false});
 ta.addEventListener('keydown',function(e){
-  if(e.key==='Enter'&&!e.shiftKey&&!e.metaKey&&!e.ctrlKey&&!document.getElementById('sendBtn').disabled){
+  if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)&&!document.getElementById('sendBtn').disabled){
     e.preventDefault();
-    confirmSend();
+    sendAnswer();
   }
 });
 ta.addEventListener('paste',function(e){
@@ -914,7 +1000,7 @@ ta.focus();
 (function(){
   var isMac=/Mac|iPhone|iPad/.test(navigator.userAgentData?.platform||navigator.userAgent);
   var el=document.getElementById('kbHint');
-  if(el)el.textContent='↩ tap twice to send  ·  ⇧↩ new line';
+  if(el)el.textContent=(isMac?'\u2318':'Ctrl')+'\u21a9 send  \u00b7  \u21a9 new line';
 })();
 
 // AI → dialog live updates via Server-Sent Events.
@@ -923,7 +1009,26 @@ var _sse = null;
 (function(){
   if(!window.EventSource) return;
   var panel = document.getElementById('updatesPanel');
-  _sse = new EventSource('/updates');
+  function setUpdatesConnectionNotice(text){
+    if(!panel)return;
+    var note=panel.querySelector('.upd-conn');
+    if(!text){
+      if(note)note.remove();
+      return;
+    }
+    if(!note){
+      note=document.createElement('div');
+      note.className='upd-conn';
+      panel.insertBefore(note,panel.firstChild||null);
+    }
+    note.textContent=text;
+  }
+  if(panel){
+    panel.setAttribute('role','status');
+    panel.setAttribute('aria-live','polite');
+  }
+  _sse = new EventSource(dialogEndpoint('/updates'));
+  _sse.onopen = function(){ setUpdatesConnectionNotice(''); };
   _sse.onmessage = function(e){
     var msg='', isReplace=false;
     try {
@@ -951,6 +1056,7 @@ var _sse = null;
       msg=e.data;
     }
     panel.style.display = 'block';
+    setUpdatesConnectionNotice('');
     var now = new Date();
     var t = (now.getHours()<10?'0':'')+now.getHours()+':'+(now.getMinutes()<10?'0':'')+now.getMinutes();
     if(isReplace && panel.lastChild){
@@ -967,9 +1073,17 @@ var _sse = null;
     panel.appendChild(item);
     panel.scrollTop = panel.scrollHeight;
   };
-  _sse.onerror = function(){ _sse.close(); _sse = null; };
+  _sse.onerror = function(){
+    if(panel){
+      panel.style.display='block';
+      setUpdatesConnectionNotice('Live updates reconnecting\u2026');
+    }
+  };
 })();
-window.addEventListener('beforeunload', function(){ if(_sse){ _sse.close(); _sse = null; } });
+window.addEventListener('beforeunload', function(){
+  if(_sse){ _sse.close(); _sse = null; }
+  if(heartbeatIv){ clearInterval(heartbeatIv); heartbeatIv = null; }
+});
 
 // Heartbeat: report user activity to the server every 5 s so the AI can see
 // whether the user is typing, idle, or has left — used by get_user_response.
@@ -981,11 +1095,11 @@ window.addEventListener('beforeunload', function(){ if(_sse){ _sse.close(); _sse
   document.getElementById('ans').addEventListener('input',touch);
   document.getElementById('ans').addEventListener('paste',touch);
   document.getElementById('ans').addEventListener('drop',touch);
-  setInterval(function(){
+  heartbeatIv=setInterval(function(){
     if(dialogDone)return;
     var idle=(Date.now()-lastActivity)/1000;
     var isTyping=document.getElementById('ans').value.trim().length>0||attachments.length>0;
-    fetch('/heartbeat',{
+    fetch(dialogEndpoint('/heartbeat'),{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({typing:isTyping,idle_seconds:idle})

@@ -19,7 +19,7 @@ endif
 
 # ── Targets ──────────────────────────────────────────────────────────────────
 
-.PHONY: build install vet lint test clean
+.PHONY: build install vet fmt lint test clean
 
 ## build: compile the binary into ./bin/ (pass VERSION=<tag> to stamp the version)
 build: vet
@@ -34,6 +34,10 @@ install: vet
 ## vet: run go vet
 vet:
 	go vet ./...
+
+## fmt: format Go packages in this repo
+fmt:
+	go fmt ./...
 
 ## lint: run golangci-lint (requires golangci-lint to be installed)
 lint:

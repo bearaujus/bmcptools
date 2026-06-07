@@ -4,7 +4,7 @@
 
 [![Go](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/bearaujus/bmcptools)](https://github.com/bearaujus/bmcptools/releases)
-[![SafeSkill 90/100](https://img.shields.io/badge/SafeSkill-90%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan/bearaujus-bmcptools)
+[![SafeSkill 100/100](https://img.shields.io/badge/SafeSkill-100%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan?pkg=bearaujus%2Fbmcptools)
 
 Communication happens over **stdio** using the [`mark3labs/mcp-go`](https://github.com/mark3labs/mcp-go) library.
 
@@ -99,7 +99,7 @@ For Claude Desktop / Cursor configs:
 
 | Tool | Description |
 |------|-------------|
-| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file`. Compact path/size headers; defaults to 256 KB per file; binary summaries by default. |
+| `read_multiple_files` | Read 2+ files in one call. More efficient than repeated `read_file` for related small/medium files. Compact path/size headers; defaults to 128 KB per file and a 512 KB total output cap; binary summaries by default. For large repos, prefer `grep_files` first and then narrow with `ranges`, `head`, or `tail`. |
 | `write_multiple_files` | Write 2+ files in one call. `show_diff` defaults to false for performance. |
 | `find_replace_in_files` | Find-and-replace across a directory tree. Regex, glob/exclude filters, dry-run, per-file diffs, compact unmodified-file summary, and default oversized-file guard. |
 | `path_exists_batch` | Check whether multiple paths exist in one call. Returns type and size with a summary and limit control. |
@@ -169,6 +169,9 @@ make test
 # or directly:
 go test ./...
 
+# Format Go packages in this repo without passing mixed file types to gofmt
+make fmt
+
 # Run linter (requires golangci-lint)
 make lint
 ```
@@ -181,6 +184,8 @@ The codebase follows a modular layout. Public APIs live under `pkg/` (importable
 
 ```
 bmcptools/                     ← public API (server.go, registrar.go, toolnames.go)
+├── safeskill.manifest.json    ← transparency/permission manifest
+├── package.json + index.d.ts  ← npm metadata + typed tool/group inventory
 ├── cmd/bmcptools/             ← package main (entry point)
 ├── scripts/preview/           ← browser UI preview helper
 ├── pkg/
@@ -342,6 +347,19 @@ Get-FileHash bmcptools.exe -Algorithm SHA256
 | **macOS** | Run `xattr -d com.apple.quarantine bmcptools-mac-*` in Terminal, or right-click the binary → Open → Open |
 | **Windows** | Right-click the `.exe` → Properties → check **Unblock** → OK. Or in PowerShell: `Unblock-File bmcptools.exe` |
 | **Linux** | `chmod +x bmcptools-linux-*` (no signing issues, just needs execute permission) |
+
+---
+
+## Security & transparency
+
+bmcptools is scanned by [SafeSkill](https://safeskill.dev/scan?pkg=bearaujus%2Fbmcptools), which performs AST-based taint tracking and prompt-injection analysis on the source.
+
+For machine-readable transparency, the repo root ships:
+
+- **[`safeskill.manifest.json`](safeskill.manifest.json)** — declares the server's permissions (filesystem, shell, network, environment, clipboard, process), the full tool inventory, and confirms there is **no telemetry, no analytics, no hardcoded outbound endpoints, and no install scripts**.
+- **`package.json` / `index.d.ts` / `index.js`** — npm-ecosystem metadata (repository link, typed tool/group inventory). The package ships static metadata only; the server itself is the standalone Go binary.
+
+By design, bmcptools never collects or transmits user data on its own. Every network call is caller-initiated and SSRF-guarded (private/loopback/link-local targets are blocked unless explicitly allowed), `get_env` lists names only and redacts secret-like values by default, and destructive operations are gated and annotated.
 
 ---
 

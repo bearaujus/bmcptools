@@ -23,6 +23,17 @@ func RunIOBoundedParallel(total int, fn func(i int)) {
 	runParallel(total, ioWorkerLimit(total), fn)
 }
 
+// RunIOBoundedParallelWithLimit executes fn with IO-oriented worker sizing while
+// respecting a caller-supplied upper bound when one is useful for memory-heavy
+// operations.
+func RunIOBoundedParallelWithLimit(total, maxWorkers int, fn func(i int)) {
+	limit := ioWorkerLimit(total)
+	if maxWorkers > 0 && maxWorkers < limit {
+		limit = maxWorkers
+	}
+	runParallel(total, limit, fn)
+}
+
 // RunCPUBoundedParallel executes fn for each index with a worker cap tuned for
 // CPU-bound work.
 func RunCPUBoundedParallel(total int, fn func(i int)) {

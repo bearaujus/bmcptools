@@ -43,7 +43,20 @@ func cpuModel() string {
 			return strings.TrimSpace(string(out))
 		}
 	case "linux":
-		out, err := exec.Command("sh", "-c", `grep -m1 "model name" /proc/cpuinfo | cut -d: -f2`).Output()
+		data, err := os.ReadFile("/proc/cpuinfo")
+		if err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if !strings.HasPrefix(line, "model name") {
+					continue
+				}
+				if _, value, ok := strings.Cut(line, ":"); ok {
+					return strings.TrimSpace(value)
+				}
+			}
+		}
+	case "windows":
+		out, err := exec.Command("powershell", "-NoProfile", "-Command",
+			"(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name)").Output()
 		if err == nil {
 			return strings.TrimSpace(string(out))
 		}
@@ -64,7 +77,12 @@ func memoryInfo() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		pageSize := int64(16384)
+		pageSize := int64(4096)
+		if pageOut, err := exec.Command("sysctl", "-n", "hw.pagesize").Output(); err == nil {
+			if parsed, parseErr := strconv.ParseInt(strings.TrimSpace(string(pageOut)), 10, 64); parseErr == nil && parsed > 0 {
+				pageSize = parsed
+			}
+		}
 		vals := map[string]int64{}
 		for _, line := range strings.Split(string(vmOut), "\n") {
 			for _, key := range []string{"Pages free", "Pages inactive", "Pages speculative"} {

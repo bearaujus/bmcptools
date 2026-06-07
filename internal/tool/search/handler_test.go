@@ -596,6 +596,38 @@ func TestSearchFilesCaseInsensitiveGlob(t *testing.T) {
 	}
 }
 
+func TestSearchFilesOffsetPagination(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := searchFilesHandler(nil, newTestRequest(map[string]any{
+		"path":        dir,
+		"pattern":     "*.txt",
+		"max_results": float64(1),
+		"offset":      float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "b.txt") {
+		t.Fatalf("expected second page to include b.txt: %q", text)
+	}
+	if strings.Contains(text, "a.txt") {
+		t.Fatalf("did not expect first page item on second page: %q", text)
+	}
+	if !strings.Contains(text, "offset=2") {
+		t.Fatalf("expected next-page hint in output: %q", text)
+	}
+}
+
 func TestSearchFilesInvalidRegex(t *testing.T) {
 	result, err := searchFilesHandler(nil, newTestRequest(map[string]any{
 		"path":      t.TempDir(),
@@ -937,6 +969,31 @@ func TestGrepFilesMultilineMode(t *testing.T) {
 	}
 }
 
+func TestGrepFilesMultilineDefaultMaxFileSizeGuard(t *testing.T) {
+	dir := t.TempDir()
+	large := strings.Repeat("0123456789abcdef", defaultMultilineMaxFileSize/16+1)
+	if err := os.WriteFile(filepath.Join(dir, "large.txt"), []byte(large), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":      dir,
+		"pattern":   "0123\\n4567",
+		"multiline": true,
+		"use_regex": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "oversized") {
+		t.Fatalf("expected multiline default size guard to report oversized file: %q", text)
+	}
+}
+
 // Reason: Invalid regex with multiline=true should return a clear error rather
 // than panicking on Compile.
 func TestGrepFilesMultilineInvalidRegex(t *testing.T) {
@@ -1021,6 +1078,28 @@ func TestGrepFilesOffsetBeyondResultsReturnsNoMatches(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "No matches") {
 		t.Errorf("expected 'No matches' when offset exceeds results: %q", text)
+	}
+}
+
+func TestGrepFilesRejectsDeepContentOffset(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"pattern": "needle",
+		"offset":  float64(maxDeepContentOffset + 1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected deep-offset validation error, got: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "too deep") {
+		t.Fatalf("expected deep-offset guidance, got: %s", resultText(result))
 	}
 }
 
@@ -1229,5 +1308,56 @@ func TestDoubleStarMatch(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("doubleStarMatch(%q, %q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
 		}
+	}
+}
+
+func TestGrepFilesUTF16LE(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "utf16.txt")
+	content := helper.EncodeTextBytes("alpha\r\nbeta\r\nalpha\r\n", helper.TextEncodingUTF16LE, true)
+	if err := os.WriteFile(f, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":    dir,
+		"pattern": "alpha",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "utf16.txt:1: alpha") || !strings.Contains(text, "utf16.txt:3: alpha") {
+		t.Fatalf("expected UTF-16 file matches in output: %q", text)
+	}
+}
+
+func TestGrepFilesMaxMatchesPerFile(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(a, []byte("hit\nhit\nhit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("hit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := grepFilesHandler(nil, newTestRequest(map[string]any{
+		"path":                 dir,
+		"pattern":              "hit",
+		"output_mode":          "content",
+		"max_results":          float64(10),
+		"max_matches_per_file": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Count(text, "a.txt:") != 1 {
+		t.Fatalf("expected one collected match from a.txt, got: %q", text)
+	}
+	if !strings.Contains(text, "b.txt:1: hit") {
+		t.Fatalf("expected second file to appear once noisy file is capped: %q", text)
 	}
 }

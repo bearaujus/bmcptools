@@ -4,10 +4,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 )
 
-const wpfNotifyScriptTmpl = `
+const (
+	notifyEnvAccent   = "BMCP_NOTIFY_ACCENT"
+	notifyEnvDuration = "BMCP_NOTIFY_DURATION_SEC"
+	notifyEnvMessage  = "BMCP_NOTIFY_MESSAGE"
+	notifyEnvTitle    = "BMCP_NOTIFY_TITLE"
+)
+
+const wpfNotifyScript = `
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 $isDark = $false
 try {
@@ -17,7 +23,9 @@ try {
 $bg      = if ($isDark) { '#2D2D2D' } else { '#FFFFFF' }
 $fg      = if ($isDark) { '#E0E0E0' } else { '#1A1A1A' }
 $titleFg = if ($isDark) { '#FFFFFF' } else { '#000000' }
-$accent  = '{{ACCENT}}'
+$accent  = [Environment]::GetEnvironmentVariable('BMCP_NOTIFY_ACCENT')
+[int]$durationSec = 5
+[void][int]::TryParse([Environment]::GetEnvironmentVariable('BMCP_NOTIFY_DURATION_SEC'), [ref]$durationSec)
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         AllowsTransparency="True" WindowStyle="None"
@@ -43,14 +51,8 @@ $accent  = '{{ACCENT}}'
 "@
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [System.Windows.Markup.XamlReader]::Load($reader)
-$titleVal = @'
-{{TITLE}}
-'@
-$window.FindName('TitleBlock').Text = $titleVal.Trim()
-$msgVal = @'
-{{MESSAGE}}
-'@
-$window.FindName('MsgBlock').Text = $msgVal.Trim()
+$window.FindName('TitleBlock').Text = [Environment]::GetEnvironmentVariable('BMCP_NOTIFY_TITLE')
+$window.FindName('MsgBlock').Text = [Environment]::GetEnvironmentVariable('BMCP_NOTIFY_MESSAGE')
 $window.Add_MouseLeftButtonDown({ $window.Close() })
 $script:toastTimer = $null
 $window.Add_ContentRendered({
@@ -61,7 +63,7 @@ $window.Add_ContentRendered({
         [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(250)))
     $window.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $fadeIn)
     $script:toastTimer = [System.Windows.Threading.DispatcherTimer]::new()
-    $script:toastTimer.Interval = [TimeSpan]::FromSeconds({{DURATION_SEC}})
+    $script:toastTimer.Interval = [TimeSpan]::FromSeconds($durationSec)
     $script:toastTimer.Add_Tick({
         $script:toastTimer.Stop()
         $fadeOut = [System.Windows.Media.Animation.DoubleAnimation]::new(1, 0,
@@ -74,20 +76,7 @@ $window.Add_ContentRendered({
 $window.ShowDialog() | Out-Null
 `
 
-func sanitizePSHereString(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "'@" || trimmed == `"@` {
-			lines[i] = line + " "
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func runPSScriptBg(script string) {
+func runPSScriptBg(script string, env map[string]string) {
 	f, err := os.CreateTemp("", "bmcp-*.ps1")
 	if err != nil {
 		return
@@ -104,6 +93,10 @@ func runPSScriptBg(script string) {
 		"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
 		"-ExecutionPolicy", "Bypass", "-File", name,
 	)
+	cmd.Env = os.Environ()
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 	_ = cmd.Run()
 	os.Remove(name)
 }
@@ -118,10 +111,10 @@ func sendNotificationWindows(message, title, level string, durationSec int) {
 	if !ok {
 		accent = "#0078D4"
 	}
-	script := wpfNotifyScriptTmpl
-	script = strings.ReplaceAll(script, "{{ACCENT}}", accent)
-	script = strings.ReplaceAll(script, "{{TITLE}}", sanitizePSHereString(title))
-	script = strings.ReplaceAll(script, "{{MESSAGE}}", sanitizePSHereString(message))
-	script = strings.ReplaceAll(script, "{{DURATION_SEC}}", fmt.Sprintf("%d", durationSec))
-	runPSScriptBg(script)
+	runPSScriptBg(wpfNotifyScript, map[string]string{
+		notifyEnvAccent:   accent,
+		notifyEnvDuration: fmt.Sprintf("%d", durationSec),
+		notifyEnvMessage:  message,
+		notifyEnvTitle:    title,
+	})
 }

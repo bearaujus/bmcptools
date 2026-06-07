@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestRunCommandSuccess(t *testing.T) {
@@ -23,11 +24,11 @@ func TestRunCommandSuccess(t *testing.T) {
 	if !strings.Contains(text, "hello") {
 		t.Errorf("expected 'hello' in output: %q", text)
 	}
-	if !strings.Contains(text, "exit: 0") {
-		t.Errorf("expected 'exit: 0' in output: %q", text)
+	if !strings.HasPrefix(text, "exit 0 |") {
+		t.Errorf("expected compact success header in output: %q", text)
 	}
-	if !strings.Contains(text, "cwd:") {
-		t.Errorf("expected 'cwd:' in output: %q", text)
+	if !strings.Contains(text, "| cmd |") && runtime.GOOS == "windows" {
+		t.Errorf("expected shell label in output: %q", text)
 	}
 }
 
@@ -41,8 +42,8 @@ func TestRunCommandNonZeroExit(t *testing.T) {
 		t.Error("expected error result for non-zero exit code")
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "exit: 1") {
-		t.Errorf("expected 'exit: 1' in output: %q", text)
+	if !strings.HasPrefix(text, "exit 1 |") {
+		t.Errorf("expected compact non-zero header in output: %q", text)
 	}
 }
 
@@ -143,27 +144,24 @@ func main() {
 	}
 }
 
-func TestTruncateOutput(t *testing.T) {
-	tests := []struct {
-		input    string
-		limit    int
-		wantFull bool
-	}{
-		{"hello world", 0, true},   // no limit
-		{"hello world", 100, true}, // under limit
-		{"hello world", 5, false},  // over limit
+func TestSummarizeProcessFilterRuneSafe(t *testing.T) {
+	command := strings.Repeat("é", 40)
+	got := summarizeProcessFilter(command)
+	if !utf8.ValidString(got) {
+		t.Fatalf("expected valid UTF-8 summary, got %q", got)
 	}
-	for _, tt := range tests {
-		got := truncateOutput(tt.input, tt.limit)
-		if tt.wantFull {
-			if got != tt.input {
-				t.Errorf("truncateOutput(%q, %d): got %q, want original", tt.input, tt.limit, got)
-			}
-		} else {
-			if !strings.Contains(got, "truncated") {
-				t.Errorf("truncateOutput(%q, %d): expected 'truncated' notice: %q", tt.input, tt.limit, got)
-			}
-		}
+	if len([]rune(got)) != 30 {
+		t.Fatalf("expected 30-rune summary, got %d runes", len([]rune(got)))
+	}
+}
+
+func TestShellCommandPartsBashIsNonLogin(t *testing.T) {
+	_, args, _, err := shellCommandParts("bash", "echo hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) < 2 || args[0] != "-c" {
+		t.Fatalf("expected bash -c, got %v", args)
 	}
 }
 
@@ -275,8 +273,8 @@ func TestRunCommandAllowNonzeroExit(t *testing.T) {
 		t.Errorf("expected success result when allow_nonzero_exit=true, got error: %s", resultText(result))
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "exit: 42") {
-		t.Errorf("expected 'exit: 42' in output: %q", text)
+	if !strings.HasPrefix(text, "exit 42 |") {
+		t.Errorf("expected compact success header for non-zero exit: %q", text)
 	}
 }
 
@@ -327,11 +325,11 @@ func TestRunCommandRawOutput(t *testing.T) {
 		t.Errorf("expected command output in raw result: %q", text)
 	}
 	// raw_output should not include the metadata lines.
-	if strings.Contains(text, "exit:") {
-		t.Errorf("raw_output should not include 'exit:' metadata: %q", text)
+	if strings.Contains(text, "exit 0 |") {
+		t.Errorf("raw_output should not include compact metadata: %q", text)
 	}
-	if strings.Contains(text, "cwd:") {
-		t.Errorf("raw_output should not include 'cwd:' metadata: %q", text)
+	if strings.Contains(text, "| cmd |") || strings.Contains(text, "| sh |") || strings.Contains(text, "| powershell |") || strings.Contains(text, "| pwsh |") {
+		t.Errorf("raw_output should not include shell metadata: %q", text)
 	}
 }
 
@@ -351,6 +349,9 @@ func TestRunCommandInvalidCwd(t *testing.T) {
 	}
 	if !isResultError(result) {
 		t.Error("expected error for nonexistent working directory")
+	}
+	if !strings.Contains(resultText(result), "does not exist") {
+		t.Errorf("expected clear invalid cwd error, got: %q", resultText(result))
 	}
 }
 
@@ -395,6 +396,19 @@ func TestOpenInAppHandlerValidTarget(t *testing.T) {
 	// handler itself should not return an MCP error — it fires and forgets.
 	// We only need to ensure no panic and a text result.
 	_ = result
+}
+
+func TestValidateOpenTargetRejectsUnsupportedURLScheme(t *testing.T) {
+	err := validateOpenTarget("javascript:alert(1)")
+	if err == nil || !strings.Contains(err.Error(), "unsupported URL scheme") {
+		t.Fatalf("expected unsupported scheme error, got %v", err)
+	}
+}
+
+func TestValidateOpenTargetAllowsHTTPSURL(t *testing.T) {
+	if err := validateOpenTarget("https://example.com"); err != nil {
+		t.Fatalf("expected https URL to be allowed, got %v", err)
+	}
 }
 
 // ── run_command (additional edge cases) ──────────────────────────────────────
@@ -450,18 +464,14 @@ func TestRunCommandTimeoutKillsCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !isResultError(result) {
-		t.Fatalf("expected timeout error, got: %s", resultText(result))
+	if isResultError(result) {
+		t.Fatalf("expected structured timeout text result, got error: %s", resultText(result))
 	}
 	text := resultText(result)
-	if !strings.Contains(text, "command timed out") {
+	if !strings.Contains(text, "timed out after") {
 		t.Errorf("expected timeout message: %q", text)
 	}
-	partial := text
-	if idx := strings.Index(text, "Partial output:"); idx >= 0 {
-		partial = text[idx:]
-	}
-	if strings.Contains(partial, "after") {
+	if strings.Contains(text, "\nafter") || strings.Contains(text, "\rafter") {
 		t.Errorf("command appears to have continued after timeout: %q", text)
 	}
 }
@@ -499,7 +509,7 @@ func TestRunCommandRawOutputAllowNonzeroExit(t *testing.T) {
 	}
 	// raw mode must not include the 'exit:' metadata prefix
 	text := resultText(result)
-	if strings.Contains(text, "exit:") {
+	if strings.Contains(text, "exit 2 |") {
 		t.Errorf("raw_output should suppress metadata header: %q", text)
 	}
 }
@@ -687,6 +697,26 @@ func TestGetEnvRedactsSecretLikeNamesByDefault(t *testing.T) {
 	}
 }
 
+func TestGetEnvRedactsAWSSecretAccessKey(t *testing.T) {
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "aws-secret-value")
+	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
+		"key": "AWS_SECRET_ACCESS_KEY",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	text := resultText(result)
+	if strings.Contains(text, "aws-secret-value") {
+		t.Fatalf("expected AWS secret to be redacted, got %q", text)
+	}
+	if !strings.Contains(text, "redacted") {
+		t.Fatalf("expected redaction notice, got %q", text)
+	}
+}
+
 func TestGetEnvCanReturnUnredactedSpecificKey(t *testing.T) {
 	t.Setenv("BMCPTOOLS_API_KEY", "super-secret-value")
 	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
@@ -723,5 +753,38 @@ func TestGetEnvValueMaxBytesTruncates(t *testing.T) {
 	}
 	if strings.Contains(text, "1234567890") {
 		t.Errorf("expected full value to be omitted: %q", text)
+	}
+}
+
+func TestGetEnvAvoidsCommonFalsePositiveRedaction(t *testing.T) {
+	t.Setenv("BMCPTOOLS_GITHUB_TOKEN_AUDIENCE", "audience-value")
+	result, err := getEnvHandler(nil, newTestRequest(map[string]any{
+		"key": "BMCPTOOLS_GITHUB_TOKEN_AUDIENCE",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isResultError(result) {
+		t.Fatalf("unexpected error: %s", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "audience-value") {
+		t.Fatalf("expected non-secret audience value to remain visible, got %q", resultText(result))
+	}
+}
+
+func TestFormatEnvValueTruncatesUTF8Safely(t *testing.T) {
+	got := formatEnvValue("BMCPTOOLS_VALUE", strings.Repeat("é", 4), 3, false)
+	if !utf8.ValidString(got) {
+		t.Fatalf("expected valid UTF-8 output, got %q", got)
+	}
+	if !strings.Contains(got, "truncated") {
+		t.Fatalf("expected truncation notice, got %q", got)
+	}
+}
+
+func TestIsCommandNotFoundError(t *testing.T) {
+	err := &osexec.Error{Name: "pwsh", Err: osexec.ErrNotFound}
+	if !isCommandNotFoundError(err) {
+		t.Fatal("expected exec.ErrNotFound to be detected")
 	}
 }

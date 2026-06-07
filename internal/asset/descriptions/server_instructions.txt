@@ -81,7 +81,7 @@ compress_files and extract_archive handle zip/tar.gz archives. Use them instead 
 
 Multi-file tools exist to reduce round trips and avoid flooding context.
 
-read_multiple_files reads 2+ files in one call. Use it for related small/medium files; set per-file caps when files may be large, and keep the batch bounded with total_max_bytes. It can also expand root+glob in one round trip.
+read_multiple_files reads 2+ files in one call. Use it for related small/medium files after narrowing with grep_files/search_files when possible; set per-file caps when files may be large, and keep the batch bounded with total_max_bytes. For exploratory repo work, prefer ranges, head, or tail over many full-file reads. It can also expand root+glob in one round trip.
 
 write_multiple_files writes 2+ files in one call. Leave show_diff=false for broad generated writes unless per-file diffs are important.
 
@@ -138,6 +138,7 @@ run_command is a bounded, non-interactive command runner:
 - Set cwd explicitly when the command must run in a specific project directory.
 - Pick the shell that matches the syntax: sh/bash for Unix syntax and heredocs; powershell/pwsh for PowerShell syntax; cmd for simple Windows cmd commands.
 - cmd /C does not understand Unix syntax, heredocs, $VAR, or single-quoted strings.
+- Prefer repo-native wrappers such as make targets when a workflow spans multiple file types, and keep formatter invocations language-specific.
 - No PTY is allocated. Avoid interactive shells, TUIs, pagers, editors, curses apps, and full-screen prompts unless they have a non-interactive mode.
 - Use stdin for scripted input.
 - Use raw_output=true when you need parseable stdout/stderr without command metadata.

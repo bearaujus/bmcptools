@@ -9,6 +9,8 @@ import (
 
 var dmp = diffmatchpatch.New()
 
+const noNewlineAtEOFSentinel = "\x00BMCPT_NO_NEWLINE_AT_EOF"
+
 // GenerateDiff returns a standard unified diff of changes between original and
 // modified text. ctxLines unchanged lines surround each changed region.
 // Returns an empty string when the texts are identical.
@@ -17,6 +19,8 @@ func GenerateDiff(original, modified string, ctxLines int) string {
 		return ""
 	}
 
+	original = prepareDiffText(original)
+	modified = prepareDiffText(modified)
 	a, b, lineArray := dmp.DiffLinesToChars(original, modified)
 	rawDiffs := dmp.DiffMain(a, b, false)
 	lineDiffs := dmp.DiffCharsToLines(rawDiffs, lineArray)
@@ -37,13 +41,24 @@ func GenerateDiff(original, modified string, ctxLines int) string {
 		for _, l := range lines {
 			switch d.Type {
 			case diffmatchpatch.DiffEqual:
+				if l == noNewlineAtEOFSentinel {
+					continue
+				}
 				oLine++
 				nLine++
 				script = append(script, scriptLine{'=', l, oLine, nLine})
 			case diffmatchpatch.DiffDelete:
+				if l == noNewlineAtEOFSentinel {
+					script = append(script, scriptLine{'\\', " No newline at end of file", 0, 0})
+					continue
+				}
 				oLine++
 				script = append(script, scriptLine{'-', l, oLine, 0})
 			case diffmatchpatch.DiffInsert:
+				if l == noNewlineAtEOFSentinel {
+					script = append(script, scriptLine{'\\', " No newline at end of file", 0, 0})
+					continue
+				}
 				nLine++
 				script = append(script, scriptLine{'+', l, 0, nLine})
 			}
@@ -127,6 +142,8 @@ func GenerateDiff(original, modified string, ctxLines int) string {
 			cur.lines = append(cur.lines, "+"+sl.text)
 			cur.nCount++
 			lastNLine = sl.nLine
+		case '\\':
+			cur.lines = append(cur.lines, `\`+sl.text)
 		}
 	}
 	if cur != nil {
@@ -145,4 +162,11 @@ func GenerateDiff(original, modified string, ctxLines int) string {
 		}
 	}
 	return sb.String()
+}
+
+func prepareDiffText(text string) string {
+	if text == "" || strings.HasSuffix(text, "\n") {
+		return text
+	}
+	return text + "\n" + noNewlineAtEOFSentinel + "\n"
 }

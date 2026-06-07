@@ -1,10 +1,10 @@
 {
   "read_multiple_files": {
-    "desc": "Read several files in one call with compact per-file headers. Use instead of repeated read_file for related files, including sampling many large files with shared or per-file line windows. Each failed file is reported inline without aborting the batch; binary files return summaries unless include_base64=true. You can pass explicit paths, or use root+glob to bulk-read a matched file set in one round trip.",
+    "desc": "Read several files in one call with compact per-file headers. Use instead of repeated read_file for related files, especially after narrowing with grep_files or search_files. Shared or per-file line windows are supported for sampling large files; each failed file is reported inline without aborting the batch; BOM-marked UTF-16 is decoded automatically; binary files return summaries unless include_base64=true. You can pass explicit paths, or use root+glob to bulk-read a matched file set in one round trip.",
     "params": {
       "paths": "Optional array of file paths or {path, start_line?, end_line?, head?, tail?, ranges?, show_line_numbers?, max_bytes?} objects, in output order. Provide this, a glob, or both.",
-      "max_bytes_per_file": "Shared maximum bytes returned per file. Default: 262144 (256 KB). Non-positive values keep the default. Keep in mind that 256 KB of text can consume tens of thousands of tokens.",
-      "total_max_bytes": "Shared maximum rendered output bytes across the whole batch. Default: 1048576 (1 MB). Set 0 for unlimited; negative values use the default.",
+      "max_bytes_per_file": "Shared maximum bytes returned per file. Default: 131072 (128 KB). Non-positive values keep the default. Keep in mind that even 128 KB of text can consume many tokens.",
+      "total_max_bytes": "Shared maximum rendered output bytes across the whole batch. Default: 524288 (512 KB). Set 0 for unlimited; negative values use the default. Large full-file batches are still expensive even when output is capped, so prefer ranges/head/tail or smaller batches when exploring.",
       "include_base64": "For binary files, include capped base64 bytes in addition to metadata. Default: false.",
       "root": "Root directory used when glob is set. Defaults to the current working directory.",
       "glob": "Optional basename glob for bulk reads, such as *.go or *.{ts,tsx}. Matches are appended in walk order after any explicit paths.",
@@ -47,14 +47,14 @@
     }
   },
   "path_exists_batch": {
-    "desc": "Check existence/type/size for many paths in one call. Use before batch reads/writes or cleanup decisions instead of repeated path_exists calls.",
+    "desc": "Check existence/type/size for many paths in one call. Use before batch reads/writes or cleanup decisions instead of repeated path_exists calls; symlink targets are described when available.",
     "params": {
       "paths": "Non-empty array of file, directory, or symlink paths to check.",
       "limit": "Maximum paths to return. Default: 500; set 0 for all. Negative values use the default."
     }
   },
   "get_multiple_file_info": {
-    "desc": "Return metadata for many files/directories/symlinks in one call. Compact mode gives one line per path; details mode gives expanded fields. Errors are reported inline per path.",
+    "desc": "Return metadata for many files/directories/symlinks in one call. Compact mode gives one line per path; details mode gives expanded fields including symlink target metadata when available. Errors are reported inline per path.",
     "params": {
       "paths": "Non-empty array of paths to inspect.",
       "limit": "Maximum paths to return. Default: 100; set 0 for all. Negative values use the default.",
