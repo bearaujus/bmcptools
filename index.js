@@ -12,7 +12,7 @@
 const name = 'bmcptools';
 
 /** Server version, kept in sync with the package version. */
-const version = '1.10.0';
+const version = '1.10.1';
 
 /** One-line server description. */
 const description =

@@ -498,6 +498,10 @@ func grepFilesHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 			}
 			reserved = reserveMatchBudget(&reservedMatches, collectLimit, want)
 			if reserved <= 0 {
+				// Budget is exhausted by other files, so this file is left
+				// unsearched. Undo the attempted mark so the result is correctly
+				// reported as capped (limited) rather than fully searched.
+				results[i].attempted = false
 				return false
 			}
 			remaining = reserved

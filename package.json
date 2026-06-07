@@ -1,6 +1,6 @@
 {
   "name": "bmcptools",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "An MCP server exposing 44 developer tools (file I/O, shell execution, search, system info, and interactive user dialogs) to any MCP-compatible LLM client. Distributed as a standalone Go binary; this package ships static metadata only.",
   "keywords": [
     "mcp",

@@ -1,7 +1,7 @@
 {
   "manifestVersion": "1.0",
   "name": "bmcptools",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "type": "mcp-server",
   "description": "An MCP server exposing 44 developer tools (file I/O, shell execution, search, system info, and interactive user dialogs) to any MCP-compatible LLM client.",
   "repository": "https://github.com/bearaujus/bmcptools",
