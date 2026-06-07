@@ -2,6 +2,7 @@ package multi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1462,7 +1463,7 @@ func rollbackTransactionalWrites(staged []stagedWrite, committed int) error {
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf(strings.Join(errs, "; "))
+		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
 }
