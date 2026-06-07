@@ -305,8 +305,12 @@ func formatMultiReadSection(result multiReadResult, includeLeadingNewline bool) 
 }
 
 func multiReadSectionHeaderBytes(sectionText string) int {
-	if idx := strings.IndexByte(sectionText, '\n'); idx >= 0 {
-		return idx + 1
+	start := 0
+	if strings.HasPrefix(sectionText, "\n") {
+		start = 1
+	}
+	if idx := strings.IndexByte(sectionText[start:], '\n'); idx >= 0 {
+		return start + idx + 1
 	}
 	return len(sectionText)
 }

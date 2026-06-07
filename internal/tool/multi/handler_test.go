@@ -1162,9 +1162,33 @@ func TestReadMultipleFilesTotalMaxBytesPartiallyRendersCurrentSection(t *testing
 		t.Fatal(err)
 	}
 
+	// Temp paths embed the test name and vary in length across platforms, so a
+	// fixed budget cannot reliably land inside the second section's body. Render
+	// once without a budget to find where the second file's header ends, then
+	// pick a budget just past it so the second section is partially rendered.
+	full, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":           []any{first, second},
+		"total_max_bytes": float64(1 << 20),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullText := resultText(full)
+	hdrStart := strings.Index(fullText, "--- "+second)
+	if hdrStart < 0 {
+		t.Fatalf("expected second section header in full render, got: %q", fullText)
+	}
+	nlOffset := strings.IndexByte(fullText[hdrStart:], '\n')
+	if nlOffset < 0 {
+		t.Fatalf("expected newline after second section header, got: %q", fullText)
+	}
+	// Header line plus a little body, but far short of the 400-byte payload, so
+	// the section is truncated rather than fully rendered or omitted.
+	budget := hdrStart + nlOffset + 1 + 20
+
 	result, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
 		"paths":           []any{first, second},
-		"total_max_bytes": float64(220),
+		"total_max_bytes": float64(budget),
 	}))
 	if err != nil {
 		t.Fatal(err)
