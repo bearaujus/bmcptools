@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 )
 
 func promptChoiceConsole(question, details, title string, choices []string) (string, error) {
@@ -94,4 +95,46 @@ func promptConsole(question, details string) (string, error) {
 	fmt.Fprintf(os.Stderr, "\n[ask_user] Unable to access terminal. Please check your MCP client configuration.\n")
 	os.Stderr.Sync()
 	return "", nil
+}
+
+func promptRestConsole(title, subtitle, notes string, _ time.Duration) (string, error) {
+	printConsolePromptHeader(title)
+	if title == "" {
+		title = "AI Assistant"
+	}
+	fmt.Fprintf(os.Stderr, "%s is resting.\n", title)
+	if strings.TrimSpace(subtitle) != "" {
+		fmt.Fprintf(os.Stderr, "[%s]\n", subtitle)
+	}
+	if strings.TrimSpace(notes) != "" {
+		fmt.Fprintf(os.Stderr, "\nNotes:\n%s\n", notes)
+	}
+	fmt.Fprintf(os.Stderr, "\nPress Enter to wake the AI, or type a note and press Enter:\n")
+	os.Stderr.Sync()
+
+	var ttyPath string
+	if runtime.GOOS == "windows" {
+		ttyPath = "CONIN$"
+	} else {
+		ttyPath = "/dev/tty"
+	}
+
+	tty, err := os.Open(ttyPath)
+	if err != nil {
+		return "", fmt.Errorf("cannot open console (%s): %w", ttyPath, err)
+	}
+	defer tty.Close()
+
+	scanner := bufio.NewScanner(tty)
+	if scanner.Scan() {
+		note := strings.TrimSpace(scanner.Text())
+		if note == "" {
+			return "User woke up the AI.", nil
+		}
+		return "User woke up the AI with note: " + note, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "[Rest timed out — user did not wake the AI]", nil
 }

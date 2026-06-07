@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -57,6 +59,7 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 
 	followRedirects := req.GetBool("follow_redirects", true)
+	allowPrivate := req.GetBool("allow_private", false)
 	includeRespHeaders := req.GetBool("include_response_headers", false)
 	jsonFormat := normalizeHTTPJSONFormat(req.GetString("json_format", "compact"))
 	bodyFilter, err := newHTTPBodyFilter(req)
@@ -73,6 +76,9 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	httpReq, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid request: %v", err)), nil
+	}
+	if err := validateHTTPRequestURL(ctx, httpReq.URL, allowPrivate); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	if rawHeaders, ok := req.GetArguments()["headers"]; ok && rawHeaders != nil {
@@ -98,14 +104,8 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 		}
 	}
 
-	client := &http.Client{
-		Timeout: time.Duration(timeoutSec * float64(time.Second)),
-	}
-	if !followRedirects {
-		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-	}
+	timeout := time.Duration(timeoutSec * float64(time.Second))
+	client := newGuardedHTTPClient(timeout, followRedirects, allowPrivate)
 
 	start := time.Now()
 	resp, err := client.Do(httpReq)
@@ -123,6 +123,9 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Status:  %s\n", resp.Status)
 	fmt.Fprintf(&sb, "Elapsed: %s\n", elapsed.Round(time.Millisecond))
+	if finalURL := resp.Request.URL.String(); finalURL != httpReq.URL.String() {
+		fmt.Fprintf(&sb, "Final URL: %s\n", finalURL)
+	}
 	fmt.Fprintf(&sb, "Size:    %d bytes", len(respBody))
 	if truncated {
 		fmt.Fprintf(&sb, " shown (truncated at %s)", helper.HumanizeBytes(maxResponseBytes))
@@ -140,7 +143,7 @@ func httpRequestHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			fmt.Fprintf(&sb, "  %s: %s\n", k, strings.Join(resp.Header[k], ", "))
+			fmt.Fprintf(&sb, "  %s: %s\n", k, formatHTTPHeaderValue(k, resp.Header[k]))
 		}
 	}
 
@@ -603,10 +606,16 @@ func downloadFileHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 		return mcp.NewToolResultError("path is required"), nil
 	}
 	overwrite := req.GetBool("overwrite", false)
+	allowPrivate := req.GetBool("allow_private", false)
+	allowOutsideCWD := req.GetBool("allow_outside_cwd", false)
+	absPath, err := resolveDownloadDestination(path, allowOutsideCWD)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 
 	if !overwrite {
-		if _, err := os.Stat(path); err == nil {
-			return mcp.NewToolResultError(fmt.Sprintf("file already exists: %s (use overwrite=true to replace)", path)), nil
+		if _, err := os.Stat(absPath); err == nil {
+			return mcp.NewToolResultError(fmt.Sprintf("file already exists: %s (use overwrite=true to replace)", absPath)), nil
 		}
 	}
 
@@ -622,6 +631,9 @@ func downloadFileHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid URL: %v", err)), nil
 	}
+	if err := validateHTTPRequestURL(ctx, httpReq.URL, allowPrivate); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 
 	if rawHeaders, ok := req.GetArguments()["headers"]; ok && rawHeaders != nil {
 		if hmap, ok := rawHeaders.(map[string]any); ok {
@@ -631,9 +643,8 @@ func downloadFileHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 		}
 	}
 
-	client := &http.Client{
-		Timeout: time.Duration(timeoutSec * float64(time.Second)),
-	}
+	timeout := time.Duration(timeoutSec * float64(time.Second))
+	client := newGuardedHTTPClient(timeout, true, allowPrivate)
 
 	start := time.Now()
 	resp, err := client.Do(httpReq)
@@ -646,13 +657,13 @@ func downloadFileHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 		return mcp.NewToolResultError(fmt.Sprintf("download failed: HTTP %s", resp.Status)), nil
 	}
 
-	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+	if dir := filepath.Dir(absPath); dir != "" && dir != "." {
+		if err := helper.MkdirAllClear(dir, 0o755); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to create parent dirs: %v", err)), nil
 		}
 	}
 
-	f, err := os.Create(path)
+	f, err := os.Create(absPath)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create file: %v", err)), nil
 	}
@@ -660,11 +671,166 @@ func downloadFileHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 
 	written, err := io.Copy(f, resp.Body)
 	if err != nil {
-		os.Remove(path)
+		os.Remove(absPath)
 		return mcp.NewToolResultError(fmt.Sprintf("failed to write file: %v", err)), nil
 	}
 	elapsed := time.Since(start)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Downloaded %s to %s\nSize: %s\nElapsed: %s",
-		rawURL, path, helper.HumanizeBytes(written), elapsed.Round(time.Millisecond))), nil
+		rawURL, absPath, helper.HumanizeBytes(written), elapsed.Round(time.Millisecond))), nil
+}
+
+func newGuardedHTTPClient(timeout time.Duration, followRedirects, allowPrivate bool) *http.Client {
+	dialer := &net.Dialer{Timeout: timeout}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host := addr
+		if splitHost, _, err := net.SplitHostPort(addr); err == nil {
+			host = splitHost
+		}
+		if err := validateResolvedHTTPHost(ctx, host, allowPrivate); err != nil {
+			return nil, err
+		}
+		return dialer.DialContext(ctx, network, addr)
+	}
+
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if !followRedirects {
+			return http.ErrUseLastResponse
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		if err := validateHTTPRequestURL(context.Background(), req.URL, allowPrivate); err != nil {
+			return err
+		}
+		if len(via) > 0 && !sameHTTPHost(req.URL, via[len(via)-1].URL) {
+			stripSensitiveRedirectHeaders(req.Header)
+		}
+		return nil
+	}
+	return client
+}
+
+func validateHTTPRequestURL(ctx context.Context, target *url.URL, allowPrivate bool) error {
+	if target == nil {
+		return fmt.Errorf("url is required")
+	}
+	scheme := strings.ToLower(strings.TrimSpace(target.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme %q; use http or https", target.Scheme)
+	}
+	host := strings.TrimSpace(target.Hostname())
+	if host == "" {
+		return fmt.Errorf("URL host is required")
+	}
+	if err := validateResolvedHTTPHost(ctx, host, allowPrivate); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateResolvedHTTPHost(ctx context.Context, host string, allowPrivate bool) error {
+	if allowPrivate {
+		return nil
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return fmt.Errorf("cannot resolve %q: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("cannot resolve %q", host)
+	}
+	for _, addr := range ips {
+		if isBlockedHTTPIP(addr.IP) {
+			return fmt.Errorf("refusing private or loopback network target %q (%s); set allow_private=true to override", host, addr.IP.String())
+		}
+	}
+	return nil
+}
+
+func isBlockedHTTPIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		if ipv4[0] == 100 && ipv4[1] >= 64 && ipv4[1] <= 127 {
+			return true
+		}
+		if ipv4[0] == 198 && (ipv4[1] == 18 || ipv4[1] == 19) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameHTTPHost(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(a.Hostname(), b.Hostname()) && normalizedHTTPPort(a) == normalizedHTTPPort(b)
+}
+
+func normalizedHTTPPort(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	return "80"
+}
+
+func stripSensitiveRedirectHeaders(headers http.Header) {
+	for _, name := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+		headers.Del(name)
+	}
+}
+
+func formatHTTPHeaderValue(name string, values []string) string {
+	if isSensitiveHTTPHeader(name) {
+		return "[redacted]"
+	}
+	return strings.Join(values, ", ")
+}
+
+func isSensitiveHTTPHeader(name string) bool {
+	switch http.CanonicalHeaderKey(name) {
+	case "Authorization", "Cookie", "Proxy-Authorization", "Set-Cookie":
+		return true
+	default:
+		return false
+	}
+}
+
+func resolveDownloadDestination(path string, allowOutsideCWD bool) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve download path %q: %w", path, err)
+	}
+	if allowOutsideCWD {
+		return absPath, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("cannot get working directory: %w", err)
+	}
+	rel, err := filepath.Rel(cwd, absPath)
+	if err != nil {
+		return "", fmt.Errorf("refusing download path outside current working directory: %s; set allow_outside_cwd=true to override", absPath)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("refusing download path outside current working directory: %s; set allow_outside_cwd=true to override", absPath)
+	}
+	return absPath, nil
 }

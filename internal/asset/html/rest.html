@@ -8,12 +8,12 @@
 [[MD_CSS]]
 <style>
 :root{
-  --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#c7c7cc;
+  --bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--text2:#8e8e93;--text3:#6e6e73;
   --border:#e5e5ea;--accent:#ff9f0a;--accent2:#ff6b00;
   --ok:#34c759;
 }
 @media(prefers-color-scheme:dark){:root{
-  --bg:#000;--card:#1c1c1e;--text:#fff;--text2:#8e8e93;--text3:#48484a;
+  --bg:#000;--card:#1c1c1e;--text:#fff;--text2:#8e8e93;--text3:#9a9aa0;
   --border:#38383a;
 }}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -207,6 +207,20 @@ textarea::placeholder{color:var(--text3)}
 
 [[MD_JS]]
 <script>
+function dialogTokenParam(){
+  try{
+    return new URLSearchParams(window.location.search).get('dialog_token') || '';
+  }catch(e){
+    return '';
+  }
+}
+
+function dialogEndpoint(path){
+  var token = dialogTokenParam();
+  if(!token) return path;
+  return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'dialog_token=' + encodeURIComponent(token);
+}
+
 // ── Config ────────────────────────────────────────────────────────────────
 var TIMEOUT_SEC = [[TIMEOUT_SEC]];
 var NOTES_RAW   = [[NOTES_ESCAPED]]; // JSON-encoded string
@@ -233,12 +247,13 @@ var startMs = Date.now();
 var ringFill = document.getElementById('ringFill');
 var timerDot = document.getElementById('timerDot');
 var CIRCUMFERENCE = 2 * Math.PI * parseFloat(ringFill.getAttribute('r') || '40');
+var SAFE_TIMEOUT_SEC = TIMEOUT_SEC > 0 ? TIMEOUT_SEC : 1;
 ringFill.style.strokeDasharray = CIRCUMFERENCE;
 
 var restIv = setInterval(function(){
   var elapsed = (Date.now() - startMs) / 1000;
   var rem = TIMEOUT_SEC - elapsed;
-  var frac = Math.max(0, Math.min(1, rem / TIMEOUT_SEC));
+  var frac = Math.max(0, Math.min(1, rem / SAFE_TIMEOUT_SEC));
 
   document.getElementById('elapsed').textContent = fmtSec(elapsed) + ' elapsed';
   document.getElementById('remaining').textContent = rem > 0 ? fmtSec(rem) : '0s';
@@ -261,6 +276,10 @@ var restIv = setInterval(function(){
   if(rem <= 10 && rem > 0){
     document.getElementById('wakeBtn').querySelector('span:last-child').textContent =
       'Wake Up the AI (' + Math.ceil(rem) + ')';
+  }
+  if(rem <= 0){
+    clearInterval(restIv);
+    document.getElementById('wakeBtn').querySelector('span:last-child').textContent = 'Session ended';
   }
 }, 1000);
 
@@ -285,7 +304,7 @@ function wakeUp(){
   woken = true;
   clearInterval(restIv);
   var note = ta.value.trim();
-  fetch('/answer',{
+  fetch(dialogEndpoint('/answer'),{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({notes:note})

@@ -4,7 +4,7 @@
     "params": {}
   },
   "run_command": {
-    "desc": "Run a bounded non-interactive shell command and return combined stdout/stderr. Use for project scripts, tests, build tools, version-control inspection, or local operations not covered by purpose-built tools. This is not a terminal: no PTY, no full-screen apps, and no interactive prompts unless scripted through stdin.",
+    "desc": "Run a bounded non-interactive shell command and return combined stdout/stderr. Use for project scripts, tests, build tools, version-control inspection, or local operations not covered by purpose-built tools. Prefer repo-native wrappers such as make targets when a workflow spans multiple file types. This is not a terminal: no PTY, no full-screen apps, and no interactive prompts unless scripted through stdin.",
     "params": {
       "command": "Command string executed by the selected shell. Keep it non-interactive; pass scripted input with stdin when needed.",
       "cwd": "Working directory for the command. Defaults to the server's current working directory.",
@@ -15,13 +15,13 @@
       "shell": "Shell wrapper: default, sh, bash, cmd, powershell, or pwsh. Default is cmd on Windows and sh elsewhere; choose powershell/pwsh for PowerShell syntax and bash/sh for Unix syntax.",
       "allow_nonzero_exit": "Return non-zero exit output as a normal result instead of a tool error. Default: false.",
       "raw_output": "Return only stdout/stderr without command/cwd/shell/exit metadata. Useful for parseable JSON or machine-readable command output. Default: false.",
-      "detach": "Start a long-running process and return immediately with its PID. Output is not captured; timeout_seconds, stdin, and max_output_bytes are ignored. Default: false."
+      "detach": "Start a long-running process and return immediately with its PID. Output is not captured; timeout_seconds, stdin, and max_output_bytes are ignored. Detached processes inherit the current environment and are not auto-cleaned. Default: false."
     }
   },
   "open_in_app": {
-    "desc": "Open a local file, directory, or URL in the user's default system application. Non-blocking; prefer this over shelling out to open/start/xdg-open.",
+    "desc": "Open a local file, directory, or URL in the user's default system application. Non-blocking; prefer this over shelling out to open/start/xdg-open. URL targets are limited to http, https, and file schemes.",
     "params": {
-      "target": "File path, directory path, or URL to open.",
+      "target": "File path, directory path, or URL to open. Supported URL schemes: http, https, and file.",
       "app": "Optional application name to use on macOS. Ignored on other platforms."
     }
   },
@@ -33,7 +33,7 @@
       "include_values": "Include variable values. Default: true when key or filter is set, false when listing all variables.",
       "limit": "Maximum variables to show for list/filter modes. Default: 100; set 0 for all. Negative values use the default.",
       "value_max_bytes": "Maximum bytes per displayed value. Default: 4096; set 0 for full values. Negative values use the default.",
-      "redact_secrets": "Redact values for secret-like names containing markers such as TOKEN, PASSWORD, API_KEY, SECRET, or AUTH. Default: true."
+      "redact_secrets": "Redact values for secret-like names containing markers such as KEY, TOKEN, SECRET, PASSWORD, AUTH, DSN, JWT, COOKIE, or SESSION. Default: true."
     }
   }
 }

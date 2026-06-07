@@ -7,13 +7,11 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
-	"unicode/utf8"
 )
 
 // DefaultMaxReadBytes is the default limit for reading a single file as text.
 // Keep this conservative: tool output goes directly into model context.
-const DefaultMaxReadBytes = 256 * 1024
+const DefaultMaxReadBytes = 128 * 1024
 
 // AutoLineCountMaxBytes is the largest file size for which line counts are
 // computed automatically when the caller did not explicitly force counting.
@@ -68,8 +66,9 @@ func ReadFullText(f *os.File, info os.FileInfo, limit int) (string, bool, int, e
 		raw = raw[:limit]
 	}
 
-	lineCount := countLineBytes(StripBOM(raw))
-	result, _ := NormalizeTextBytes(raw)
+	decoded := DecodeTextBytes(raw)
+	lineCount := CountContentLines(decoded.Text)
+	result := decoded.Text
 	if truncated {
 		result += fmt.Sprintf(
 			"\n\n[TRUNCATED — showing first %s of %s. Use start_line/end_line to read specific sections.]",
@@ -154,6 +153,13 @@ func CountTextFileLinesWithInfo(path string, info os.FileInfo, force bool) (coun
 	if IsBinaryContent(header, http.DetectContentType(header)) {
 		return 0, false, false, nil
 	}
+	if encoding, hasBOM := DetectTextEncoding(header); hasBOM && encoding != TextEncodingUTF8 {
+		data, err := io.ReadAll(f)
+		if err != nil {
+			return 0, false, false, err
+		}
+		return CountContentLines(DecodeTextBytes(data).Text), true, false, nil
+	}
 	n, err := CountLines(f)
 	if err != nil {
 		return 0, false, false, err
@@ -190,12 +196,8 @@ func CountLines(f *os.File) (int, error) {
 // NormalizeTextBytes strips a UTF-8 BOM, replaces invalid UTF-8 only when
 // needed, and normalizes CRLF line endings.
 func NormalizeTextBytes(data []byte) (string, bool) {
-	data = StripBOM(data)
-	text := string(data)
-	if !utf8.Valid(data) {
-		text = strings.ToValidUTF8(text, "\uFFFD")
-	}
-	return NormalizeCRLF(text)
+	decoded := DecodeTextBytes(data)
+	return decoded.Text, decoded.HasCRLF
 }
 
 func countLineBytes(data []byte) int {

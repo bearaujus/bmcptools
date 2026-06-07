@@ -50,7 +50,10 @@ func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolReq
 
 		notify := req.GetBool("notify", true)
 
-		token := newDialogToken()
+		token, err := newDialogToken()
+		if err != nil {
+			return mcp.NewToolResultError("failed to create dialog session: " + err.Error()), nil
+		}
 		act := &dialogActivity{}
 		ctx, cancel := context.WithCancel(context.Background())
 		state := &pendingDialogState{
@@ -61,14 +64,13 @@ func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolReq
 		storePendingDialog(token, state)
 
 		go func() {
-			answer := runDialogBlocking(ctx, htmlSource, question, details, title, subtitle, choices, notify, timeout, act)
+			answer := runDialogBlocking(ctx, htmlSource, question, details, title, subtitle, choices, notify, timeout, token, act, state)
 			cancel() // release context resources
 			select {
 			case state.responseCh <- answer:
 			default:
 			}
-			time.Sleep(5 * time.Minute)
-			deletePendingDialog(token)
+			state.scheduleCleanup(token, dialogResultRetention)
 		}()
 
 		return mcp.NewToolResultText(
@@ -81,7 +83,7 @@ func makeAskUserHandler(htmlSource string) func(context.Context, mcp.CallToolReq
 	}
 }
 
-func runDialogBlocking(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, notify bool, timeout time.Duration, activity *dialogActivity) string {
+func runDialogBlocking(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, notify bool, timeout time.Duration, dialogToken string, activity *dialogActivity, state *pendingDialogState) string {
 	if notify {
 		msg := question
 		if len(msg) > 120 {
@@ -92,27 +94,19 @@ func runDialogBlocking(ctx context.Context, htmlSource, question, details, title
 
 	deadline := time.Now().Add(timeout)
 
-	const maxRetries = 3
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return "[User did not respond within the allotted time]"
-		}
-
-		answer, err := promptUser(ctx, htmlSource, question, details, title, subtitle, choices, remaining, activity)
-		if err != nil {
-			return fmt.Sprintf("[Failed to get user input: %v]", err)
-		}
-
-		if strings.TrimSpace(answer) != "" {
-			return answer
-		}
-
-		if attempt < maxRetries-1 {
-			time.Sleep(500 * time.Millisecond)
-		}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return "[User did not respond within the allotted time]"
 	}
 
+	answer, err := promptUser(ctx, htmlSource, question, details, title, subtitle, choices, remaining, dialogToken, activity, state)
+	if err != nil {
+		return fmt.Sprintf("[Failed to get user input: %v]", err)
+	}
+
+	if strings.TrimSpace(answer) != "" {
+		return answer
+	}
 	return "[User did not respond within the allotted time]"
 }
 
@@ -143,7 +137,7 @@ func getUserResponseHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Ca
 
 	select {
 	case answer := <-state.responseCh:
-		deletePendingDialog(token)
+		releasePendingDialog(token, dialogResultRetention)
 		return mcp.NewToolResultText(limitUserResponse(answer, maxResponseBytes)), nil
 	case <-time.After(time.Duration(waitSec) * time.Second):
 		return mcp.NewToolResultText(buildPendingMessage(token, state.activity)), nil
@@ -236,8 +230,8 @@ func updateDialogHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError("this dialog does not support live updates"), nil
 	}
 
-	state.activity.broadcastUpdate(message, replaceLast)
-	return mcp.NewToolResultText("message delivered to dialog"), nil
+	outcome := state.activity.broadcastUpdate(message, replaceLast, dialogUpdateDeliveryWait)
+	return mcp.NewToolResultText(formatDialogDeliveryOutcome(outcome)), nil
 }
 
 func cancelAskUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -256,4 +250,32 @@ func cancelAskUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.Call
 
 	state.cancelFn()
 	return mcp.NewToolResultText("dialog cancelled — browser will dismiss and get_user_response will return a cancellation message"), nil
+}
+
+func formatDialogDeliveryOutcome(outcome dialogDeliveryOutcome) string {
+	switch outcome.State {
+	case dialogDeliveryNoSubscribers:
+		return "message accepted, but no live browser client is currently connected"
+	case dialogDeliveryDropped:
+		return fmt.Sprintf("message dropped for %s", formatClientCount(outcome.Subscribers))
+	case dialogDeliveryDelivered:
+		msg := fmt.Sprintf("message delivered to %s", formatClientCount(outcome.Delivered))
+		if outcome.Dropped > 0 {
+			msg += fmt.Sprintf("; dropped for %s", formatClientCount(outcome.Dropped))
+		}
+		return msg
+	default:
+		msg := fmt.Sprintf("message queued for %s", formatClientCount(outcome.Queued))
+		if outcome.Dropped > 0 {
+			msg += fmt.Sprintf("; dropped for %s", formatClientCount(outcome.Dropped))
+		}
+		return msg
+	}
+}
+
+func formatClientCount(n int) string {
+	if n == 1 {
+		return "1 live dialog client"
+	}
+	return fmt.Sprintf("%d live dialog clients", n)
 }

@@ -1,6 +1,7 @@
 package multi
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1142,8 +1143,73 @@ func TestReadMultipleFilesTotalMaxBytes(t *testing.T) {
 	if !strings.Contains(text, "omitted") {
 		t.Fatalf("expected omitted-file notice: %q", text)
 	}
+	if !strings.Contains(text, "grep_files") || !strings.Contains(text, "ranges/head/tail") {
+		t.Fatalf("expected narrowing guidance in budget notice: %q", text)
+	}
 	if !strings.Contains(text, "Summary") {
 		t.Fatalf("expected summary in budgeted output: %q", text)
+	}
+}
+
+func TestReadMultipleFilesTotalMaxBytesPartiallyRendersCurrentSection(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a.txt")
+	second := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(first, []byte("first payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte(strings.Repeat("B", 400)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":           []any{first, second},
+		"total_max_bytes": float64(220),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Count(text, "--- ") < 2 {
+		t.Fatalf("expected capped output to include a partial second section header, got: %q", text)
+	}
+	if !strings.Contains(text, "partially rendered") {
+		t.Fatalf("expected partial-render budget note, got: %q", text)
+	}
+}
+
+func TestReadMultipleFilesContextCancellationStopsBeforeUnreadFiles(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a.txt")
+	second := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(first, []byte("first payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := readMultipleFilesHandler(ctx, newTestRequest(map[string]any{
+		"paths": []any{first, second},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, "first payload") || strings.Contains(text, "second payload") {
+		t.Fatalf("expected canceled batch to stop before reading file content, got: %q", text)
+	}
+	if !strings.Contains(text, "context ended") {
+		t.Fatalf("expected context-cancellation notice, got: %q", text)
+	}
+	if !strings.Contains(text, "processed 0 of 2 requested files") {
+		t.Fatalf("expected zero processed files after early cancellation, got: %q", text)
+	}
+	if !strings.Contains(text, "not started after context cancellation") {
+		t.Fatalf("expected unread-file summary after cancellation, got: %q", text)
 	}
 }
 
@@ -1197,6 +1263,29 @@ func TestReadMultipleFilesPartialFailure(t *testing.T) {
 	}
 	if !strings.Contains(text, "ERROR") && !strings.Contains(text, "failed") {
 		t.Errorf("expected error indication for missing file: %q", text)
+	}
+}
+
+func TestReadMultipleFilesRejectsConflictingSelectors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	if err := os.WriteFile(path, []byte("line1\nline2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := readMultipleFilesHandler(nil, newTestRequest(map[string]any{
+		"paths":      []any{path},
+		"head":       float64(1),
+		"start_line": float64(1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatalf("expected conflicting selector error, got: %q", resultText(result))
+	}
+	if !strings.Contains(resultText(result), "conflicting read selectors") {
+		t.Fatalf("expected conflicting selector guidance, got: %q", resultText(result))
 	}
 }
 
@@ -1571,5 +1660,103 @@ func TestMovePathsHandlerMovesFileAndDirectory(t *testing.T) {
 	}
 	if data, err := os.ReadFile(filepath.Join(dstDir, "nested.txt")); err != nil || string(data) != "nested" {
 		t.Fatalf("moved directory mismatch data=%q err=%v", data, err)
+	}
+}
+
+func TestPathExistsBatchShowsSymlinkTargetMetadata(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable on this platform/user: %v", err)
+	}
+
+	result, err := pathExistsBatchHandler(nil, newTestRequest(map[string]any{
+		"paths": []any{link},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "symlink ->") || !strings.Contains(text, "target: file") {
+		t.Fatalf("expected symlink target metadata in path_exists_batch: %q", text)
+	}
+}
+
+func TestGetMultipleFileInfoShowsSymlinkTargetMetadata(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable on this platform/user: %v", err)
+	}
+
+	result, err := getMultipleFileInfoHandler(nil, newTestRequest(map[string]any{
+		"paths":       []any{link},
+		"output_mode": "details",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if !strings.Contains(text, "Target:      file") || !strings.Contains(text, "Target Size:") {
+		t.Fatalf("expected symlink target metadata in get_multiple_file_info: %q", text)
+	}
+}
+
+func TestCopyPathsHandlerRejectsOverlappingDestinations(t *testing.T) {
+	dir := t.TempDir()
+	srcA := filepath.Join(dir, "a.txt")
+	srcB := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(srcA, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(srcB, []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dstDir := filepath.Join(dir, "dst")
+
+	result, err := copyPathsHandler(nil, newTestRequest(map[string]any{
+		"entries": []any{
+			map[string]any{"source": srcA, "destination": dstDir},
+			map[string]any{"source": srcB, "destination": filepath.Join(dstDir, "b.txt")},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) || !strings.Contains(resultText(result), "overlap") {
+		t.Fatalf("expected overlapping destination rejection, got: %s", resultText(result))
+	}
+}
+
+func TestMovePathsHandlerRejectsMoveChain(t *testing.T) {
+	dir := t.TempDir()
+	srcA := filepath.Join(dir, "a.txt")
+	srcB := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(srcA, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(srcB, []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := movePathsHandler(nil, newTestRequest(map[string]any{
+		"entries": []any{
+			map[string]any{"source": srcA, "destination": srcB},
+			map[string]any{"source": srcB, "destination": filepath.Join(dir, "c.txt")},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) || !strings.Contains(resultText(result), "overlap") {
+		t.Fatalf("expected move-chain rejection, got: %s", resultText(result))
 	}
 }

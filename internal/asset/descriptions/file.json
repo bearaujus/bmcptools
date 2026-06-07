@@ -1,11 +1,11 @@
 {
   "read_file": {
-    "desc": "Read one file as text, with optional line ranges or byte caps. Text is returned as UTF-8 with invalid bytes replaced; binary files return a compact summary unless include_base64=true. For large files, prefer head/tail, ranges, or start_line/end_line over reading the whole file; the 256 KB default can consume tens of thousands of tokens.",
+    "desc": "Read one file as text, with optional line ranges or byte caps. Text is returned as UTF-8 with invalid bytes replaced; BOM-marked UTF-16 is decoded automatically; binary files return a compact summary unless include_base64=true. For large files, prefer head/tail, ranges, or start_line/end_line over reading the whole file; the 128 KB default can still consume many tokens.",
     "params": {
       "path": "Path to the file.",
       "start_line": "First line to read, 1-indexed. Used when ranges/head/tail are not set.",
       "end_line": "Last line to read, inclusive. If omitted with start_line, reads through the end of the file.",
-      "max_bytes": "Maximum bytes to return for this read. Default: 262144 (256 KB). Non-positive values keep the default. Keep in mind that 256 KB of text can consume tens of thousands of tokens.",
+      "max_bytes": "Maximum bytes to return for this read. Default: 131072 (128 KB). Non-positive values keep the default. Keep in mind that even 128 KB of text can consume many tokens.",
       "include_base64": "For binary files, include capped base64 bytes in addition to metadata. Default: false.",
       "head": "Return only the first N lines. Takes precedence over start_line/end_line.",
       "tail": "Return only the last N lines. When combined with head, returns the last N lines of the head window.",
@@ -32,7 +32,7 @@
     }
   },
   "edit_file": {
-    "desc": "Surgically replace text in one existing text file and return a focused diff. Supports exact text or Go regex, single-edit mode or edits[] batch mode, dry runs, CRLF preservation, and a near-miss hint when a single exact pattern is not found. Binary files are rejected and large files are guarded by max_file_size.",
+    "desc": "Surgically replace text in one existing text file and return a focused diff. Supports exact text or Go regex, single-edit mode or edits[] batch mode, dry runs, CRLF preservation, BOM-marked UTF-16 text, and a near-miss hint when a single exact pattern is not found. Binary files are rejected and large files are guarded by max_file_size.",
     "params": {
       "path": "Path to the existing file to edit.",
       "old_str": "Text or Go regex to replace in single-edit mode. Add enough surrounding context to identify the intended occurrence.",
@@ -69,7 +69,7 @@
     }
   },
   "get_file_info": {
-    "desc": "Return metadata for one file, directory, or symlink: type, size, mode, modified time, symlink target, and optional line count for text files. Use before targeted reads in large files or when deciding whether a path is safe to modify.",
+    "desc": "Return metadata for one file, directory, or symlink: type, size, mode, modified time, symlink target metadata, and optional line count for text files. Use before targeted reads in large files or when deciding whether a path is safe to modify.",
     "params": {
       "path": "Path to inspect.",
       "output_mode": "\"compact\" (default) returns one line; \"details\" returns expanded labeled fields including absolute path.",
@@ -77,7 +77,7 @@
     }
   },
   "path_exists": {
-    "desc": "Cheap existence/type check for one path. Returns false for missing paths; returns type and size for files, directories, and symlinks. Prefer over read_file/get_file_info when you only need to branch on existence.",
+    "desc": "Cheap existence/type check for one path. Returns false for missing paths; returns type and size for files, directories, and symlinks, including symlink target metadata when available. Prefer over read_file/get_file_info when you only need to branch on existence.",
     "params": {
       "path": "Path to check."
     }
@@ -100,26 +100,26 @@
     }
   },
   "create_symlink": {
-    "desc": "Create a symbolic link. The target path is not prevalidated, so dangling links are possible. On Windows this may require Developer Mode or elevated privileges.",
+    "desc": "Create a symbolic link. Relative targets are resolved from the link directory and must stay within that directory tree; absolute targets must also stay under that tree. Dangling links inside that tree are allowed. On Windows this may require Developer Mode or elevated privileges.",
     "params": {
       "source": "Target path the symlink should point to.",
       "link": "Path of the symlink to create."
     }
   },
   "compress_files": {
-    "desc": "Create a zip or tar.gz archive from files/directories. Each input is stored by basename with descendants under it; empty directories are skipped. Output parent directories are created and the output path cannot be one of the inputs.",
+    "desc": "Create a zip, tar, or tar.gz archive from files/directories. Each input is stored by basename with descendants under it; empty directories are skipped. Output parent directories are created and the output path cannot be one of the inputs.",
     "params": {
       "paths": "Files or directories to include in the archive.",
       "output": "Archive path to create, such as backup.zip or archive.tar.gz.",
-      "format": "Archive format: \"zip\" or \"tar.gz\". Defaults to detection from output extension (.zip, .tar.gz, or .tgz)."
+      "format": "Archive format: \"zip\", \"tar\", or \"tar.gz\". Defaults to detection from output extension (.zip, .tar, .tar.gz, or .tgz)."
     }
   },
   "extract_archive": {
-    "desc": "Extract a zip or tar.gz archive to a directory, creating the output directory if needed. Entries are path-traversal protected so archive contents cannot escape the output directory.",
+    "desc": "Extract a zip, tar, or tar.gz archive to a directory, creating the output directory if needed. Entries are path-traversal protected so archive contents cannot escape the output directory.",
     "params": {
-      "archive": "Archive file path (.zip, .tar.gz, or .tgz unless format is provided).",
+      "archive": "Archive file path (.zip, .tar, .tar.gz, or .tgz unless format is provided).",
       "output": "Directory to extract into. Defaults to the server's current working directory.",
-      "format": "Archive format: \"zip\" or \"tar.gz\". Defaults to detection from archive extension."
+      "format": "Archive format: \"zip\", \"tar\", or \"tar.gz\". Defaults to detection from archive extension."
     }
   }
 }

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDecodeImageDataURLAcceptsImageDataURL(t *testing.T) {
@@ -27,7 +28,7 @@ func TestDecodeImageDataURLRejectsNonImages(t *testing.T) {
 }
 
 func TestSaveDialogAttachmentsSanitizesAndDeDuplicatesNames(t *testing.T) {
-	files, err := saveDialogAttachments([]dialogAttachmentPayload{
+	files, dir, err := saveDialogAttachments([]dialogAttachmentPayload{
 		{
 			Name: filepath.Join("..", `same"name.png`),
 			MIME: "image/png",
@@ -45,7 +46,7 @@ func TestSaveDialogAttachmentsSanitizesAndDeDuplicatesNames(t *testing.T) {
 	if len(files) != 2 {
 		t.Fatalf("expected two saved files, got %d", len(files))
 	}
-	defer os.RemoveAll(filepath.Dir(files[0].Path))
+	defer os.RemoveAll(dir)
 
 	if files[0].Name != "same_name.png" {
 		t.Fatalf("expected sanitized first filename, got %q", files[0].Name)
@@ -79,7 +80,7 @@ func TestSaveDialogAttachmentsSanitizesAndDeDuplicatesNames(t *testing.T) {
 }
 
 func TestSaveDialogAttachmentsSkipsDuplicateImageData(t *testing.T) {
-	files, err := saveDialogAttachments([]dialogAttachmentPayload{
+	files, dir, err := saveDialogAttachments([]dialogAttachmentPayload{
 		{
 			Name: "first.png",
 			MIME: "image/png",
@@ -97,7 +98,7 @@ func TestSaveDialogAttachmentsSkipsDuplicateImageData(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("expected duplicate image data to be saved once, got %d files", len(files))
 	}
-	defer os.RemoveAll(filepath.Dir(files[0].Path))
+	defer os.RemoveAll(dir)
 	if files[0].Name != "first.png" {
 		t.Fatalf("expected first attachment name to win, got %q", files[0].Name)
 	}
@@ -123,15 +124,44 @@ func TestSaveDialogAttachmentsRejectsTooManyFiles(t *testing.T) {
 		}
 	}
 
-	files, err := saveDialogAttachments(payloads)
+	files, dir, err := saveDialogAttachments(payloads)
 	if len(files) > 0 {
-		defer os.RemoveAll(filepath.Dir(files[0].Path))
+		defer os.RemoveAll(dir)
 	}
 	if err == nil {
 		t.Fatal("expected too many attachments to return an error")
 	}
 	if !strings.Contains(err.Error(), "too many attachments") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReleasePendingDialogCleansUpAttachmentsAfterGracePeriod(t *testing.T) {
+	files, dir, err := saveDialogAttachments([]dialogAttachmentPayload{{
+		Name: "keep.png",
+		MIME: "image/png",
+		Data: "data:image/png;base64,aGVsbG8=",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected one saved attachment, got %d", len(files))
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("expected attachment directory to exist before release: %v", err)
+	}
+
+	token := mustNewDialogToken(t)
+	state := &pendingDialogState{responseCh: make(chan string, 1)}
+	state.registerAttachmentDir(dir)
+	storePendingDialog(token, state)
+
+	releasePendingDialog(token, 10*time.Millisecond)
+	time.Sleep(60 * time.Millisecond)
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("expected attachment directory to be cleaned up, stat err=%v", err)
 	}
 }
 

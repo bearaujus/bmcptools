@@ -39,6 +39,111 @@ function safeHref(href) {
   return h;
 }
 
+var MD_ALLOWED_TAGS = {
+  a:1, blockquote:1, br:1, button:1, code:1, div:1, em:1, h1:1, h2:1, h3:1,
+  h4:1, h5:1, h6:1, hr:1, li:1, ol:1, p:1, path:1, pre:1, span:1, strong:1,
+  svg:1, table:1, tbody:1, td:1, th:1, thead:1, tr:1, ul:1
+};
+
+var MD_ALLOWED_ATTRS = {
+  a:{class:1, href:1, rel:1, target:1},
+  blockquote:{class:1},
+  button:{class:1, onclick:1, title:1, type:1, 'aria-label':1},
+  code:{class:1},
+  div:{class:1, 'data-hidden':1, 'data-md':1, 'data-total':1},
+  h1:{class:1}, h2:{class:1}, h3:{class:1}, h4:{class:1}, h5:{class:1}, h6:{class:1},
+  li:{class:1},
+  ol:{class:1, start:1},
+  p:{class:1},
+  path:{d:1, fill:1},
+  pre:{class:1},
+  span:{class:1},
+  svg:{'aria-hidden':1, height:1, viewbox:1, width:1},
+  table:{class:1},
+  tbody:{class:1},
+  td:{class:1, style:1},
+  th:{class:1, style:1},
+  thead:{class:1},
+  tr:{class:1},
+  ul:{class:1}
+};
+
+function sanitizeRenderedHTML(input) {
+  if(typeof document === 'undefined' || !document.createElement) return input;
+  var tpl = document.createElement('template');
+  tpl.innerHTML = input;
+  sanitizeRenderedNode(tpl.content);
+  return tpl.innerHTML;
+}
+
+function sanitizeRenderedNode(root) {
+  Array.prototype.slice.call(root.childNodes || []).forEach(function(node) {
+    if(node.nodeType === 3) return;
+    if(node.nodeType !== 1) {
+      if(node.parentNode) node.parentNode.removeChild(node);
+      return;
+    }
+    var tag = String(node.tagName || '').toLowerCase();
+    if(!MD_ALLOWED_TAGS[tag]) {
+      if(node.parentNode) node.parentNode.replaceChild(document.createTextNode(node.textContent || ''), node);
+      return;
+    }
+    var allowed = MD_ALLOWED_ATTRS[tag] || {};
+    Array.prototype.slice.call(node.attributes || []).forEach(function(attr) {
+      var name = String(attr.name || '').toLowerCase();
+      if(!allowed[name]) {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      sanitizeRenderedAttr(node, tag, name, attr.value);
+    });
+    sanitizeRenderedNode(node);
+  });
+}
+
+function sanitizeRenderedAttr(node, tag, name, value) {
+  if(name === 'href') {
+    var safe = safeHref(value);
+    if(!safe) {
+      node.removeAttribute('href');
+      node.removeAttribute('target');
+      node.removeAttribute('rel');
+      return;
+    }
+    node.setAttribute('href', safe);
+    node.setAttribute('target', '_blank');
+    node.setAttribute('rel', 'noopener noreferrer');
+    return;
+  }
+  if(name === 'style') {
+    var compact = String(value || '').replace(/\s+/g, '').toLowerCase();
+    if(!/^text-align:(left|right|center);?$/.test(compact)) {
+      node.removeAttribute('style');
+      return;
+    }
+    node.setAttribute('style', compact);
+    return;
+  }
+  if(name === 'onclick') {
+    if(['copyCode(this)', 'toggleCode(this)', 'copyTable(this)'].indexOf(String(value || '').trim()) === -1) {
+      node.removeAttribute('onclick');
+    }
+    return;
+  }
+  if(name === 'type' && String(value || '').toLowerCase() !== 'button') {
+    node.removeAttribute('type');
+    return;
+  }
+  if(name === 'start' && !/^\d+$/.test(String(value || ''))) {
+    node.removeAttribute('start');
+    return;
+  }
+  if(name === 'data-md') {
+    node.setAttribute('data-md', String(value || '').replace(/[\u0000-\u001f\u007f]/g, ''));
+    return;
+  }
+}
+
 function span(cls, s) {
   return '<span class="hl-'+cls+'">'+s+'</span>';
 }
@@ -127,7 +232,7 @@ function mdRender(raw) {
   var COLLAPSE_LINES = 10; // collapse code blocks taller than this
 
   // Unescape literal \n and \t from AI runtimes FIRST (before code block extraction)
-  raw = String(raw == null ? '' : raw);
+  raw = String(raw == null ? '' : raw).replace(/\u0000/g, '');
   var s = raw.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
 
   // Extract fenced code blocks before HTML-escaping so highlighter gets raw code.
@@ -140,7 +245,7 @@ function mdRender(raw) {
     var h = highlight(code, lang);
     var lines = h.split('\n');
     var numbered = lines.map(function(line, i) {
-      return '<span class="code-line"><span class="line-no">' + (i+1) + '</span>' + (line || ' ') + '</span>';
+      return '<span class="code-line"><span class="line-no">' + (i+1) + '</span>' + (line === '' ? '' : line) + '</span>';
     }).join('');
     var idx = blocks.length;
     var needsCollapse = lines.length > COLLAPSE_LINES;
@@ -300,7 +405,7 @@ function mdRender(raw) {
 
   // Restore code blocks
   s = s.replace(/\x00BLOCK(\d+)\x00/g, function(_, i) { return blocks[+i]; });
-  return s;
+  return sanitizeRenderedHTML(s);
 }
 
 // ── Copy button handlers ─────────────────────────────────────────────────────

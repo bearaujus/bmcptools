@@ -1,14 +1,15 @@
 {
   "list_directory": {
-    "desc": "List entries in one directory, or a bounded recursive listing when recursive=true. Use for detailed inventory with sizes and modified times; use directory_tree for a compact structural overview. Output is capped by max_entries, so narrow with glob/exclude_patterns before raising caps.",
+    "desc": "List entries in one directory, or a bounded recursive listing when recursive=true. Use directory_tree first for a cheaper structural overview; use list_directory when you need a more detailed inventory. Recursive calls default-prune common dependency/build directories such as node_modules, .git, vendor, dist, build, target, .next, __pycache__, and .venv unless you pass exclude_patterns explicitly. Output is capped by max_entries, so narrow with glob/exclude_patterns before raising caps.",
     "params": {
       "path": "Directory to list. Defaults to the server's current working directory.",
-      "show_hidden": "Include names starting with '.'. Default: false; hidden directories are skipped recursively unless true.",
+      "show_hidden": "Include hidden entries, including Windows hidden/system items. Default: false; hidden directories are skipped recursively unless true.",
       "recursive": "Descend into subdirectories. Default: false.",
       "max_depth": "Maximum recursion depth when recursive=true. Default: 3; 0 lists only the root level.",
       "sort_by": "Sort siblings by \"name\" (default) or file \"size\" descending. Directories remain grouped before files.",
-      "glob": "Optional file-name glob such as *.go or *.{ts,tsx}. Applies to files only; directories may still be shown/traversed.",
-      "exclude_patterns": "Optional basename globs to prune before listing, such as node_modules, .git, dist, or *.log. Matching directories are skipped with their contents.",
+      "detail": "\"names\" shows only entry names, \"size\" (default) adds file sizes, and \"full\" adds sizes plus modified times.",
+      "glob": "Optional file-name glob such as *.go or *.{ts,tsx}. Applies to files and link leaves; recursive listings prune directories whose visible subtree has no match.",
+      "exclude_patterns": "Optional basename globs to prune before listing, such as node_modules, .git, dist, or *.log. Matching directories are skipped with their contents. If omitted, common dependency/build directories are pruned by default; pass an explicit empty array to disable that default set.",
       "max_entries": "Maximum entries to return. Default: 500; set 0 for unlimited. Negative values use the default."
     }
   },
@@ -26,13 +27,14 @@
     }
   },
   "directory_tree": {
-    "desc": "Render a recursive visual tree with file sizes and summary counts. Best for understanding project structure at a glance. Output is capped by max_entries; use exclude_patterns and glob to keep large trees readable.",
+    "desc": "Render a recursive visual tree with summary counts. Best for understanding project structure at a glance and usually the cheapest first probe for an unfamiliar repo. Recursive calls default-prune common dependency/build directories such as node_modules, .git, vendor, dist, build, target, .next, __pycache__, and .venv unless you pass exclude_patterns explicitly. Output is capped by max_entries; use glob/exclude_patterns to keep large trees readable.",
     "params": {
       "path": "Root directory to display.",
       "max_depth": "Maximum depth to display. Default: 3; deeper directories are summarized with ellipses.",
-      "show_hidden": "Include hidden files/directories whose names start with '.'. Default: false.",
-      "exclude_patterns": "Optional basename globs to prune, such as node_modules, .git, dist, or *.log. Matching directories are skipped with their contents.",
-      "glob": "Optional file-name glob such as *.go. Directories are shown only when they contain matching descendants within max_depth.",
+      "show_hidden": "Include hidden files/directories, including Windows hidden/system items. Default: false.",
+      "exclude_patterns": "Optional basename globs to prune, such as node_modules, .git, dist, or *.log. Matching directories are skipped with their contents. If omitted, common dependency/build directories are pruned by default; pass an explicit empty array to disable that default set.",
+      "detail": "\"names\" (default) shows only structure, \"size\" adds file sizes, and \"full\" adds sizes plus modified times.",
+      "glob": "Optional file-name glob such as *.go. Directories are shown only when they contain matching descendants within max_depth; symlinked directories are labeled but not traversed.",
       "max_entries": "Maximum entries to return. Default: 500; set 0 for unlimited. Negative values use the default."
     }
   }

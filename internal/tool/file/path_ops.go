@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
+	"sync/atomic"
 
 	"github.com/bearaujus/bmcptools/internal/helper"
 )
@@ -205,18 +208,57 @@ func copyDirectory(source, destination string, overwrite bool, srcInfo os.FileIn
 		source string
 		target string
 		mode   os.FileMode
-		size   int64
-	}
-	type dirCreateJob struct {
-		target string
-		mode   os.FileMode
 	}
 
-	var dirs []dirCreateJob
-	var files []dirCopyJob
+	jobs := make(chan dirCopyJob, directoryCopyWorkerCount())
+	var workerWG sync.WaitGroup
+	var fileCount atomic.Int64
+	var bytesCopied atomic.Int64
+	var firstErr error
+	var firstErrMu sync.Mutex
+	var failed atomic.Bool
+
+	recordCopyError := func(err error) {
+		if err == nil {
+			return
+		}
+		firstErrMu.Lock()
+		defer firstErrMu.Unlock()
+		if firstErr != nil {
+			return
+		}
+		firstErr = err
+		failed.Store(true)
+	}
+
+	for worker := 0; worker < directoryCopyWorkerCount(); worker++ {
+		workerWG.Add(1)
+		go func() {
+			defer workerWG.Done()
+			for job := range jobs {
+				if err := validateCopyTarget(job.target, overwrite); err != nil {
+					recordCopyError(err)
+					continue
+				}
+				n, err := helper.CopyFileDataN(job.source, job.target, job.mode)
+				if err != nil {
+					recordCopyError(fmt.Errorf("%s -> %s: %w", job.source, job.target, err))
+					continue
+				}
+				fileCount.Add(1)
+				bytesCopied.Add(n)
+			}
+		}()
+	}
+
+	errCopyAborted := fmt.Errorf("directory copy aborted")
+	dirCount := 0
 	walkErr := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if failed.Load() {
+			return errCopyAborted
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("copying directory trees containing symlinks is not supported: %s", path)
@@ -232,71 +274,72 @@ func copyDirectory(source, destination string, overwrite bool, srcInfo os.FileIn
 		}
 
 		if info.IsDir() {
-			dirs = append(dirs, dirCreateJob{target: target, mode: info.Mode().Perm()})
+			if err := helper.MkdirAllClear(target, info.Mode().Perm()); err != nil {
+				return fmt.Errorf("cannot create directory %q: %w", target, err)
+			}
+			dirCount++
 			return nil
 		}
 
-		files = append(files, dirCopyJob{
+		jobs <- dirCopyJob{
 			source: path,
 			target: target,
 			mode:   info.Mode().Perm(),
-			size:   info.Size(),
-		})
+		}
 		return nil
 	})
+	close(jobs)
+	workerWG.Wait()
+
 	if walkErr != nil {
+		if walkErr == errCopyAborted {
+			if firstErr != nil {
+				return CopyStats{}, firstErr
+			}
+		}
 		return CopyStats{}, walkErr
 	}
-
-	for _, dirJob := range dirs {
-		if err := helper.MkdirAllClear(dirJob.target, dirJob.mode); err != nil {
-			return CopyStats{}, fmt.Errorf("cannot create directory %q: %w", dirJob.target, err)
-		}
+	if firstErr != nil {
+		return CopyStats{}, firstErr
 	}
-
-	for _, fileJob := range files {
-		if dstInfo, err := os.Stat(fileJob.target); err == nil {
-			if dstInfo.IsDir() {
-				return CopyStats{}, fmt.Errorf("destination %q already exists as a directory", fileJob.target)
-			}
-			if !overwrite {
-				return CopyStats{}, fmt.Errorf("destination %q already exists; set overwrite=true to replace it", fileJob.target)
-			}
-		} else if !os.IsNotExist(err) {
-			return CopyStats{}, fmt.Errorf("cannot stat destination %q: %w", fileJob.target, err)
-		}
-	}
-
-	type fileCopyResult struct {
-		bytes int64
-		err   error
-	}
-	results := make([]fileCopyResult, len(files))
-	helper.RunIOBoundedParallel(len(files), func(i int) {
-		n, err := helper.CopyFileDataN(files[i].source, files[i].target, files[i].mode)
-		if err != nil {
-			results[i].err = fmt.Errorf("%s -> %s: %w", files[i].source, files[i].target, err)
-			return
-		}
-		results[i].bytes = n
-	})
-
-	stats := CopyStats{
-		SourceKind: "directory",
-		Files:      len(files),
-		Dirs:       len(dirs),
-	}
-	for _, result := range results {
-		if result.err != nil {
-			return CopyStats{}, result.err
-		}
-		stats.Bytes += result.bytes
-	}
-	if stats.Dirs == 0 {
+	if dirCount == 0 {
 		if err := helper.MkdirAllClear(destination, srcInfo.Mode().Perm()); err != nil {
 			return CopyStats{}, fmt.Errorf("cannot create destination directory: %w", err)
 		}
-		stats.Dirs = 1
+		dirCount = 1
 	}
-	return stats, nil
+	return CopyStats{
+		SourceKind: "directory",
+		Files:      int(fileCount.Load()),
+		Dirs:       dirCount,
+		Bytes:      bytesCopied.Load(),
+	}, nil
+}
+
+func validateCopyTarget(target string, overwrite bool) error {
+	dstInfo, err := os.Stat(target)
+	if err == nil {
+		if dstInfo.IsDir() {
+			return fmt.Errorf("destination %q already exists as a directory", target)
+		}
+		if !overwrite {
+			return fmt.Errorf("destination %q already exists; set overwrite=true to replace it", target)
+		}
+		return nil
+	}
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return fmt.Errorf("cannot stat destination %q: %w", target, err)
+}
+
+func directoryCopyWorkerCount() int {
+	workers := runtime.GOMAXPROCS(0) * 2
+	if workers < 2 {
+		workers = 2
+	}
+	if workers > 16 {
+		workers = 16
+	}
+	return workers
 }

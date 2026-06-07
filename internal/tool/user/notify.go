@@ -39,8 +39,8 @@ func notifyUserHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	go sendNotificationFn(message, title, level, int(durationSec))
 
 	return mcp.NewToolResultText(fmt.Sprintf(
-		"[Notification sent] title=%q level=%s message_bytes=%d",
-		title, level, len(message),
+		"[Notification sent] title=%q level=%s message_bytes=%d duration_support=%s",
+		title, level, len(message), notificationDurationSupport(runtime.GOOS),
 	)), nil
 }
 
@@ -104,4 +104,15 @@ func macASQuote(s string) string {
 	s = strings.ReplaceAll(s, "\n", `" & return & "`)
 	s = strings.ReplaceAll(s, "\r", `" & return & "`)
 	return `"` + s + `"`
+}
+
+func notificationDurationSupport(goos string) string {
+	switch goos {
+	case "windows":
+		return "supported"
+	case "darwin":
+		return "platform_controlled"
+	default:
+		return "best_effort"
+	}
 }

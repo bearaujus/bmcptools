@@ -20,6 +20,7 @@ package dialog
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -28,7 +29,7 @@ import (
 type DialogTemplate struct{ html string }
 
 // NewDialogTemplate validates html and returns a DialogTemplate.
-// Returns an error if the HTML does not reference the /answer endpoint.
+// Returns an error if the HTML does not actively use the /answer endpoint.
 func NewDialogTemplate(html string) (DialogTemplate, error) {
 	if err := requireEndpoints(html, "/answer"); err != nil {
 		return DialogTemplate{}, fmt.Errorf("dialog template: %w", err)
@@ -44,7 +45,7 @@ func (t DialogTemplate) HTML() string { return t.html }
 type RestTemplate struct{ html string }
 
 // NewRestTemplate validates html and returns a RestTemplate.
-// Returns an error if the HTML does not reference /answer.
+// Returns an error if the HTML does not actively use /answer.
 func NewRestTemplate(html string) (RestTemplate, error) {
 	if err := requireEndpoints(html, "/answer"); err != nil {
 		return RestTemplate{}, fmt.Errorf("rest template: %w", err)
@@ -55,20 +56,43 @@ func NewRestTemplate(html string) (RestTemplate, error) {
 // HTML returns the validated HTML content.
 func (t RestTemplate) HTML() string { return t.html }
 
-// requireEndpoints returns an error when html does not contain every listed
-// endpoint path as a substring. This is intentionally a string-scan, not an
-// HTML parser — it is a lightweight safety net, not a full validator.
-// Note: a false positive is possible if an endpoint string appears in a comment
-// or longer path (e.g. "/answer-submitted" satisfies the "/answer" check).
+var htmlCommentPattern = regexp.MustCompile(`(?is)<!--.*?-->`)
+
+// requireEndpoints returns an error when html does not appear to submit to every
+// listed endpoint via a form action or common JavaScript transport. This is
+// still a lightweight guard, not a full browser/runtime validator, but it
+// avoids the old false positives from comments and longer unrelated paths.
 func requireEndpoints(html string, endpoints ...string) error {
+	html = htmlCommentPattern.ReplaceAllString(html, "")
 	var missing []string
 	for _, ep := range endpoints {
-		if !strings.Contains(html, ep) {
+		if !usesEndpoint(html, ep) {
 			missing = append(missing, ep)
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("HTML must reference endpoint(s): %s", strings.Join(missing, ", "))
+		return fmt.Errorf("HTML must submit to endpoint(s): %s", strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+func usesEndpoint(html, endpoint string) bool {
+	quoted := regexp.QuoteMeta(endpoint)
+	attrRef := quoted + `(?:[?#][^"']*)?`
+	scriptRef := `["']` + quoted + `(?:[?#][^"']*)?["']`
+	helperRef := `\bdialogEndpoint\s*\(\s*` + scriptRef + `\s*\)`
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?is)<form\b[^>]*\b(?:action|formaction|hx-post)\s*=\s*["'][^"']*` + attrRef + `["']`),
+		regexp.MustCompile(`(?is)\bfetch\s*\([^)]*(?:` + helperRef + `|` + scriptRef + `)[^)]*\)`),
+		regexp.MustCompile(`(?is)\bnew\s+EventSource\s*\([^)]*(?:` + helperRef + `|` + scriptRef + `)[^)]*\)`),
+		regexp.MustCompile(`(?is)\bnavigator\.sendBeacon\s*\([^)]*(?:` + helperRef + `|` + scriptRef + `)[^)]*\)`),
+		regexp.MustCompile(`(?is)\.open\s*\([^)]*(?:` + helperRef + `|` + scriptRef + `)[^)]*\)`),
+		regexp.MustCompile(`(?is)` + helperRef),
+	}
+	for _, pattern := range patterns {
+		if pattern.MatchString(html) {
+			return true
+		}
+	}
+	return false
 }

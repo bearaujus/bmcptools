@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // ── get_system_info ───────────────────────────────────────────────────────────
@@ -234,6 +235,30 @@ func TestHTTPRequestIncludeResponseHeaders(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "X-Custom-Header") {
 		t.Errorf("expected response headers in output: %q", text)
+	}
+}
+
+func TestHTTPRequestResponseHeadersRedactSensitiveValues(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Set-Cookie", "session=secret")
+		w.Header().Set("Authorization", "Bearer super-secret")
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	result, err := httpRequestHandler(context.Background(), newTestRequest(map[string]any{
+		"url":                      srv.URL,
+		"include_response_headers": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(result)
+	if strings.Contains(text, "session=secret") || strings.Contains(text, "super-secret") {
+		t.Fatalf("expected sensitive response headers to be redacted, got %q", text)
+	}
+	if !strings.Contains(text, "Set-Cookie: [redacted]") {
+		t.Fatalf("expected Set-Cookie redaction, got %q", text)
 	}
 }
 
@@ -462,6 +487,31 @@ func TestFormatClipboardReadTruncates(t *testing.T) {
 	}
 	if strings.Contains(got, strings.Repeat("x", 10)) {
 		t.Errorf("expected displayed clipboard text to be capped: %q", got)
+	}
+}
+
+func TestFormatClipboardReadTruncatesUTF8Safely(t *testing.T) {
+	got := formatClipboardRead(strings.Repeat("é", 4), 3)
+	if !utf8.ValidString(got) {
+		t.Fatalf("expected valid UTF-8 output, got %q", got)
+	}
+	if !strings.Contains(got, "2/8 bytes shown") {
+		t.Fatalf("expected rune-safe byte count, got %q", got)
+	}
+}
+
+func TestClipboardWriteRejectsHugePayload(t *testing.T) {
+	result, err := clipboardWriteHandler(nil, newTestRequest(map[string]any{
+		"text": strings.Repeat("x", maxClipboardWriteBytes+1),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatal("expected oversized clipboard payload to be rejected")
+	}
+	if !strings.Contains(resultText(result), "clipboard payload exceeds") {
+		t.Fatalf("expected clipboard size-cap error, got %q", resultText(result))
 	}
 }
 
@@ -786,8 +836,9 @@ func TestDownloadFileSuccess(t *testing.T) {
 
 	dest := filepath.Join(t.TempDir(), "downloaded.txt")
 	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
-		"url":  srv.URL,
-		"path": dest,
+		"url":               srv.URL,
+		"path":              dest,
+		"allow_outside_cwd": true,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -821,8 +872,9 @@ func TestDownloadFileOverwriteProtection(t *testing.T) {
 	}
 
 	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
-		"url":  srv.URL,
-		"path": dest,
+		"url":               srv.URL,
+		"path":              dest,
+		"allow_outside_cwd": true,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -848,9 +900,10 @@ func TestDownloadFileOverwriteAllowed(t *testing.T) {
 	}
 
 	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
-		"url":       srv.URL,
-		"path":      dest,
-		"overwrite": true,
+		"url":               srv.URL,
+		"path":              dest,
+		"overwrite":         true,
+		"allow_outside_cwd": true,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -870,8 +923,9 @@ func TestDownloadFileOverwriteAllowed(t *testing.T) {
 
 func TestDownloadFileInvalidURL(t *testing.T) {
 	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
-		"url":  "http://invalid.invalid.invalid:99999/no",
-		"path": filepath.Join(t.TempDir(), "out.txt"),
+		"url":               "http://invalid.invalid.invalid:99999/no",
+		"path":              filepath.Join(t.TempDir(), "out.txt"),
+		"allow_outside_cwd": true,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -902,5 +956,26 @@ func TestDownloadFileMissingPath(t *testing.T) {
 	}
 	if !isResultError(result) {
 		t.Error("expected error for missing path")
+	}
+}
+
+func TestDownloadFileRejectsOutsideCWDByDefault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "file content here")
+	}))
+	defer srv.Close()
+
+	result, err := downloadFileHandler(context.Background(), newTestRequest(map[string]any{
+		"url":  srv.URL,
+		"path": filepath.Join(t.TempDir(), "downloaded.txt"),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isResultError(result) {
+		t.Fatal("expected outside-cwd download path to be rejected by default")
+	}
+	if !strings.Contains(resultText(result), "allow_outside_cwd=true") {
+		t.Fatalf("expected override hint, got %q", resultText(result))
 	}
 }

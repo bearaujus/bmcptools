@@ -6,14 +6,25 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/bearaujus/bmcptools/internal/helper"
 )
 
-const defaultClipboardReadMaxBytes = 256 * 1024
+const (
+	defaultClipboardReadMaxBytes = 256 * 1024
+	maxClipboardWriteBytes       = 8 * 1024 * 1024
+)
 
 func clipboardWriteHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	text := req.GetString("text", "")
+	if len(text) > maxClipboardWriteBytes {
+		return mcp.NewToolResultError(
+			fmt.Sprintf("clipboard payload exceeds %s; write it to a file instead", helper.HumanizeBytes(int64(maxClipboardWriteBytes))),
+		), nil
+	}
 	if err := writeClipboard(text); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("clipboard write failed: %v", err)), nil
 	}
@@ -64,7 +75,7 @@ func formatClipboardRead(text string, maxBytes int) string {
 	truncated := false
 	display := text
 	if maxBytes > 0 && len(display) > maxBytes {
-		display = display[:maxBytes]
+		display = truncateClipboardUTF8(display, maxBytes)
 		truncated = true
 	}
 	lines := strings.Count(display, "\n") + 1
@@ -100,4 +111,18 @@ func readClipboard() (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(string(out), "\r\n"), nil
+}
+
+func truncateClipboardUTF8(text string, maxBytes int) string {
+	if maxBytes <= 0 || len(text) <= maxBytes {
+		return text
+	}
+	n := maxBytes
+	for n > 0 && !utf8.ValidString(text[:n]) {
+		n--
+	}
+	if n <= 0 {
+		return ""
+	}
+	return text[:n]
 }

@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -23,9 +22,15 @@ import (
 	"github.com/bearaujus/bmcptools/pkg/browser"
 )
 
-// openBrowserFn delegates to browser.Open and can be overridden in tests
-// to suppress real browser windows.
-var openBrowserFn = browser.Open
+// openBrowserFn delegates to browser.TryOpen and can be overridden in tests
+// to suppress real browser windows or force fallback behavior.
+var openBrowserFn = browser.TryOpen
+
+var (
+	promptConsoleFn       = promptConsole
+	promptChoiceConsoleFn = promptChoiceConsole
+	promptRestConsoleFn   = promptRestConsole
+)
 
 const (
 	maxDialogAnswerBytes          int64 = 16 * 1024 * 1024
@@ -47,16 +52,11 @@ type dialogAttachmentFile struct {
 	Path string
 }
 
-func promptUser(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
-	switch runtime.GOOS {
-	case "darwin", "windows":
-		return promptBrowser(ctx, htmlSource, question, details, title, subtitle, choices, timeout, activity)
-	default:
-		return "", fmt.Errorf("ask_user is not supported on Linux")
-	}
+func promptUser(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, timeout time.Duration, dialogToken string, activity *dialogActivity, state *pendingDialogState) (string, error) {
+	return promptBrowser(ctx, htmlSource, question, details, title, subtitle, choices, timeout, dialogToken, activity, state)
 }
 
-func promptBrowser(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, timeout time.Duration, activity *dialogActivity) (string, error) {
+func promptBrowser(ctx context.Context, htmlSource, question, details, title, subtitle string, choices []string, timeout time.Duration, dialogToken string, activity *dialogActivity, state *pendingDialogState) (string, error) {
 	timeoutSec := int(timeout.Seconds())
 	if timeoutSec <= 0 {
 		timeoutSec = 600
@@ -64,9 +64,13 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 
 	resultCh := make(chan string, 1)
 	mux := http.NewServeMux()
+	allowedOrigin := ""
 
 	page := buildDialogHTML(htmlSource, question, details, title, subtitle, choices, timeoutSec)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if !authorizeDialogRequest(w, r, dialogToken, allowedOrigin, false) {
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, page)
 		if activity != nil {
@@ -78,6 +82,9 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 	mux.HandleFunc("/answer", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !authorizeDialogRequest(w, r, dialogToken, allowedOrigin, true) {
 			return
 		}
 		body, readErr := readLimitedDialogBody(r.Body)
@@ -103,7 +110,10 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 			if payload.Dismissed {
 				answer = "[User dismissed the dialog — no reply was sent]"
 			} else {
-				files, saveErr := saveDialogAttachments(payload.Attachments)
+				files, attachmentDir, saveErr := saveDialogAttachments(payload.Attachments)
+				if attachmentDir != "" && state != nil {
+					state.registerAttachmentDir(attachmentDir)
+				}
 				answer = formatDialogAnswer(payload.Choice, payload.Notes, files)
 				if saveErr != nil {
 					if strings.TrimSpace(answer) != "" {
@@ -128,6 +138,9 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
+			if !authorizeDialogRequest(w, r, dialogToken, allowedOrigin, true) {
+				return
+			}
 			var payload struct {
 				Typing      bool    `json:"typing"`
 				IdleSeconds float64 `json:"idle_seconds"`
@@ -139,6 +152,9 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 		})
 
 		mux.HandleFunc("/updates", func(w http.ResponseWriter, r *http.Request) {
+			if !authorizeDialogRequest(w, r, dialogToken, allowedOrigin, false) {
+				return
+			}
 			flusher, ok := w.(http.Flusher)
 			if !ok {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -162,8 +178,12 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 						evt.Type = dialogEventUpdate
 					}
 					jsonMsg, _ := json.Marshal(evt)
-					fmt.Fprintf(w, "data: %s\n\n", string(jsonMsg))
+					if _, err := fmt.Fprintf(w, "data: %s\n\n", string(jsonMsg)); err != nil {
+						evt.markDropped()
+						return
+					}
 					flusher.Flush()
+					evt.markDelivered()
 				case <-time.After(25 * time.Second):
 					fmt.Fprintf(w, ": keepalive\n\n")
 					flusher.Flush()
@@ -175,13 +195,21 @@ func promptBrowser(ctx context.Context, htmlSource, question, details, title, su
 	port, shutdown, err := browser.Serve(mux)
 	if err != nil {
 		if len(choices) > 0 {
-			return promptChoiceConsole(question, details, title, choices)
+			return promptChoiceConsoleFn(question, details, title, choices)
 		}
-		return promptConsole(question, details)
+		return promptConsoleFn(question, details)
 	}
 	defer shutdown()
+	allowedOrigin = fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	dialogURL := fmt.Sprintf("%s/?dialog_token=%s", allowedOrigin, url.QueryEscape(dialogToken))
+	if err := openBrowserFn(dialogURL); err != nil {
+		shutdown()
+		if len(choices) > 0 {
+			return promptChoiceConsoleFn(question, details, title, choices)
+		}
+		return promptConsoleFn(question, details)
+	}
 
 	select {
 	case answer := <-resultCh:
@@ -234,9 +262,9 @@ func readLimitedBody(r io.Reader, maxBytes int64, label string) ([]byte, error) 
 	return body, nil
 }
 
-func saveDialogAttachments(payloads []dialogAttachmentPayload) ([]dialogAttachmentFile, error) {
+func saveDialogAttachments(payloads []dialogAttachmentPayload) ([]dialogAttachmentFile, string, error) {
 	if len(payloads) == 0 {
-		return nil, nil
+		return nil, "", nil
 	}
 	var errs []string
 	if len(payloads) > maxDialogAttachmentCount {
@@ -245,7 +273,7 @@ func saveDialogAttachments(payloads []dialogAttachmentPayload) ([]dialogAttachme
 	}
 	dir, err := os.MkdirTemp("", "bmcptools-ask-user-*")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	var files []dialogAttachmentFile
@@ -288,10 +316,11 @@ func saveDialogAttachments(payloads []dialogAttachmentPayload) ([]dialogAttachme
 	if len(errs) > 0 {
 		if len(files) == 0 {
 			_ = os.RemoveAll(dir)
+			dir = ""
 		}
-		return files, errors.New(strings.Join(errs, "; "))
+		return files, dir, errors.New(strings.Join(errs, "; "))
 	}
-	return files, nil
+	return files, dir, nil
 }
 
 func decodeImageDataURL(fallbackMIME, dataURL string) (string, []byte, error) {
@@ -490,12 +519,80 @@ func buildRestHTML(htmlSource, title, subtitle, notes string, timeoutSec int) st
 	return page
 }
 
+func promptRestUser(htmlSource, title, subtitle, notes string, timeout time.Duration, dialogToken string) (string, error) {
+	timeoutSec := int(timeout.Seconds())
+	if timeoutSec <= 0 {
+		timeoutSec = 3600
+	}
+
+	resultCh := make(chan string, 1)
+	mux := http.NewServeMux()
+	allowedOrigin := ""
+
+	page := buildRestHTML(htmlSource, title, subtitle, notes, timeoutSec)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if !authorizeDialogRequest(w, r, dialogToken, allowedOrigin, false) {
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, page)
+	})
+	mux.HandleFunc("/answer", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !authorizeDialogRequest(w, r, dialogToken, allowedOrigin, true) {
+			return
+		}
+		body, readErr := readLimitedDialogBody(r.Body)
+		if readErr != nil {
+			http.Error(w, readErr.Error(), http.StatusRequestEntityTooLarge)
+			select {
+			case resultCh <- "[Rest response rejected: " + readErr.Error() + "]":
+			default:
+			}
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+
+		var payload struct {
+			Notes string `json:"notes"`
+		}
+		wakeMsg := "User woke up the AI."
+		if err := json.Unmarshal(body, &payload); err == nil && strings.TrimSpace(payload.Notes) != "" {
+			wakeMsg = "User woke up the AI with note: " + strings.TrimSpace(payload.Notes)
+		}
+		select {
+		case resultCh <- wakeMsg:
+		default:
+		}
+	})
+
+	port, shutdown, err := browser.Serve(mux)
+	if err != nil {
+		return promptRestConsoleFn(title, subtitle, notes, timeout)
+	}
+	defer shutdown()
+	allowedOrigin = fmt.Sprintf("http://127.0.0.1:%d", port)
+
+	dialogURL := fmt.Sprintf("%s/?dialog_token=%s", allowedOrigin, url.QueryEscape(dialogToken))
+	if err := openBrowserFn(dialogURL); err != nil {
+		shutdown()
+		return promptRestConsoleFn(title, subtitle, notes, timeout)
+	}
+
+	select {
+	case answer := <-resultCh:
+		return answer, nil
+	case <-time.After(timeout):
+		return "[Rest timed out — user did not wake the AI]", nil
+	}
+}
+
 func makeRestHandler(htmlSource string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if runtime.GOOS == "linux" {
-			return mcp.NewToolResultError("rest is not supported on Linux"), nil
-		}
-
 		title := req.GetString("title", "AI Assistant")
 		if title == "" {
 			title = "AI Assistant"
@@ -512,78 +609,28 @@ func makeRestHandler(htmlSource string) func(context.Context, mcp.CallToolReques
 		}
 		timeout := time.Duration(timeoutSec) * time.Second
 
-		token := newDialogToken()
-		act := &dialogActivity{}
+		token, err := newDialogToken()
+		if err != nil {
+			return mcp.NewToolResultError("failed to create rest session: " + err.Error()), nil
+		}
 		state := &pendingDialogState{
 			responseCh: make(chan string, 1),
-			activity:   act,
 		}
 		storePendingDialog(token, state)
 
-		resultCh := make(chan string, 1)
-		mux := http.NewServeMux()
-
-		page := buildRestHTML(htmlSource, title, subtitle, notes, int(timeoutSec))
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprint(w, page)
-			act.mu.Lock()
-			act.connected = true
-			act.mu.Unlock()
-		})
-		mux.HandleFunc("/answer", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				return
-			}
-			body, readErr := readLimitedDialogBody(r.Body)
-			if readErr != nil {
-				http.Error(w, readErr.Error(), http.StatusRequestEntityTooLarge)
-				select {
-				case resultCh <- "[Rest response rejected: " + readErr.Error() + "]":
-				default:
-				}
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "ok")
-
-			var payload struct {
-				Notes string `json:"notes"`
-			}
-			wakeMsg := "User woke up the AI."
-			if err := json.Unmarshal(body, &payload); err == nil && strings.TrimSpace(payload.Notes) != "" {
-				wakeMsg = "User woke up the AI with note: " + strings.TrimSpace(payload.Notes)
-			}
-			select {
-			case resultCh <- wakeMsg:
-			default:
-			}
-		})
-
-		port, shutdown, err := browser.Serve(mux)
-		if err != nil {
-			return mcp.NewToolResultError("failed to open rest page: " + err.Error()), nil
-		}
-
 		go func() {
-			var answer string
-			select {
-			case answer = <-resultCh:
-			case <-time.After(timeout):
-				answer = "[Rest timed out — user did not wake the AI]"
+			answer, err := promptRestUser(htmlSource, title, subtitle, notes, timeout, token)
+			if err != nil {
+				answer = "[Failed to open rest prompt: " + err.Error() + "]"
 			}
 			select {
 			case state.responseCh <- answer:
 			default:
 			}
-			shutdown()
-			time.Sleep(5 * time.Minute)
-			deletePendingDialog(token)
+			state.scheduleCleanup(token, dialogResultRetention)
 		}()
 
 		go sendNotificationFn(title+" is now resting", title, "info", 10)
-		openBrowserFn(fmt.Sprintf("http://127.0.0.1:%d/", port))
 
 		return mcp.NewToolResultText(
 			"{\n" +
@@ -593,4 +640,37 @@ func makeRestHandler(htmlSource string) func(context.Context, mcp.CallToolReques
 				"}",
 		), nil
 	}
+}
+
+func authorizeDialogRequest(w http.ResponseWriter, r *http.Request, dialogToken, allowedOrigin string, requireOrigin bool) bool {
+	if strings.TrimSpace(dialogToken) == "" || r.URL.Query().Get("dialog_token") != dialogToken {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	if !requireOrigin {
+		return true
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin != "" {
+		if origin != allowedOrigin {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return false
+		}
+		return true
+	}
+	referer := strings.TrimSpace(r.Header.Get("Referer"))
+	if referer == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	refURL, err := url.Parse(referer)
+	if err != nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	if refURL.Scheme+"://"+refURL.Host != allowedOrigin {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
 }
