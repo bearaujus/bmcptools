@@ -92,9 +92,28 @@ jobs:
         working-directory: dist
         run: sha256sum * > checksums.txt && cat checksums.txt
 
-      - name: Create GitHub release
+      - name: Check whether release already exists
+        id: existing_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release with generated notes
+        if: steps.existing_release.outputs.exists == 'false'
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      - name: Upload assets to existing release without touching notes
+        if: steps.existing_release.outputs.exists == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
           fail_on_unmatched_files: true

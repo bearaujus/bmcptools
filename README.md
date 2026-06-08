@@ -22,13 +22,62 @@ Communication happens over **stdio** using the [`mark3labs/mcp-go`](https://gith
 
 ## Quick Start
 
-### Download
+### Installation
 
-Grab a pre-built binary from the [Releases](https://github.com/bearaujus/bmcptools/releases) page.
+Pick one of these install paths:
+
+| Method | When to use it | Command / action |
+|--------|----------------|------------------|
+| Prebuilt release binary | Recommended for most users | Download the right artifact from [Releases](https://github.com/bearaujus/bmcptools/releases) and place it somewhere stable on your machine |
+| `go install` | You already use Go and want the latest tagged CLI | `go install github.com/bearaujus/bmcptools/cmd/bmcptools@latest` |
+| Build from source | You want to hack on the repo or pin to local changes | `make build` |
+
+After installation, verify the binary works:
+
+```bash
+bmcptools --version
+bmcptools --list-groups
+bmcptools --list-tools
+```
+
+If you use a downloaded Windows binary, keep the `.exe` filename in your MCP config. If you use `go install`, make sure your `GOBIN` or Go bin directory is on `PATH`.
 
 ### Integrate with your MCP client
 
-**Claude Desktop** — add to `claude_desktop_config.json`:
+#### Codex
+
+Official OpenAI Codex docs say MCP configuration is shared between the Codex CLI and IDE extension through `~/.codex/config.toml`. You can add `bmcptools` from the CLI:
+
+```bash
+# Expose all tools
+codex mcp add bmcptools -- /absolute/path/to/bmcptools
+
+# Or disable one or more whole groups at registration time
+codex mcp add bmcptools -- /absolute/path/to/bmcptools --disable=user,system
+
+# Verify it is registered
+codex mcp list
+```
+
+Equivalent `~/.codex/config.toml` entry:
+
+```toml
+[mcp_servers.bmcptools]
+command = "/absolute/path/to/bmcptools"
+args = ["--disable=user,system"]
+```
+
+On Windows:
+
+```toml
+[mcp_servers.bmcptools]
+command = 'C:\\tools\\bmcptools.exe'
+args = ["--disable=user"]
+```
+
+#### Claude Desktop
+
+Add to `claude_desktop_config.json`:
 
 ```json
 {
@@ -40,7 +89,9 @@ Grab a pre-built binary from the [Releases](https://github.com/bearaujus/bmcptoo
 }
 ```
 
-**Cursor / Copilot / other clients** — point the `command` field at the same binary path.
+#### Cursor / Copilot / other clients
+
+Point the MCP `command` field at the same binary path and pass whichever `args` you want for `--disable` or `--exclude-tools`.
 
 ### Filter tools at launch
 
@@ -96,6 +147,16 @@ For Claude Desktop / Cursor configs:
     }
   }
 }
+```
+
+For Codex, the equivalent registration examples are:
+
+```bash
+# Disable whole groups
+codex mcp add bmcptools -- /absolute/path/to/bmcptools --disable=user
+
+# Keep the user group, but drop only selected tools
+codex mcp add bmcptools -- /absolute/path/to/bmcptools --exclude-tools=ask_user,update_dialog,cancel_ask_user
 ```
 
 ---
