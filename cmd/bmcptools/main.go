@@ -23,12 +23,17 @@ Flags:
   --disable=GROUPS    Comma-separated tool groups to NOT register.
                       Example: --disable=user,system
                       Also reads env var BMCPTOOLS_DISABLE (flag wins).
+  --exclude-tools=TOOLS
+                      Comma-separated tool names to NOT register.
+                      Example: --exclude-tools=ask_user,update_dialog,cancel_ask_user
+                      Also reads env var BMCPTOOLS_EXCLUDE_TOOLS (flag wins).
   --list-groups       Print available groups and exit.
+  --list-tools        Print available tool names and exit.
   --version           Print version and exit.
   -h, --help          Print this help and exit.
 
-By default ALL tool groups are registered. Disabled groups are also stripped
-from the server instructions sent to the AI.
+By default ALL tool groups and tools are registered. Excluded groups/tools are
+also stripped from the server instructions sent to the AI.
 `
 
 func main() {
@@ -37,7 +42,9 @@ func main() {
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 
 	disableFlag := flag.String("disable", "", "comma-separated tool groups to disable")
+	excludeToolsFlag := flag.String("exclude-tools", "", "comma-separated tool names to exclude")
 	listGroups := flag.Bool("list-groups", false, "print available groups and exit")
+	listTools := flag.Bool("list-tools", false, "print available tool names and exit")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -52,6 +59,16 @@ func main() {
 		}
 		return
 	}
+	if *listTools {
+		fmt.Println("Available tools:")
+		for _, g := range bmcptools.AllGroups() {
+			fmt.Printf("  %s:\n", g)
+			for _, name := range bmcptools.ToolsForGroup(g) {
+				fmt.Printf("    %s\n", name)
+			}
+		}
+		return
+	}
 
 	disableRaw := *disableFlag
 	if disableRaw == "" {
@@ -63,10 +80,17 @@ func main() {
 		os.Exit(2)
 	}
 
-	instructions := bmcptools.ServerInstructions()
-	if len(disabled) > 0 {
-		instructions = bmcptools.ServerInstructionsExcludingGroups(disabled...)
+	excludeToolsRaw := *excludeToolsFlag
+	if excludeToolsRaw == "" {
+		excludeToolsRaw = os.Getenv("BMCPTOOLS_EXCLUDE_TOOLS")
 	}
+	excludedTools := splitCSV(excludeToolsRaw)
+	if err := bmcptools.ValidateToolNames(excludedTools); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
+
+	instructions := bmcptools.ServerInstructionsWithExclusions(disabled, excludedTools)
 
 	s := server.NewMCPServer(
 		bmcptools.ServerName,
@@ -78,6 +102,9 @@ func main() {
 	var opts []bmcptools.Option
 	if len(disabled) > 0 {
 		opts = append(opts, bmcptools.WithDisableGroups(disabled...))
+	}
+	if len(excludedTools) > 0 {
+		opts = append(opts, bmcptools.WithExcludeTools(excludedTools...))
 	}
 	bmcptools.Register(s, opts...)
 

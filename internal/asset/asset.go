@@ -60,7 +60,7 @@ func ParamDesc(tool, param string) string {
 
 // ServerInstructions returns the full server instructions text (all groups).
 func ServerInstructions() string {
-	return stripGroupMarkers(serverInstructionsTxt)
+	return renderInstructions(parseInstructionBlocks(serverInstructionsTxt), nil, nil)
 }
 
 // ServerInstructionsForGroups returns server instructions filtered to only
@@ -69,25 +69,16 @@ func ServerInstructions() string {
 // Passing no groups returns the full instructions.
 func ServerInstructionsForGroups(groups ...string) string {
 	if len(groups) == 0 {
-		return stripGroupMarkers(serverInstructionsTxt)
+		return ServerInstructions()
 	}
 	want := make(map[string]bool, len(groups)+1)
 	want["intro"] = true
 	for _, g := range groups {
 		want[g] = true
 	}
-
-	sections := parseGroupSections(serverInstructionsTxt)
-	var b strings.Builder
-	for _, sec := range sections {
-		if want[sec.group] {
-			if b.Len() > 0 {
-				b.WriteByte('\n')
-			}
-			b.WriteString(sec.content)
-		}
-	}
-	return b.String()
+	return renderInstructions(parseInstructionBlocks(serverInstructionsTxt), func(group string) bool {
+		return want[group]
+	}, nil)
 }
 
 // ServerInstructionsExcludingGroups returns server instructions with the
@@ -95,54 +86,89 @@ func ServerInstructionsForGroups(groups ...string) string {
 // Valid group names: "user", "file", "multi", "dir", "search", "exec", "system".
 // Passing no groups returns the full instructions.
 func ServerInstructionsExcludingGroups(groups ...string) string {
-	if len(groups) == 0 {
-		return stripGroupMarkers(serverInstructionsTxt)
+	return ServerInstructionsWithExclusions(groups, nil)
+}
+
+// ServerInstructionsExcludingTools returns server instructions with the
+// specified tool blocks removed. Passing no tools returns the full instructions.
+func ServerInstructionsExcludingTools(names ...string) string {
+	return ServerInstructionsWithExclusions(nil, names)
+}
+
+// ServerInstructionsWithExclusions returns server instructions with the
+// specified groups and tools removed. The "intro" section is always kept.
+func ServerInstructionsWithExclusions(groups []string, tools []string) string {
+	if len(groups) == 0 && len(tools) == 0 {
+		return ServerInstructions()
 	}
-	skip := make(map[string]bool, len(groups))
+	skipGroups := make(map[string]bool, len(groups))
 	for _, g := range groups {
 		if g == "intro" {
 			continue
 		}
-		skip[g] = true
+		skipGroups[g] = true
 	}
-
-	sections := parseGroupSections(serverInstructionsTxt)
-	var b strings.Builder
-	for _, sec := range sections {
-		if skip[sec.group] {
-			continue
-		}
-		if b.Len() > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString(sec.content)
+	skipTools := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		skipTools[tool] = true
 	}
-	return b.String()
+	return renderInstructions(parseInstructionBlocks(serverInstructionsTxt), func(group string) bool {
+		return !skipGroups[group]
+	}, func(tool string) bool {
+		return !skipTools[tool]
+	})
 }
 
-type groupSection struct {
+type instructionBlock struct {
 	group   string
+	tool    string
 	content string
 }
 
-// parseGroupSections splits the instruction text by [[group:xxx]] markers.
-func parseGroupSections(text string) []groupSection {
-	const prefix = "[[group:"
-	const suffix = "]]"
+// parseInstructionBlocks splits the instruction text by [[group:...]] and
+// [[tool:...]] markers. Tool blocks are optional and may appear within groups.
+func parseInstructionBlocks(text string) []instructionBlock {
+	const (
+		groupPrefix = "[[group:"
+		toolPrefix  = "[[tool:"
+		suffix      = "]]"
+		toolEnd     = "[[/tool]]"
+	)
 	lines := strings.Split(text, "\n")
 
-	var sections []groupSection
-	cur := groupSection{group: "intro"}
+	var blocks []instructionBlock
+	currentGroup := "intro"
+	currentTool := ""
 	var buf strings.Builder
+
+	flush := func() {
+		content := buf.String()
+		buf.Reset()
+		if strings.TrimSpace(content) == "" {
+			return
+		}
+		blocks = append(blocks, instructionBlock{
+			group:   currentGroup,
+			tool:    currentTool,
+			content: content,
+		})
+	}
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, prefix) && strings.HasSuffix(trimmed, suffix) {
-			cur.content = buf.String()
-			sections = append(sections, cur)
-			name := trimmed[len(prefix) : len(trimmed)-len(suffix)]
-			cur = groupSection{group: name}
-			buf.Reset()
+		switch {
+		case strings.HasPrefix(trimmed, groupPrefix) && strings.HasSuffix(trimmed, suffix):
+			flush()
+			currentGroup = trimmed[len(groupPrefix) : len(trimmed)-len(suffix)]
+			currentTool = ""
+			continue
+		case strings.HasPrefix(trimmed, toolPrefix) && strings.HasSuffix(trimmed, suffix):
+			flush()
+			currentTool = trimmed[len(toolPrefix) : len(trimmed)-len(suffix)]
+			continue
+		case trimmed == toolEnd:
+			flush()
+			currentTool = ""
 			continue
 		}
 		if buf.Len() > 0 {
@@ -150,23 +176,25 @@ func parseGroupSections(text string) []groupSection {
 		}
 		buf.WriteString(line)
 	}
-	cur.content = buf.String()
-	sections = append(sections, cur)
-	return sections
+	flush()
+	return blocks
 }
 
-// stripGroupMarkers removes [[group:xxx]] lines from the text.
-func stripGroupMarkers(text string) string {
-	const prefix = "[[group:"
-	lines := strings.Split(text, "\n")
-	var out []string
-	for _, line := range lines {
-		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, prefix) {
+func renderInstructions(blocks []instructionBlock, includeGroup func(string) bool, includeTool func(string) bool) string {
+	var b strings.Builder
+	for _, block := range blocks {
+		if includeGroup != nil && !includeGroup(block.group) {
 			continue
 		}
-		out = append(out, line)
+		if block.tool != "" && includeTool != nil && !includeTool(block.tool) {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(block.content)
 	}
-	return strings.Join(out, "\n")
+	return b.String()
 }
 
 // HTML returns the contents of html/<name>.html from the embedded FS.

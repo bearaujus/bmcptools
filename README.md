@@ -10,13 +10,13 @@ Communication happens over **stdio** using the [`mark3labs/mcp-go`](https://gith
 
 ### Why bmcptools?
 
-- **44 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, and user interaction
-  Disable any tool group you don't need with `--disable=user,system,...` (see [Disabling tool groups](#disabling-tool-groups)).
-- **Built-in server instructions** — the AI receives a categorized guide on when and how to use each tool
-- **Interactive dialogs** — `ask_user` opens a browser dialog with choices, markdown, pasted/dropped images, live updates, and typing indicators
-- **Cross-platform** — macOS, Windows, and Linux (user dialogs require macOS/Windows; `notify_user` works everywhere)
-- **Surgical editing** — `edit_file` with near-miss probe, CRLF transparency, batch mode, and regex support
-- **Performance-first** — batch tools (`read_multiple_files`, `write_multiple_files`, `path_exists_batch`, `get_multiple_file_info`, `edit_file` batch mode) reduce round-trips
+- **44 tools, one binary** — covers file ops, search, shell, system, HTTP, clipboard, and user interaction.
+  Disable whole groups with `--disable=...` or exact tools with `--exclude-tools=...` (see [Filter tools at launch](#filter-tools-at-launch)).
+- **Built-in server instructions** — the AI receives a categorized guide on when and how to use each tool, trimmed to match the exposed tool set.
+- **Interactive dialogs** — `ask_user` opens a browser dialog with choices, markdown, pasted/dropped images, live updates, and typing indicators.
+- **Cross-platform** — macOS, Windows, and Linux (browser dialogs require macOS/Windows; `notify_user` works everywhere).
+- **Surgical editing** — `edit_file` with near-miss probe, CRLF transparency, batch mode, and regex support.
+- **Performance-first** — batch tools (`read_multiple_files`, `write_multiple_files`, `path_exists_batch`, `get_multiple_file_info`, `edit_file` batch mode) reduce round-trips.
 
 ---
 
@@ -42,22 +42,48 @@ Grab a pre-built binary from the [Releases](https://github.com/bearaujus/bmcptoo
 
 **Cursor / Copilot / other clients** — point the `command` field at the same binary path.
 
-### Disabling tool groups
+### Filter tools at launch
 
-Don't need every group? Pass `--disable=GROUPS` (CSV) when launching the binary, or set the `BMCPTOOLS_DISABLE` env var. The flag wins when both are set.
+Use group-level filtering when you want broad removal, and tool-level filtering when you want to keep a group but drop a few exact tools. Flags win over env vars when both are set.
+
+| Option | Env var | Accepts | Use for |
+|--------|---------|---------|---------|
+| `--disable=...` | `BMCPTOOLS_DISABLE` | Comma-separated group names | Remove whole groups such as `user` or `system` |
+| `--exclude-tools=...` | `BMCPTOOLS_EXCLUDE_TOOLS` | Comma-separated tool names | Remove exact tools such as `ask_user` while keeping the rest of the group |
+| `--list-groups` | — | none | Print valid group names |
+| `--list-tools` | — | none | Print valid tool names, grouped by tool group |
 
 ```bash
-# Drop the interactive user prompts
+# Drop the whole interactive user group
 bmcptools --disable=user
 
-# Same via env (handy in MCP client configs)
-BMCPTOOLS_DISABLE=user bmcptools
+# Drop only browser question dialogs, but keep notify/rest
+bmcptools --exclude-tools=ask_user,update_dialog,cancel_ask_user
 
-# List valid group names
+# Same via env vars (handy in MCP client configs)
+BMCPTOOLS_DISABLE=user bmcptools
+BMCPTOOLS_EXCLUDE_TOOLS=ask_user,update_dialog,cancel_ask_user bmcptools
+
+# Print valid values
 bmcptools --list-groups
+bmcptools --list-tools
 ```
 
-Available groups: `user, file, multi, dir, search, exec, system`. The server instructions sent to the LLM are auto-trimmed to match — disabled sections are removed so the model isn't told about tools it can't see.
+The server instructions sent to the LLM are auto-trimmed to match the active tool set, so excluded groups and excluded tools are removed from the prompt as well as from registration.
+
+#### Valid group names for `--disable`
+
+| Group | Tool count | Contains |
+|-------|------------|----------|
+| `user` | 6 | Interactive dialogs, notifications, rest/wake flow |
+| `file` | 14 | Single-file operations and archive helpers |
+| `multi` | 8 | Batch file operations |
+| `dir` | 4 | Directory listing/tree/create/delete |
+| `search` | 2 | Path search and content grep |
+| `exec` | 4 | Shell execution, app open, environment access |
+| `system` | 6 | HTTP, clipboard, process list, system info, downloads |
+
+Tool names accepted by `--exclude-tools` are the exact MCP tool names shown in the [Tools](#tools) tables below.
 
 For Claude Desktop / Cursor configs:
 
@@ -66,7 +92,7 @@ For Claude Desktop / Cursor configs:
   "mcpServers": {
     "bmcptools": {
       "command": "/absolute/path/to/bmcptools",
-      "args": ["--disable=user"]
+      "args": ["--exclude-tools=ask_user,update_dialog,cancel_ask_user"]
     }
   }
 }
@@ -76,26 +102,41 @@ For Claude Desktop / Cursor configs:
 
 ## Tools
 
-### File tools (14)
+These exact tool names are the values accepted by `--exclude-tools`, `BMCPTOOLS_EXCLUDE_TOOLS`, and `WithExcludeTools(...)`.
+
+### `user` tools (6)
+
+`get_user_response` is shared by both `ask_user` and `rest`. If you exclude `ask_user` but keep `rest`, leave `get_user_response` enabled.
+
+| Tool | Platform | Description |
+|------|----------|-------------|
+| `ask_user` | macOS, Windows | Browser dialog with choices, required markdown details, pasted/dropped images, live updates, typing detection. Returns a token for follow-up polling. |
+| `get_user_response` | macOS, Windows | Long-poll for a token returned by another user-interaction tool. Returns full answer text by default, plus local paths for attached images, or detailed PENDING status. |
+| `update_dialog` | macOS, Windows | Push live markdown updates into an open decision dialog. `replace_last` for streaming progress. |
+| `cancel_ask_user` | macOS, Windows | Dismiss a pending question dialog by token. |
+| `notify_user` | **All platforms** | Fire-and-forget toast notification. Returns concise delivery metadata. `level`: info/warning/error. |
+| `rest` | macOS, Windows | AI goes idle with a browser "resting" page. Wake-up button. Returns a token for follow-up polling. |
+
+### `file` tools (14)
 
 | Tool | Description |
 |------|-------------|
-| `read_file` | Read a file with encoding auto-detection. Defaults to a 256 KB context cap. Supports `start_line`/`end_line`, multi-range (`ranges` param), `head`/`tail`, `show_line_numbers`, and byte limits. Binary files return summaries unless `include_base64=true`. |
+| `read_file` | Read a file with encoding auto-detection. Supports `start_line`/`end_line`, multi-range (`ranges`), `head`/`tail`, `show_line_numbers`, and byte limits. Binary files return summaries unless `include_base64=true`. |
 | `write_file` | Create or overwrite a file. Auto-creates parent dirs. Returns a capped unified diff only when `show_diff=true`. |
-| `append_to_file` | Append content to a file (creates if absent). Returns new file size. |
-| `edit_file` | Surgical find-and-replace. Batch mode, Go regex with backreferences, CRLF-transparent, capped diff, near-miss probe, dry-run. **Preferred for editing.** |
-| `delete_file` | Delete a single file. |
-| `copy_file` | Copy a file or directory tree. Auto-creates destination parent dirs. |
-| `move_file` | Move or rename a file/directory. Cross-device fallback copies then deletes the source when needed. |
+| `append_to_file` | Append content to a file and create it if absent. |
+| `edit_file` | Surgical find-and-replace. Batch mode, Go regex with backreferences, CRLF-transparent, capped diff, near-miss probe, dry-run. |
+| `delete_file` | Delete a single file or symlink. |
+| `copy_file` | Copy one file or one directory tree. Auto-creates destination parent dirs. |
+| `move_file` | Move or rename one file or one directory tree. Cross-device fallback copies then deletes the source when needed. |
 | `get_file_info` | Compact metadata: type, size, permissions, mod time, symlink target, optional line count. `output_mode=details` for expanded fields. |
-| `path_exists` | Lightweight existence check — faster than `read_file` or `get_file_info`. |
-| `diff_files` | Unified diff between two files. Guards large inputs and caps diff output by default. Cross-platform. |
-| `calculate_checksum` | MD5, SHA1, or SHA256 checksum. Batch-capable. Cross-platform. |
-| `create_symlink` | Create a symbolic link. Cross-platform (may require elevated privileges on Windows). |
-| `compress_files` | Compress files/directories into a zip or tar.gz archive. Auto-detects format from extension. |
-| `extract_archive` | Extract a zip or tar.gz archive. Auto-detects format. Path-traversal protected. |
+| `path_exists` | Lightweight existence/type check for one path. |
+| `diff_files` | Unified diff between two text files with large-input guards and capped diff output. |
+| `calculate_checksum` | MD5, SHA1, or SHA256 checksum for one or more files. |
+| `create_symlink` | Create a symbolic link. May require elevated privileges on Windows. |
+| `compress_files` | Compress files/directories into `zip`, `tar`, or `tar.gz`. |
+| `extract_archive` | Extract `zip`, `tar`, or `tar.gz` archives with path-traversal protection. |
 
-### Multi-file tools (8)
+### `multi` tools (8)
 
 | Tool | Description |
 |------|-------------|
@@ -108,7 +149,7 @@ For Claude Desktop / Cursor configs:
 | `copy_paths` | Copy multiple files or directory trees in one call. |
 | `move_paths` | Move multiple files or directory trees in one call. |
 
-### Directory tools (4)
+### `dir` tools (4)
 
 | Tool | Description |
 |------|-------------|
@@ -117,38 +158,32 @@ For Claude Desktop / Cursor configs:
 | `create_directory` | Create directory + parents (`mkdir -p`). Idempotent. |
 | `delete_directory` | Delete directory. `force=true` for non-empty. |
 
-### Search tools (2)
+### `search` tools (2)
 
 | Tool | Description |
 |------|-------------|
 | `search_files` | Find files/dirs by **name** (glob patterns or Go regex with `use_regex`). Concise relative paths by default, with details/absolute modes and case-insensitive matching. |
 | `grep_files` | Find files by **content** (literal or regex). Auto/content/files/count output modes, pagination, multiline, glob/exclude filters, relative paths by default. |
 
-### User interaction tools (6)
-
-| Tool | Platform | Description |
-|------|----------|-------------|
-| `ask_user` | macOS, Windows | Browser dialog with choices, required markdown details, pasted/dropped images, live updates, typing detection. Returns token → poll with `get_user_response`. |
-| `get_user_response` | macOS, Windows | Long-poll for `ask_user`/`rest` response. Returns full answer text by default, plus local paths for attached images, or detailed PENDING status (typing, idle, heartbeat). |
-| `update_dialog` | macOS, Windows | Push live markdown updates into an open `ask_user` dialog. `replace_last` for streaming progress. |
-| `cancel_ask_user` | macOS, Windows | Dismiss a pending dialog by token. |
-| `notify_user` | **All platforms** | Fire-and-forget toast notification. Returns concise delivery metadata. `level`: info/warning/error. |
-| `rest` | macOS, Windows | AI goes idle with a browser "resting" page. Wake-up button. Returns token → poll with `get_user_response`. |
-
-### System tools (10)
+### `exec` tools (4)
 
 | Tool | Description |
 |------|-------------|
 | `get_working_directory` | CWD, OS, hostname, and compact key env summary. **Call first** to orient. |
 | `run_command` | Non-interactive shell execution with selectable shell (`default`, `sh`, `bash`, `cmd`, `powershell`, `pwsh`). Timeout max 600 s with process-tree termination, fractional seconds, detach for long-running services, raw output, stdin, env vars, heredoc/here-string friendly command bodies, and default 256 KB output capping. No PTY/TUI support. |
 | `open_in_app` | Open file/dir/URL in default app. Cross-platform, non-blocking. |
-| `http_request` | HTTP client (all methods). JSON compacts by default, `json_format="pretty"` opt-in, response body defaults to a 256 KB cap, and `body_filter` can return only literal/regex matches, lines, or counts from large responses. Timeout max 300 s. |
-| `list_processes` | Running processes with PID, name, CPU/memory. Filter, sort, tune limit and command width. |
-| `get_system_info` | CPU, memory, and disk usage snapshot. |
 | `get_env` | Read environment variables. Specific key, filter by name substring, or list names by default with values capped/redacted. |
+
+### `system` tools (6)
+
+| Tool | Description |
+|------|-------------|
+| `http_request` | HTTP client (all methods). JSON compacts by default, `json_format="pretty"` opt-in, response body defaults to a 256 KB cap, and `body_filter` can return only literal/regex matches, lines, or counts from large responses. Timeout max 300 s. |
+| `download_file` | Download a file from a URL to a local path. Streaming (no memory buffering). Auto-creates parent dirs. |
 | `clipboard_read` | Read system clipboard with a default 256 KB output cap. |
 | `clipboard_write` | Write to system clipboard. |
-| `download_file` | Download a file from a URL to a local path. Streaming (no memory buffering). Auto-creates parent dirs. |
+| `list_processes` | Running processes with PID, name, CPU/memory. Filter, sort, tune limit and command width. |
+| `get_system_info` | CPU, memory, and disk usage snapshot. |
 
 ## Development
 
@@ -183,7 +218,7 @@ On Linux/macOS/Windows, `make build` auto-detects the version from `git describe
 The codebase follows a modular layout. Public APIs live under `pkg/` (importable by external repos); internal implementation lives under `internal/`.
 
 ```
-bmcptools/                     ← public API (server.go, registrar.go, toolnames.go)
+bmcptools/                     ← public API (server.go, registrar.go, toolnames.go, inventory.go)
 ├── safeskill.manifest.json    ← transparency/permission manifest
 ├── package.json + index.d.ts  ← npm metadata + typed tool/group inventory
 ├── cmd/bmcptools/             ← package main (entry point)
@@ -220,21 +255,33 @@ s := server.NewMCPServer(bmcptools.ServerName, bmcptools.Version,
     server.WithInstructions(bmcptools.ServerInstructions()),
 )
 
-bmcptools.Register(s)                         // all tool groups, default HTML
+bmcptools.Register(s) // all tool groups, default HTML
 bmcptools.Register(s, bmcptools.WithUserOptions(
-    bmcptools.UserWithDialogTemplate(myDialogTmpl),  // custom ask_user HTML
+    bmcptools.UserWithDialogTemplate(myDialogTmpl), // custom ask_user HTML
 ))
 ```
 
 #### Exclude specific tools
 
 ```go
-import "github.com/bearaujus/bmcptools/pkg/toolname"
+import (
+    bmcptools "github.com/bearaujus/bmcptools"
+    "github.com/bearaujus/bmcptools/pkg/toolname"
+)
+
+// Keep registration and AI instructions aligned.
+s := server.NewMCPServer(bmcptools.ServerName, bmcptools.Version,
+    server.WithInstructions(bmcptools.ServerInstructionsExcludingTools(
+        toolname.AskUser,
+        toolname.UpdateDialog,
+        toolname.CancelAskUser,
+    )),
+)
 
 bmcptools.Register(s, bmcptools.WithExcludeTools(
-    toolname.CompressFiles,
-    toolname.ExtractArchive,
-    toolname.CreateSymlink,
+    toolname.AskUser,
+    toolname.UpdateDialog,
+    toolname.CancelAskUser,
 ))
 ```
 
@@ -252,6 +299,22 @@ s := server.NewMCPServer(bmcptools.ServerName, bmcptools.Version,
 bmcptools.Register(s, bmcptools.WithDisableGroups(
     bmcptools.GroupUser,
 ))
+```
+
+#### Combine group and tool exclusions
+
+```go
+s := server.NewMCPServer(bmcptools.ServerName, bmcptools.Version,
+    server.WithInstructions(bmcptools.ServerInstructionsWithExclusions(
+        []string{bmcptools.GroupSystem},
+        []string{bmcptools.ToolAskUser},
+    )),
+)
+
+bmcptools.Register(s,
+    bmcptools.WithDisableGroups(bmcptools.GroupSystem),
+    bmcptools.WithExcludeTools(bmcptools.ToolAskUser),
+)
 ```
 
 #### Register individual tool groups
@@ -290,6 +353,8 @@ if err != nil { ... }
 
 bmcptools.RegisterUser(s, bmcptools.UserWithDialogTemplate(tmpl))
 ```
+
+For wrappers or config UIs, use `AllGroups()`, `AllTools()`, `ToolsForGroup()`, and `ValidateToolNames()` instead of hardcoding accepted values.
 
 Each `internal/tool/<name>/` package exports a single `Register(s toolreg.ToolRegistrar)` function. The root `Register(s ToolRegistrar)` delegates to all of them.
 
@@ -376,7 +441,7 @@ All packages under `pkg/` are considered **stable public API**:
 | `pkg/toolname` | Stable — tool name constants |
 | `pkg/toolreg` | Stable — `ToolRegistrar` interface |
 
-Root-level exports in `server.go`, `registrar.go`, and `toolnames.go` are also stable.
+Root-level exports in `server.go`, `registrar.go`, `toolnames.go`, and `inventory.go` are also stable.
 Packages under `internal/` are **not** part of the public API and may change without notice.
 
 ---

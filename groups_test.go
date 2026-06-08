@@ -34,6 +34,16 @@ func TestAllGroupsHasNoDuplicates(t *testing.T) {
 	}
 }
 
+func TestAllToolsHasNoDuplicates(t *testing.T) {
+	seen := map[string]bool{}
+	for _, name := range AllTools() {
+		if seen[name] {
+			t.Fatalf("duplicate tool: %s", name)
+		}
+		seen[name] = true
+	}
+}
+
 func TestValidateGroups(t *testing.T) {
 	if err := ValidateGroups(nil); err != nil {
 		t.Fatalf("nil should be valid: %v", err)
@@ -47,6 +57,35 @@ func TestValidateGroups(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "alsobad") || !strings.Contains(err.Error(), "nope") {
 		t.Fatalf("error should list both bad names: %v", err)
+	}
+}
+
+func TestValidateToolNames(t *testing.T) {
+	if err := ValidateToolNames(nil); err != nil {
+		t.Fatalf("nil should be valid: %v", err)
+	}
+	if err := ValidateToolNames([]string{ToolAskUser, ToolReadFile, ToolRunCommand}); err != nil {
+		t.Fatalf("known tools should validate: %v", err)
+	}
+	err := ValidateToolNames([]string{"bad_tool", "also_bad"})
+	if err == nil {
+		t.Fatal("expected error for unknown tools")
+	}
+	if !strings.Contains(err.Error(), "also_bad") || !strings.Contains(err.Error(), "bad_tool") {
+		t.Fatalf("error should list both bad names: %v", err)
+	}
+}
+
+func TestToolsForGroup(t *testing.T) {
+	userTools := ToolsForGroup(GroupUser)
+	if !contains(userTools, ToolAskUser) || !contains(userTools, ToolNotifyUser) {
+		t.Fatalf("expected user tools to include ask_user and notify_user, got %v", userTools)
+	}
+	if got := ToolsForGroup("missing"); got != nil {
+		t.Fatalf("unknown group should return nil, got %v", got)
+	}
+	if group, ok := ToolGroup(ToolAskUser); !ok || group != GroupUser {
+		t.Fatalf("expected %s to map to %s, got %q ok=%v", ToolAskUser, GroupUser, group, ok)
 	}
 }
 
@@ -78,6 +117,21 @@ func TestRegisterWithDisableGroupsMultiple(t *testing.T) {
 	}
 	if !contains(cap.names, "read_file") || !contains(cap.names, "list_directory") {
 		t.Fatal("file/dir groups should remain registered")
+	}
+}
+
+func TestRegisterWithDisableGroupsAndExcludeTools(t *testing.T) {
+	cap := &captureRegistrar{}
+	Register(cap, WithDisableGroups(GroupSystem), WithExcludeTools(ToolAskUser))
+
+	if contains(cap.names, ToolAskUser) {
+		t.Fatalf("excluded tool registered: %s", ToolAskUser)
+	}
+	if contains(cap.names, ToolHTTPRequest) {
+		t.Fatalf("disabled group tool registered: %s", ToolHTTPRequest)
+	}
+	if !contains(cap.names, ToolNotifyUser) {
+		t.Fatalf("user group should remain active for non-excluded tools: %s", ToolNotifyUser)
 	}
 }
 

@@ -80,8 +80,8 @@ func TestServerInstructionsForGroups(t *testing.T) {
 	if full == "" {
 		t.Fatal("full instructions are empty")
 	}
-	if strings.Contains(full, "[[group:") || strings.Contains(full, "<!--") {
-		t.Fatal("full instructions should not expose internal group markers")
+	if strings.Contains(full, "[[group:") || strings.Contains(full, "[[tool:") || strings.Contains(full, "[[/tool]]") || strings.Contains(full, "<!--") {
+		t.Fatal("full instructions should not expose internal markers")
 	}
 
 	fileOnly := asset.ServerInstructionsForGroups("file")
@@ -94,8 +94,8 @@ func TestServerInstructionsForGroups(t *testing.T) {
 	if strings.Contains(fileOnly, "read_multiple_files") || strings.Contains(fileOnly, "Batch file operations") {
 		t.Error("file-group instructions should NOT contain multi-file tools")
 	}
-	if strings.Contains(fileOnly, "[[group:") || strings.Contains(fileOnly, "<!--") {
-		t.Fatal("scoped instructions should not expose internal group markers")
+	if strings.Contains(fileOnly, "[[group:") || strings.Contains(fileOnly, "[[tool:") || strings.Contains(fileOnly, "[[/tool]]") || strings.Contains(fileOnly, "<!--") {
+		t.Fatal("scoped instructions should not expose internal markers")
 	}
 
 	multiOnly := asset.ServerInstructionsForGroups("multi")
@@ -112,5 +112,34 @@ func TestServerInstructionsForGroups(t *testing.T) {
 	noGroups := asset.ServerInstructionsForGroups()
 	if noGroups == "" {
 		t.Error("passing no groups should return full instructions")
+	}
+}
+
+func TestServerInstructionsExcludingTools(t *testing.T) {
+	noAsk := ServerInstructionsExcludingTools(ToolAskUser)
+	if strings.Contains(noAsk, "ask_user:") {
+		t.Fatal("excluding ask_user should remove its tool block")
+	}
+	if !strings.Contains(noAsk, "notify_user is fire-and-forget") {
+		t.Fatal("excluding ask_user should keep other user tools")
+	}
+	if strings.Contains(noAsk, "[[tool:") || strings.Contains(noAsk, "[[/tool]]") {
+		t.Fatal("tool-filtered instructions should not expose internal markers")
+	}
+}
+
+func TestServerInstructionsWithExclusions(t *testing.T) {
+	filtered := ServerInstructionsWithExclusions([]string{GroupSystem}, []string{ToolAskUser})
+	if strings.Contains(filtered, "ask_user:") {
+		t.Fatal("combined exclusions should remove ask_user instructions")
+	}
+	if strings.Contains(filtered, "http_request is for HTTP APIs") || strings.Contains(filtered, "--- System") {
+		t.Fatal("combined exclusions should remove system instructions")
+	}
+	if !strings.Contains(filtered, "notify_user is fire-and-forget") {
+		t.Fatal("combined exclusions should keep non-excluded user instructions")
+	}
+	if !strings.Contains(filtered, "File operations") {
+		t.Fatal("combined exclusions should keep unrelated groups")
 	}
 }
