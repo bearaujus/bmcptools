@@ -1,6 +1,8 @@
 package bmcptools
 
 import (
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -41,6 +43,19 @@ func TestAllToolsHasNoDuplicates(t *testing.T) {
 			t.Fatalf("duplicate tool: %s", name)
 		}
 		seen[name] = true
+	}
+}
+
+func TestAllToolsMatchesRegisteredSet(t *testing.T) {
+	cap := &captureRegistrar{}
+	Register(cap)
+
+	got := append([]string(nil), cap.names...)
+	want := AllTools()
+	sort.Strings(got)
+	sort.Strings(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("registered tool set drifted from AllTools()\nregistered: %v\nalltools:   %v", got, want)
 	}
 }
 

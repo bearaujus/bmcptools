@@ -113,6 +113,9 @@ func TestServerInstructionsForGroups(t *testing.T) {
 	if noGroups == "" {
 		t.Error("passing no groups should return full instructions")
 	}
+	if !strings.Contains(full, "available image/file tools.\n\nget_user_response waits on a token") {
+		t.Fatal("rendered instructions should preserve a blank line between adjacent tool blocks")
+	}
 }
 
 func TestServerInstructionsExcludingTools(t *testing.T) {

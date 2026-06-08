@@ -189,10 +189,14 @@ func renderInstructions(blocks []instructionBlock, includeGroup func(string) boo
 		if block.tool != "" && includeTool != nil && !includeTool(block.tool) {
 			continue
 		}
-		if b.Len() > 0 {
-			b.WriteByte('\n')
+		content := strings.TrimRight(block.content, "\r\n")
+		if content == "" {
+			continue
 		}
-		b.WriteString(block.content)
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(content)
 	}
 	return b.String()
 }
