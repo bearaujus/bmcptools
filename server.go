@@ -1,10 +1,6 @@
 package bmcptools
 
 import (
-	"fmt"
-	"sort"
-	"strings"
-
 	"github.com/bearaujus/bmcptools/internal/asset"
 	"github.com/bearaujus/bmcptools/internal/tool/dir"
 	"github.com/bearaujus/bmcptools/internal/tool/exec"
@@ -40,36 +36,6 @@ const (
 	GroupSystem = "system"
 )
 
-// AllGroups returns the canonical list of registrable tool groups, in the
-// order they are normally registered. Useful for --list-groups CLI output.
-func AllGroups() []string {
-	return []string{
-		GroupUser, GroupFile, GroupMulti, GroupDir,
-		GroupSearch, GroupExec, GroupSystem,
-	}
-}
-
-// ValidateGroups returns an error if any name is not a known group.
-// Empty input is valid (returns nil).
-func ValidateGroups(names []string) error {
-	known := make(map[string]bool, len(AllGroups()))
-	for _, g := range AllGroups() {
-		known[g] = true
-	}
-	var bad []string
-	for _, n := range names {
-		if !known[n] {
-			bad = append(bad, n)
-		}
-	}
-	if len(bad) > 0 {
-		sort.Strings(bad)
-		return fmt.Errorf("unknown tool group(s): %s — valid groups: %s",
-			strings.Join(bad, ", "), strings.Join(AllGroups(), ", "))
-	}
-	return nil
-}
-
 // ServerInstructions returns the full server instructions covering all tool groups.
 func ServerInstructions() string { return asset.ServerInstructions() }
 
@@ -86,6 +52,18 @@ func ServerInstructionsForGroups(groups ...string) string {
 // Passing no groups returns the full instructions.
 func ServerInstructionsExcludingGroups(groups ...string) string {
 	return asset.ServerInstructionsExcludingGroups(groups...)
+}
+
+// ServerInstructionsExcludingTools returns server instructions with the
+// specified tool blocks removed. Passing no tools returns the full instructions.
+func ServerInstructionsExcludingTools(names ...string) string {
+	return asset.ServerInstructionsExcludingTools(names...)
+}
+
+// ServerInstructionsWithExclusions returns server instructions with the
+// specified groups and tools removed. The intro section is always kept.
+func ServerInstructionsWithExclusions(groups []string, tools []string) string {
+	return asset.ServerInstructionsWithExclusions(groups, tools)
 }
 
 // UserOption configures the user interaction tool group (ask_user, open_chat, rest).
