@@ -36,6 +36,8 @@ By default ALL tool groups and tools are registered. Excluded groups/tools are
 also stripped from the server instructions sent to the AI.
 `
 
+const stdioWorkerPoolSize = 16
+
 func main() {
 	bmcptools.Version = serverVersion
 
@@ -92,12 +94,7 @@ func main() {
 
 	instructions := bmcptools.ServerInstructionsWithExclusions(disabled, excludedTools)
 
-	s := server.NewMCPServer(
-		bmcptools.ServerName,
-		bmcptools.Version,
-		server.WithToolCapabilities(false),
-		server.WithInstructions(instructions),
-	)
+	s := newMCPServer(instructions)
 
 	var opts []bmcptools.Option
 	if len(disabled) > 0 {
@@ -108,10 +105,20 @@ func main() {
 	}
 	bmcptools.Register(s, opts...)
 
-	if err := server.ServeStdio(s); err != nil {
+	if err := server.ServeStdio(s, server.WithWorkerPoolSize(stdioWorkerPoolSize)); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func newMCPServer(instructions string) *server.MCPServer {
+	return server.NewMCPServer(
+		bmcptools.ServerName,
+		bmcptools.Version,
+		server.WithToolCapabilities(false),
+		server.WithRecovery(),
+		server.WithInstructions(instructions),
+	)
 }
 
 func splitCSV(s string) []string {
